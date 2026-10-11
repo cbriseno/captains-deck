@@ -290,6 +290,11 @@ def is_aggregate_home(home: Home | None) -> bool:
     return home is not None and home.kind == "all"
 
 
+def is_remote_home(home: Home | None) -> bool:
+    """True for a home reached through a remote route (fm-on.sh), not a path."""
+    return home is not None and bool(getattr(home, "route", ""))
+
+
 def real_homes(homes: list[Home]) -> list[Home]:
     return [h for h in homes if not is_aggregate_home(h)]
 
@@ -533,13 +538,26 @@ def merge_fleet_columns(
 
 
 class Home:
-    def __init__(self, label: str, path: str, kind: str, mate_id: str = ""):
+    def __init__(
+        self,
+        label: str,
+        path: str,
+        kind: str,
+        mate_id: str = "",
+        route: str = "",
+        via: str = "",
+    ):
         self.label = label
         self.path = path
         self.kind = kind  # "captain" | "secondmate" | "other"
         # The treehouse lease holder (the mate id the snapshot's owner column
         # uses), kept even when a presentation label overrides the display name.
         self.mate_id = mate_id
+        # A remote route (data/secondmates.md with host:/root:/home:) is reached
+        # through Firstmate's own transport from the captain home, not a local
+        # path; ``route`` is the mate id and ``via`` the captain home path.
+        self.route = route
+        self.via = via
 
     def __repr__(self) -> str:
         return f"Home({self.label!r}, {self.path!r}, {self.kind!r})"
@@ -630,6 +648,31 @@ def _live_agent_homes() -> set[str]:
     """Set of cwds where a live Herdr agent runs (used to keep fresh mates)."""
     agents, _ = herdr_agents()
     return {os.path.realpath(a.get("cwd", "")) for a in agents.values() if a.get("cwd")}
+
+
+def remote_routes(captain_path: str) -> list[tuple[str, str]]:
+    """(mate id, remote home path) for every remote route in secondmates.md.
+
+    A remote route is a registry line with host:, root: and home: fields; a
+    local route carries home: alone. The deck reaches a remote home through
+    Firstmate's own fm-on.sh transport, never raw SSH or a local path.
+    """
+    path = os.path.join(captain_path, "data", "secondmates.md")
+    out: list[tuple[str, str]] = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return out
+    for line in lines:
+        m = re.match(r"^- (\S+) - ", line)
+        if not m or "host:" not in line or "root:" not in line or "home:" not in line:
+            continue
+        fields = dict(re.findall(r"(host|root|home): ([^;)]+)", line))
+        remote_home = (fields.get("home") or "").strip()
+        if remote_home:
+            out.append((m.group(1), os.path.expanduser(remote_home)))
+    return out
 
 
 def discover_homes(verbose: bool = False) -> list[Home]:
@@ -726,6 +769,19 @@ def discover_homes(verbose: bool = False) -> list[Home]:
         add(path, require_assignment=real in treehouse_paths and real not in configured)
 
     homes.sort(key=lambda h: (h.kind != "captain", h.label))
+    # A remote secondmate route lives in the captain home's registry; reach
+    # it through fm-on.sh and show it as its own crew tab. A local home with
+    # the same label already covers that crew.
+    captain = next((h for h in homes if h.kind == "captain"), None)
+    if captain is not None:
+        labels = {h.label for h in homes}
+        for route_id, remote_home in remote_routes(captain.path):
+            if route_id in labels:
+                continue
+            labels.add(route_id)
+            homes.append(
+                Home(route_id, remote_home, "secondmate", route=route_id, via=captain.path)
+            )
     homes = inject_all_crew(homes)
     if verbose:
         for h in homes:
@@ -1121,7 +1177,38 @@ def bearings_flags() -> list[str]:
     return flags
 
 
+def remote_bearings_snapshot(home: Home) -> dict:
+    """A remote home's bearings through Firstmate's own transport (fm-on.sh).
+
+    A failure returns {} so the caller keeps the last good snapshot: a remote
+    host can be offline for a long time and the board must never block on it.
+    """
+    if not home.route or not home.via:
+        return {}
+    fm_on = os.path.join(home.via, "bin", "fm-on.sh")
+    if not os.path.isfile(fm_on):
+        return {}
+    env = _child_env()
+    env["FM_HOME"] = home.via
+    try:
+        p = subprocess.run(
+            [fm_on, home.route, "fm-bearings-snapshot.sh", *bearings_flags()],
+            capture_output=True,
+            text=True,
+            timeout=_bearings_timeout(),
+            env=env,
+            stdin=subprocess.DEVNULL,
+        )
+        if p.returncode != 0:
+            return {}
+        return json.loads(p.stdout)
+    except Exception:
+        return {}
+
+
 def bearings_snapshot(home: Home) -> dict:
+    if home.route:
+        return remote_bearings_snapshot(home)
     bin_path = os.path.join(home.path, "bin", "fm-bearings-snapshot.sh")
     env = _child_env()
     env["FM_HOME"] = home.path
@@ -2089,6 +2176,9 @@ class Snapshot:
         self.agents: dict[str, dict] = {}
         self.panes: dict[str, dict] = {}
         self.others: list[Card] = []
+        # label -> epoch of the last good remote snapshot, only while a
+        # remote fetch is failing; the board shows "offline, last seen".
+        self.offline: dict[str, float] = {}
 
 
 class Collector(threading.Thread):
@@ -2120,6 +2210,7 @@ class Collector(threading.Thread):
         self._fleet_dupes = 0
         self._since: dict[str, tuple[str, float, bool]] = {}
         self._others: list[Card] = []
+        self._remote_offline: dict[str, float] = {}
 
     # -- public API ---------------------------------------------------------
     def snapshot(self) -> Snapshot:
@@ -2222,8 +2313,16 @@ class Collector(threading.Thread):
                 raw, ts, raw_path = data, time.time(), home.path
                 self._raw[home.label] = (raw, ts, raw_path)
                 loading = False
+                self._remote_offline.pop(home.label, None)
+            elif home.route:
+                # Keep the last good snapshot; the board shows its age
+                # instead of blanking the tab while the host is unreachable.
+                self._remote_offline[home.label] = time.time()
         if not raw:
-            return {}, {k: [] for k, _ in COLUMNS}, {}, loading, f"bearings snapshot failed for {home.path}"
+            # A remote home with no cached snapshot yet is offline, not an
+            # error: the tab carries the offline marker itself.
+            err = "" if home.route else f"bearings snapshot failed for {home.path}"
+            return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
         cols, totals = make_cards(home, raw, self._meta_index, agents, panes, homes)
         enrich_cards_run_stats(cols, agents)
         return raw, cols, totals, loading, ""
@@ -2292,6 +2391,10 @@ class Collector(threading.Thread):
         snap.home = active
         snap.cols = cols
         snap.others = list(self._others)
+        snap.offline = {
+            label: self._raw.get(label, ({}, 0.0, ""))[1]
+            for label in self._remote_offline
+        }
         if is_aggregate_home(active):
             snap.cols = {**cols, OTHER_AGENTS_COLUMN[0]: list(self._others)}
         snap.agents = agents
@@ -2629,6 +2732,11 @@ class UI:
     # -- captain's call dialog ---------------------------------------------
     def open_decision(self, card: Card) -> None:
         snap = self.collector.snapshot()
+        if is_remote_home(snap.home):
+            # Remote homes stay read-only on the board: answering a call runs
+            # the local home's intake and steer, which cannot reach that home.
+            self.say("remote home \u00b7 read-only on the board")
+            return
         content = decision_card_content(card, snap.homes, snap.home)
         self.dialog = DecisionDialog(content)
         self.dialog_hit = []
@@ -2904,6 +3012,8 @@ class UI:
             # a known zero is a real answer ("no tickets"), so it shows (0); a
             # home never visited has no count yet and shows its bare name
             text = f"{home.label} ({count})" if count is not None else home.label
+            if is_remote_home(home) and home.label in snap.offline:
+                text += " \u00b7 offline"
             chip = f" {text} "
             head += dot
             if active:
@@ -2914,6 +3024,14 @@ class UI:
             self.tab_regions.append((x, x + dot_plain + display_width(chip) + 1, home.label))
             head += " "
             x += dot_plain + display_width(chip) + 1
+        if snap.home is not None and snap.home.label in snap.offline:
+            last = snap.offline.get(snap.home.label, 0.0)
+            age = _format_elapsed(time.time() - last) if last else ""
+            head += (
+                f"{fg(C_DIM)}\u00b7 offline, last seen {age}{RESET}"
+                if age
+                else f"{fg(C_DIM)}\u00b7 offline{RESET}"
+            )
         # other agents stay counted on every tab; the All tab lists them
         others = snap.others
         if others:
@@ -3874,7 +3992,8 @@ def once(active_label: str = "", all_homes: bool = False) -> int:
         merged, _totals = merge_fleet_columns(parts)
         _print_home_cols(ALL_CREW_LABEL, f"{len(parts)} homes", merged)
     for home, cols, _totals in parts:
-        _print_home_cols(home.label, home.path, cols)
+        where = f"{home.route}: {home.path}" if is_remote_home(home) else home.path
+        _print_home_cols(home.label, where, cols)
     _print_other_agents(
         other_agent_cards(state, fleet, firstmate_pane_ids(meta_index), {}, time.time())
     )

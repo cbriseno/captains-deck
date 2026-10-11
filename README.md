@@ -143,6 +143,14 @@ A pane counts as Firstmate's when a task's `state/<task>.meta` names it, when it
 The header counts the other agents on every tab and shows how many are blocked, so a waiting agent is visible from any crew.
 Herdr does not timestamp state changes, so the deck times them itself: a state that was already there when the board opened shows as `for ≥<time>`.
 
+## Remote second mates
+
+A Firstmate home can live on another host ([remote second mates](https://github.com/kunchenguid/firstmate/blob/main/docs/remote-secondmates.md)), and the deck shows it as its own crew tab.
+Remote routes come from the captain home's `data/secondmates.md` — the records with `host:`, `root:` and `home:` fields.
+The snapshot goes through Firstmate's own transport, `bin/fm-on.sh <id> fm-bearings-snapshot.sh`, never raw SSH.
+The result is cached like a local home (`bearings_secs`), so a host that is offline for a long time never blocks the board: the tab keeps the last snapshot and shows `· offline`, and the header names when it was last seen.
+Remote tabs stay read-only: a Captain's Call on a remote home opens nothing, because the answer intake and the steer live in the local home.
+
 Crew tabs show a live activity dot (`●` working/blocked, `○` agent present) and
 the number of tickets on that board once it has been visited; a visited board
 with no tickets shows `(0)`. **All** shows the visible fleet-wide
@@ -330,6 +338,7 @@ Homes are discovered in this order (first match wins per path):
 2. `homes.conf` in the plugin config directory — one `label=path` per line
 3. `FM_HOME` or the legacy `fm_home` config file
 4. `~/firstmate` plus `~/.treehouse/*/*/firstmate` worktree homes
+5. Remote routes in the captain home's `data/secondmates.md` (records with `host:`, `root:` and `home:`), shown through `fm-on.sh`
 
 The explicit list is additive by default: setting `FM_FLOW_HOMES` or
 `homes.conf` labels the homes it names, while the scan still runs. Set
