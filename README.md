@@ -413,9 +413,7 @@ herdr plugin install deimantasnork/captains-deck
 herdr plugin enable herdr-firstmate-flow
 ```
 
-Then open the board from Herdr's actions: **Open flow board** opens a floating overlay, and **Open captain's deck** opens the board in its own `captain's deck` workspace.
-You can also bind those actions to keys in `~/.config/herdr/config.toml`.
-Press `q` in the board pane to exit.
+Then [open the board](#open-the-board) from Herdr's actions.
 
 Local development:
 
