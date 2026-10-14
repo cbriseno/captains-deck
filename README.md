@@ -404,10 +404,16 @@ Press `q` in the pane to exit.
 
 ## Install / share
 
+### Quick start
+
+Install and enable the plugin:
+
 ```bash
 herdr plugin install deimantasnork/captains-deck
 herdr plugin enable herdr-firstmate-flow
 ```
+
+Then [open the board](#open-the-board) from Herdr's actions.
 
 Local development:
 
@@ -415,13 +421,15 @@ Local development:
 herdr plugin link /path/to/herdr-firstmate-flow
 ```
 
-Probe without a TTY (useful for CI or troubleshooting):
+From a checkout of this repository, probe without a TTY (useful for CI or troubleshooting):
 
 ```bash
 scripts/kanban-view.sh --homes        # list discovered homes
 scripts/kanban-view.sh --once         # one plain-text frame, all homes
 scripts/kanban-view.sh --once --home 2ndmate-demo
 ```
+
+Use `scripts/kanban-view.sh --once --home <name>` with a label from `--homes` to check one home.
 
 Herdr's plugin marketplace indexes public GitHub repositories tagged with the
 `herdr-plugin` topic, and this repository is listed there:
