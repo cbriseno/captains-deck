@@ -368,6 +368,7 @@ def test_open_deck_reuses_a_workspace_with_a_leading_icon():
         "1️⃣ Captain's deck",
         "‼️ Captain's deck",
         "⁉️ Captain's deck",
+        "ℹ️ Captain's deck",
         "〰 Captain's deck",
         "〽️ Captain's deck",
     ]:

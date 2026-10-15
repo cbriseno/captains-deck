@@ -35,7 +35,8 @@ for p in res.get("panes", []) if isinstance(res, dict) else []:
 deck_ws="$("$herdr_bin" workspace list 2>/dev/null | python3 -c '
 import json, sys, unicodedata
 
-punctuation_icons = "\u203c\u2049\u3030\u303d"
+# Only non-symbol Emoji bases in emoji-data; keycap bases are handled below.
+non_symbol_emoji_bases = "\u203c\u2049\u2139\u3030\u303d"
 
 def strip_icon_prefix(value):
     i = 0
@@ -51,7 +52,7 @@ def strip_icon_prefix(value):
                 i = end + 1
                 continue
         codepoint = ord(ch)
-        if ch in punctuation_icons or unicodedata.category(ch).startswith("S"):
+        if ch in non_symbol_emoji_bases or unicodedata.category(ch).startswith("S"):
             saw_icon = True
             i += 1
         elif saw_icon and (
