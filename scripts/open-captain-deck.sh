@@ -35,6 +35,8 @@ for p in res.get("panes", []) if isinstance(res, dict) else []:
 deck_ws="$("$herdr_bin" workspace list 2>/dev/null | python3 -c '
 import json, sys, unicodedata
 
+punctuation_icons = "\u203c\u2049\u3030\u303d"
+
 def strip_icon_prefix(value):
     i = 0
     saw_icon = False
@@ -49,7 +51,7 @@ def strip_icon_prefix(value):
                 i = end + 1
                 continue
         codepoint = ord(ch)
-        if unicodedata.category(ch).startswith("S"):
+        if ch in punctuation_icons or unicodedata.category(ch).startswith("S"):
             saw_icon = True
             i += 1
         elif saw_icon and (

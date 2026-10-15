@@ -366,6 +366,10 @@ def test_open_deck_reuses_a_workspace_with_a_leading_icon():
         "🚢⚓ captain's deck",
         "🏴‍☠️ Captain's deck",
         "1️⃣ Captain's deck",
+        "‼️ Captain's deck",
+        "⁉️ Captain's deck",
+        "〰 Captain's deck",
+        "〽️ Captain's deck",
     ]:
         with tempfile.TemporaryDirectory() as tmp:
             fake, state, log, cfg = _setup(tmp)
