@@ -20,8 +20,7 @@ herdr plugin action invoke open-captain-deck --plugin herdr-firstmate-flow
 ```
 
 The last command opens the board in its own `captain's deck` workspace.
-The launcher creates that workspace when missing, then refocuses matching
-case, spacing, and leading-icon variants on later uses.
+The launcher creates that workspace when missing, then reuses it despite case or spacing changes or a leading icon.
 For the floating overlay, invoke `open-flow` instead:
 
 ```bash
