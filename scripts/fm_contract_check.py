@@ -11,8 +11,6 @@ checker asserts those surfaces still exist and still parse:
   - ``state/<task>.status`` tail lines (``<state> [at=<epoch>]: <text>``)
   - ``state/decision-cards/<task>.json`` (the ``fm-decision-card.v1`` store)
   - ``bin/fm-captain-hold.sh`` / ``bin/fm-send.sh`` exist and are executable
-  - whether the intake wakes the owner of an answer itself (``wake_answer_owner``),
-    which decides if the deck steers the lane after a keyed answer
 
 Run it after any ``updatefirstmate``, or against a fresh clone in CI:
 
@@ -51,9 +49,6 @@ STATUS_RE = re.compile(
     r"^(?P<state>[a-zA-Z_-]+)(?:\s+\[at=(?P<at>\d+)\])?\s*:?\s*(?P<text>.*)$"
 )
 CARD_CLOSE = ("done", "release")
-# The same marker flow_tui.intake_wakes_owner reads: an intake that defines its
-# own answer wake notifies the owning home, so the deck adds no second steer.
-INTAKE_WAKE_RE = re.compile(r"^[ \t]*wake_answer_owner[ \t]*\(\)", re.M)
 
 
 class Report:
@@ -141,7 +136,6 @@ def check_home(home: str) -> Report:
     """Run every contract check against one Firstmate home or clone."""
     report = Report(home)
     _check_scripts(home, report)
-    _check_answer_wake(home, report)
     data = _run_snapshot(home, report)
     if data is not None:
         _check_snapshot(data, report)
@@ -167,20 +161,6 @@ def _check_scripts(home: str, report: Report) -> None:
         )
     else:
         report.ok("bin", "bearings snapshot + answer/wake intakes executable")
-
-
-def _check_answer_wake(home: str, report: Report) -> None:
-    """Report which side wakes the owner of a keyed answer. Both are supported,
-    so this never fails; it pins the path the deck takes for this home."""
-    try:
-        with open(os.path.join(home, HOLD_SCRIPT), encoding="utf-8", errors="replace") as fh:
-            intake_wakes = bool(INTAKE_WAKE_RE.search(fh.read()))
-    except OSError:
-        return  # _check_scripts already reports the missing intake
-    if intake_wakes:
-        report.ok("answer-wake", "the intake wakes the owner; the deck adds no answer steer")
-    else:
-        report.ok("answer-wake", "the intake does not wake owners; the deck steers via fm-send.sh")
 
 
 def _run_snapshot(home: str, report: Report) -> dict | None:

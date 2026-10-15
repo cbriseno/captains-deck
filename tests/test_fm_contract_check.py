@@ -120,19 +120,3 @@ def test_contract_tolerates_fresh_home_without_state():
         assert any(
             c["status"] == "warn" and c["check"] == "state" for c in report.checks
         )
-
-
-def _answer_wake_detail(report) -> str:
-    return next(c["detail"] for c in report.checks if c["check"] == "answer-wake")
-
-
-def test_contract_reports_which_side_wakes_an_answer_owner():
-    report = checker.check_home(str(FIXTURES / "home"))
-    assert "deck steers" in _answer_wake_detail(report)
-    with tempfile.TemporaryDirectory() as tmp:
-        dst = _copy_fixtures(Path(tmp))
-        hold = dst / "home" / "bin" / "fm-captain-hold.sh"
-        hold.write_text(hold.read_text() + "wake_answer_owner() { :; }\n")
-        report = checker.check_home(str(dst / "home"))
-        assert report.is_ok(), _fail_details(report)
-        assert "intake wakes the owner" in _answer_wake_detail(report)
