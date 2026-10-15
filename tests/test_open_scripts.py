@@ -106,9 +106,7 @@ def main(argv):
         save(st)
         return 0
     if args[:2] == ["workspace", "list"]:
-        # Raw UTF-8 like herdr itself, so icon labels reach the launcher unescaped.
-        out = json.dumps({"result": {"workspaces": st["workspaces"]}}, ensure_ascii=False)
-        sys.stdout.buffer.write((out + "\n").encode("utf-8"))
+        print(json.dumps({"result": {"workspaces": st["workspaces"]}}))
         return 0
     if args[:2] == ["workspace", "create"]:
         st["seq"] += 1
