@@ -9,8 +9,6 @@ It is the captain's view of agent orchestration: small surface area, like [Pi](h
 
 ![The Captain's Call decision dialog open over the board, with options, the recommended choice, a freeform note row, and Queue answer](assets/captains-call-decision-dialog.png)
 
-Source: <https://github.com/deimantasnork/captains-deck>
-
 ## Quick start
 
 Install and enable the plugin, then open the board:
@@ -70,6 +68,8 @@ check one home.
 Herdr's plugin marketplace indexes public GitHub repositories tagged with the
 `herdr-plugin` topic, and this repository is listed there:
 <https://herdr.dev/plugins/>. Installation is still `herdr plugin install`.
+
+Source: <https://github.com/deimantasnork/captains-deck>
 
 ## Why Captain's Deck
 
