@@ -29,10 +29,11 @@ for p in res.get("panes", []) if isinstance(res, dict) else []:
 ' 2>/dev/null || true
 }
 
-# Deck workspaces match the label case- and space-insensitively, so a
-# hand-renamed "Captain's Deck" is reused instead of duplicated.
+# Deck workspaces match the label case- and space-insensitively, ignoring
+# leading icons and other non-word characters, so a hand-renamed
+# "Captain's Deck" or "<icon> Captain's deck" is reused instead of duplicated.
 deck_ws="$("$herdr_bin" workspace list 2>/dev/null | python3 -c '
-import json, sys
+import json, re, sys
 target = " ".join(sys.argv[1].split()).lower()
 try:
     data = json.load(sys.stdin)
@@ -40,7 +41,7 @@ except Exception:
     sys.exit(0)
 res = data.get("result", data)
 for w in res.get("workspaces", []) if isinstance(res, dict) else []:
-    label = " ".join((w.get("label") or "").split()).lower()
+    label = re.sub(r"^[^\w]+", "", " ".join((w.get("label") or "").split()).lower())
     if label == target and w.get("workspace_id"):
         print(w["workspace_id"])
 ' "$label" 2>/dev/null || true)"

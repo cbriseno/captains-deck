@@ -106,7 +106,9 @@ def main(argv):
         save(st)
         return 0
     if args[:2] == ["workspace", "list"]:
-        print(json.dumps({"result": {"workspaces": st["workspaces"]}}))
+        # Raw UTF-8 like herdr itself, so icon labels reach the launcher unescaped.
+        out = json.dumps({"result": {"workspaces": st["workspaces"]}}, ensure_ascii=False)
+        sys.stdout.buffer.write((out + "\n").encode("utf-8"))
         return 0
     if args[:2] == ["workspace", "create"]:
         st["seq"] += 1
@@ -357,6 +359,43 @@ def test_open_deck_creates_workspace_when_missing():
         assert (cfg / "deck-flow.panes").read_text().split() == [
             data["panes"][0]["pane_id"]
         ]
+
+
+def test_open_deck_reuses_a_workspace_with_a_leading_icon():
+    for name in ["⛵ Captain's deck", "⛵️  Captain's  Deck", "🚢⚓ captain's deck"]:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake, state, log, cfg = _setup(tmp)
+            _write_state(
+                state,
+                {"panes": [], "workspaces": [{"workspace_id": "w1", "label": name}], "seq": 1},
+            )
+            proc = _run(OPEN_DECK, fake, state, log, cfg)
+            assert proc.returncode == 0, proc.stderr
+            data = _read_state(state)
+            assert [w["workspace_id"] for w in data["workspaces"]] == ["w1"], name
+            assert "workspace create" not in log.read_text(), name
+            assert [p["workspace_id"] for p in data["panes"]] == ["w1"], name
+
+
+def test_open_deck_still_creates_a_deck_beside_a_merely_similar_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, state, log, cfg = _setup(tmp)
+        _write_state(
+            state,
+            {
+                "panes": [],
+                "workspaces": [{"workspace_id": "w1", "label": "old captain's deck"}],
+                "seq": 1,
+            },
+        )
+        proc = _run(OPEN_DECK, fake, state, log, cfg)
+        assert proc.returncode == 0, proc.stderr
+        data = _read_state(state)
+        assert [w["label"] for w in data["workspaces"]] == [
+            "old captain's deck",
+            "captain's deck",
+        ]
+        assert [p["workspace_id"] for p in data["panes"]] == ["w2"]
 
 
 def main() -> int:
