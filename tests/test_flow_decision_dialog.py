@@ -501,7 +501,11 @@ def main() -> int:
             setattr(flow, "_run_captain_hold", original_run)
             setattr(flow, "ensure_decision_binding", original_bind)
 
-        # a mate-owned call wakes its lane through the parent home's fm-send
+        # an intake without its own answer wake (an older Firstmate) leaves the
+        # owner to the Deck: a mate-owned call wakes its lane through the parent
+        # home's fm-send
+        check(not flow.intake_wakes_owner(mate_home.path),
+              "a home with no settling intake relies on the Deck's steer")
         wake_log = os.path.join(root, "wake.log")
         os.makedirs(os.path.join(main_home.path, "state"), exist_ok=True)
         open(os.path.join(main_home.path, "state", "demo-lane.meta"), "w").close()
@@ -554,6 +558,81 @@ def main() -> int:
             os.environ.pop("FM_FLOW_WAKE", None)
         check(off_ok and off_detail == "", "an opted-out submit still records the answer")
         check(not os.path.exists(wake_off_log), "FM_FLOW_WAKE=0 skips the owner wake")
+
+        # An intake that settles answers wakes the owner itself, so one answer
+        # is one notification: the Deck adds no steer of its own. The stub
+        # intake wakes through the same lane sender, one log line per send.
+        one_log = os.path.join(root, "one-wake.log")
+        with open(send_stub, "w") as fh:
+            fh.write(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{one_log}"\n')
+        os.chmod(send_stub, 0o755)
+        hold_stub = os.path.join(mate_home.path, "bin", "fm-captain-hold.sh")
+        with open(hold_stub, "w") as fh:
+            fh.write(
+                "#!/usr/bin/env bash\n"
+                "wake_answer_owner() {\n"
+                f'  "{send_stub}" demo-lane --fire-and-forget intake-delivery "intake wake for $1"\n'
+                "}\n"
+                'case "$1" in\n'
+                "  answers) IFS=$'\\t' read -r key _; wake_answer_owner \"$key\";"
+                ' echo "closed: $key" ;;\n'
+                '  binding) echo "captured-source=herdr-firstmate-flow" ;;\n'
+                '  reconcile-requests) read -r key _; echo "reconcile: $key" ;;\n'
+                "esac\n"
+            )
+        os.chmod(hold_stub, 0o755)
+        check(flow.intake_wakes_owner(mate_home.path),
+              "an intake that defines its own answer wake is detected")
+        one_content = flow.decision_card_content(wake_card, [main_home, mate_home], main_home)
+        check(one_content["home_path"] == mate_home.path and one_content["intake_wakes"] is True,
+              "the dialog captures the owning home's intake wake when the card opens")
+        one_ok, one_detail = flow.run_submit(flow.DecisionDialog(one_content))
+        sends = open(one_log).read().splitlines() if os.path.exists(one_log) else []
+        check(one_ok and one_detail == "closed: demo-issue-29",
+              "the settling intake records the answer")
+        check(sends == ["demo-lane --fire-and-forget intake-delivery intake wake for demo-issue-29"],
+              "one answer is one notification: the intake's wake, no Deck steer")
+        release_one = dict(one_content)
+        release_one["close"] = "release"
+        os.remove(one_log)
+        flow.run_submit(flow.DecisionDialog(release_one))
+        sends = open(one_log).read().splitlines() if os.path.exists(one_log) else []
+        check(len(sends) == 1 and "intake wake" in sends[0],
+              "a released hold is one notification too")
+
+        # the reconcile-request intake wakes nobody, so the Deck still steers it
+        os.remove(one_log)
+        reconcile_one = flow.DecisionDialog(one_content)
+        reconcile_one.selected = next(
+            i for i, o in enumerate(reconcile_one.options) if o["value"] == "reconcile"
+        )
+        rec_ok, _ = flow.run_submit(reconcile_one)
+        sends = open(one_log).read().splitlines() if os.path.exists(one_log) else []
+        check(rec_ok and len(sends) == 1
+              and "captain's deck reconcile request for demo-issue-29" in sends[0],
+              "a reconcile request keeps exactly one wake: the Deck's")
+
+        # FM_FLOW_WAKE=0 only skips the Deck's steer; the intake still wakes,
+        # and the consent line says the lane is steered
+        os.remove(one_log)
+        os.environ["FM_FLOW_WAKE"] = "0"
+        try:
+            quiet_content = flow.decision_card_content(
+                wake_card, [main_home, mate_home], main_home
+            )
+            flow.run_submit(flow.DecisionDialog(quiet_content))
+            quiet_ui = flow.UI()
+            quiet_ui.dialog = flow.DecisionDialog(quiet_content)
+            quiet_frame = io.StringIO()
+            with contextlib.redirect_stdout(quiet_frame):
+                quiet_ui.render(snap)
+        finally:
+            os.environ.pop("FM_FLOW_WAKE", None)
+        sends = open(one_log).read().splitlines() if os.path.exists(one_log) else []
+        check(len(sends) == 1 and "intake wake" in sends[0],
+              "FM_FLOW_WAKE=0 leaves the intake's own wake in place")
+        check("steers demo-lane" in ANSI.sub("", quiet_frame.getvalue()),
+              "the consent line names the lane the intake steers")
 
         cols = {key: [] for key, _ in flow.COLUMNS}
         cols["charted"] = [object()]

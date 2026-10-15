@@ -12,11 +12,15 @@ Captain's Call is the one column that acts: clicking (or pressing Enter on) a
 ticket opens its composed board card as a decision dialog, and the captain's
 choice is piped to firstmate's one keyed-answer intake
 (``bin/fm-captain-hold.sh answers``) - or to its reconcile-request intake for
-the reserved ``reconcile`` value. A recorded answer also steers the owning lane
-through the parent home's inbox (``bin/fm-send.sh``); set ``FM_FLOW_WAKE=0`` to
-keep a submit to the intake alone. Reconcile binds this Deck as its captured
-source on first use, and keyed lines flatten CR/LF/TAB so card text can never
-split into a second answer row. Everything else stays read-only.
+the reserved ``reconcile`` value. An intake that settles answers wakes the
+owning home itself, and the Deck adds no second steer. For an older intake or a
+reconcile request, the Deck can steer a secondmate-owned call through the
+parent home's lane inbox (``bin/fm-send.sh``). A main-home-owned call has no
+lane, so the Deck sends it no steer. Set ``FM_FLOW_WAKE=0`` to skip the Deck's
+own lane steer.
+Reconcile binds this Deck as its captured source on first use, and keyed lines
+flatten CR/LF/TAB so card text can never split into a second answer row.
+Everything else stays read-only.
 """
 
 from __future__ import annotations
@@ -262,9 +266,9 @@ def _config_truthy(name: str, filename: str, default: bool) -> bool:
 
 
 def wake_owner_default() -> bool:
-    """Whether a recorded answer also steers the owning lane (default on).
-    FM_FLOW_WAKE=0, or wake_owner=0 in the plugin config dir, keeps a submit to
-    the intake alone."""
+    """Whether the Deck can steer a secondmate-owned call's lane after a submit
+    the intake does not wake it for (default on). FM_FLOW_WAKE=0, or
+    wake_owner=0 in the plugin config dir, skips the Deck's own lane steer."""
     return _config_truthy("FM_FLOW_WAKE", "wake_owner", True)
 
 
@@ -1505,6 +1509,7 @@ def decision_card_content(
         title = str(card.title or card.task)
     if not decide:
         decide = "Pick an option below, or answer in your own words."
+    home_path = answer_home_path(card, homes, active)
     return {
         "key": card.task,
         "title": _flatten_field(title),
@@ -1520,10 +1525,11 @@ def decision_card_content(
             raw.get("freeform_hint") or "or answer in your own words\u2026"
         ),
         "close": raw.get("close") if raw.get("close") in ("done", "release") else "",
-        "home_path": answer_home_path(card, homes, active),
+        "home_path": home_path,
         "wake_home": wake_home.path if wake_home is not None else "",
         "wake_lane": wake_lane,
         "wake_enabled": wake_owner_default(),
+        "intake_wakes": intake_wakes_owner(home_path),
     }
 
 
@@ -1547,6 +1553,7 @@ class DecisionDialog:
         "wake_home",
         "wake_lane",
         "wake_enabled",
+        "intake_wakes",
         "cursor",
         "selected",
         "note",
@@ -1574,8 +1581,9 @@ class DecisionDialog:
         self.wake_home = content["wake_home"]
         self.wake_lane = content["wake_lane"]
         # Captured when the card opened so the footer can say what will happen;
-        # the submit itself re-reads the live setting.
+        # the submit itself re-reads the live setting and the live intake.
         self.wake_enabled = bool(content.get("wake_enabled", True))
+        self.intake_wakes = bool(content.get("intake_wakes", False))
         self.cursor = 0
         # The board preselects the recommended option; without one the captain
         # starts on the freeform row.
@@ -1636,6 +1644,30 @@ def _hold_script(home_path: str) -> str:
     return os.path.join(home_path, "bin", "fm-captain-hold.sh")
 
 
+# The step a keyed-answer intake runs to wake the home that owns an answered
+# call (Firstmate's settle_answered_call); an intake that defines it notifies
+# that home once per answer on its own.
+INTAKE_WAKE_RE = re.compile(r"^[ \t]*wake_answer_owner[ \t]*\(\)", re.M)
+
+
+def intake_wakes_owner(home_path: str) -> bool:
+    """Whether this home's keyed-answer intake wakes the owning home itself.
+
+    Such an intake already notifies the owner of every answer it records, so a
+    Deck steer on top would be a second notification for one answer. For an
+    older or unreadable intake, the Deck can instead steer a secondmate-owned
+    call's lane. A main-home-owned call has no Deck lane steer, and
+    ``reconcile-requests`` wakes nobody either way.
+    """
+    if not home_path:
+        return False
+    try:
+        with open(_hold_script(home_path), encoding="utf-8", errors="replace") as fh:
+            return bool(INTAKE_WAKE_RE.search(fh.read()))
+    except OSError:
+        return False
+
+
 def _run_captain_hold(home_path: str, args: list[str], stdin_text: str) -> tuple[bool, str]:
     """Run the firstmate answer intake in the home that owns the task."""
     script = _hold_script(home_path)
@@ -1686,11 +1718,11 @@ def ensure_decision_binding(home_path: str) -> tuple[bool, str]:
 
 
 def wake_owner(dialog: DecisionDialog) -> str:
-    """Steer the owning agent through the parent home's lane inbox.
+    """Steer a secondmate-owned agent through the parent home's lane inbox.
 
-    The record is durable, but the wake is what makes someone act on it. Returns
-    an empty string on success (or when there is no lane to wake) and a one-line
-    warning the dialog can show otherwise.
+    A main-home-owned call has no lane to steer. Returns an empty string on
+    success (or when there is no lane to wake) and a one-line warning the
+    dialog can show otherwise.
     """
     if not dialog.wake_home or not dialog.wake_lane:
         return ""
@@ -1738,9 +1770,10 @@ def wake_owner(dialog: DecisionDialog) -> str:
 
 
 def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
-    """Feed the captain's choice to firstmate's intake, then wake the owning
-    agent the way the other channels do. Reconcile takes the separate
-    reconcile-request path; everything else is a keyed answer."""
+    """Feed the captain's choice to firstmate's intake without duplicating its
+    owner wake, with a secondmate lane steer when the Deck supplies the wake.
+    Reconcile takes the separate reconcile-request path; everything else is a
+    keyed answer."""
     if not dialog.home_path:
         return False, (
             f"cannot tell which home owns {dialog.key}; "
@@ -1751,7 +1784,8 @@ def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
             f"refusing a malformed task key: {_flatten_field(dialog.key)[:80]!r}"
         )
     option = dialog.selected_option()
-    if option and option["value"] == "reconcile":
+    reconcile = bool(option and option["value"] == "reconcile")
+    if reconcile:
         ok, detail = ensure_decision_binding(dialog.home_path)
         if not ok:
             return False, detail
@@ -1772,7 +1806,12 @@ def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
             ["answers", "--source", DECISION_SOURCE],
             dialog.keyed_line() + "\n",
         )
-    if ok and wake_owner_default():
+    # An intake that settles answers has already woken the owner of this one
+    # (its own wake problem rides the intake's detail), so the Deck only tries
+    # its secondmate lane steer for a reconcile request or an answer recorded
+    # by an older intake. A main-home-owned call has no lane to steer.
+    deck_wakes = reconcile or not intake_wakes_owner(dialog.home_path)
+    if ok and deck_wakes and wake_owner_default():
         # A wake failure never reverses the recorded answer, so it is reported
         # beside the queued state instead of failing the submit.
         wake_detail = wake_owner(dialog)
@@ -3406,9 +3445,10 @@ class UI:
         else:
             outcome = "releases hold" if d.close == "release" else "closes task"
             if d.wake_home and d.wake_lane:
+                # the intake's own wake does not depend on FM_FLOW_WAKE
                 outcome += (
                     f" \u00b7 steers {d.wake_lane}"
-                    if d.wake_enabled
+                    if d.intake_wakes or d.wake_enabled
                     else " \u00b7 owner wake off"
                 )
         add_footer(
