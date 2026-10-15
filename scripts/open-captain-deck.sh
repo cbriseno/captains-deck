@@ -29,11 +29,42 @@ for p in res.get("panes", []) if isinstance(res, dict) else []:
 ' 2>/dev/null || true
 }
 
-# Deck workspaces match the label case- and space-insensitively, ignoring
-# leading icons and other non-word characters, so a hand-renamed
-# "Captain's Deck" or "<icon> Captain's deck" is reused instead of duplicated.
+# Deck workspaces match the label case- and space-insensitively, ignoring a
+# leading icon sequence, so a hand-renamed "Captain's Deck" or
+# "<icon> Captain's deck" is reused instead of duplicated.
 deck_ws="$("$herdr_bin" workspace list 2>/dev/null | python3 -c '
-import json, re, sys
+import json, sys, unicodedata
+
+def strip_icon_prefix(value):
+    i = 0
+    saw_icon = False
+    while i < len(value):
+        ch = value[i]
+        if ch in "#*0123456789":
+            end = i + 1
+            if end < len(value) and value[end] == "\ufe0f":
+                end += 1
+            if end < len(value) and value[end] == "\u20e3":
+                saw_icon = True
+                i = end + 1
+                continue
+        codepoint = ord(ch)
+        if unicodedata.category(ch).startswith("S"):
+            saw_icon = True
+            i += 1
+        elif saw_icon and (
+            ch == "\u200d"
+            or ch in "\ufe0e\ufe0f"
+            or 0xE0020 <= codepoint <= 0xE007F
+            or 0xE0100 <= codepoint <= 0xE01EF
+        ):
+            i += 1
+        elif saw_icon and ch.isspace():
+            i += 1
+        else:
+            break
+    return value[i:] if saw_icon else value
+
 target = " ".join(sys.argv[1].split()).lower()
 try:
     data = json.load(sys.stdin)
@@ -41,7 +72,7 @@ except Exception:
     sys.exit(0)
 res = data.get("result", data)
 for w in res.get("workspaces", []) if isinstance(res, dict) else []:
-    label = re.sub(r"^[^\w]+", "", " ".join((w.get("label") or "").split()).lower())
+    label = strip_icon_prefix(" ".join((w.get("label") or "").split()).lower())
     if label == target and w.get("workspace_id"):
         print(w["workspace_id"])
 ' "$label" 2>/dev/null || true)"

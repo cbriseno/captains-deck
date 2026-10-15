@@ -360,7 +360,13 @@ def test_open_deck_creates_workspace_when_missing():
 
 
 def test_open_deck_reuses_a_workspace_with_a_leading_icon():
-    for name in ["⛵ Captain's deck", "⛵️  Captain's  Deck", "🚢⚓ captain's deck"]:
+    for name in [
+        "⛵ Captain's deck",
+        "⛵️  Captain's  Deck",
+        "🚢⚓ captain's deck",
+        "🏴‍☠️ Captain's deck",
+        "1️⃣ Captain's deck",
+    ]:
         with tempfile.TemporaryDirectory() as tmp:
             fake, state, log, cfg = _setup(tmp)
             _write_state(
@@ -376,24 +382,25 @@ def test_open_deck_reuses_a_workspace_with_a_leading_icon():
 
 
 def test_open_deck_still_creates_a_deck_beside_a_merely_similar_name():
-    with tempfile.TemporaryDirectory() as tmp:
-        fake, state, log, cfg = _setup(tmp)
-        _write_state(
-            state,
-            {
-                "panes": [],
-                "workspaces": [{"workspace_id": "w1", "label": "old captain's deck"}],
-                "seq": 1,
-            },
-        )
-        proc = _run(OPEN_DECK, fake, state, log, cfg)
-        assert proc.returncode == 0, proc.stderr
-        data = _read_state(state)
-        assert [w["label"] for w in data["workspaces"]] == [
-            "old captain's deck",
-            "captain's deck",
-        ]
-        assert [p["workspace_id"] for p in data["panes"]] == ["w2"]
+    for name in ["old captain's deck", "! Captain's deck", "'Captain's deck"]:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake, state, log, cfg = _setup(tmp)
+            _write_state(
+                state,
+                {
+                    "panes": [],
+                    "workspaces": [{"workspace_id": "w1", "label": name}],
+                    "seq": 1,
+                },
+            )
+            proc = _run(OPEN_DECK, fake, state, log, cfg)
+            assert proc.returncode == 0, proc.stderr
+            data = _read_state(state)
+            assert [w["label"] for w in data["workspaces"]] == [
+                name,
+                "captain's deck",
+            ]
+            assert [p["workspace_id"] for p in data["panes"]] == ["w2"]
 
 
 def main() -> int:
