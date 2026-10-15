@@ -153,7 +153,7 @@ Captain's Deck is that bridge: a kanban board where you can:
 - and leave everything else running without babysitting terminals.
 
 The board stays read-only except for those guarded keyed answers, the steering they trigger, and a message the captain sends to Firstmate with `m`, so orchestration keeps running and you only touch what actually requires the captain.
-Submitting an answer records the durable decision, steers the owning lane's inbox, and (on a first Reconcile) binds this Deck as the captured source; the dialog spells those effects out before you queue, and `FM_FLOW_WAKE=0` keeps a submit to the intake alone.
+Submitting an answer records the durable decision, wakes the owning lane once, and (on a first Reconcile) binds this Deck as the captured source; the dialog spells those effects out before you queue, and `FM_FLOW_WAKE=0` skips the Deck's own steer.
 
 **You steer the ship. Firstmate runs the crew. Captain's Deck shows you where your attention is actually needed.**
 
@@ -301,11 +301,14 @@ declares `close: "release"` releases the gated work instead of completing it.
 the card-declared close on the submit button (`Queue answer · releases hold`),
 and prints one line of what a submit does beyond the record: the exact key, the
 close or release, and the lane that will be steered.
-- After the record lands, the Deck steers the agent that owns the call through
-the parent home's lane inbox (`fm-send.sh`), so a released item resumes and a
-re-check actually gets worked. A wake problem is shown beside the queued state;
-the recorded answer is never reversed. Set `FM_FLOW_WAKE=0` (or `wake_owner=0`
-in the config dir) to keep a submit to the intake alone.
+- After the record lands, the agent that owns the call is woken exactly once,
+so a released item resumes and a re-check actually gets worked. An intake that
+settles answers itself (it defines `wake_answer_owner`) wakes the owning home on
+its own, and the Deck adds no second steer. For a reconcile request, or an
+answer recorded by an older intake, the Deck steers the owner through the parent
+home's lane inbox (`fm-send.sh`). A wake problem is shown beside the queued
+state; the recorded answer is never reversed. Set `FM_FLOW_WAKE=0` (or
+`wake_owner=0` in the config dir) to skip the Deck's own steer.
 - `Reconcile` is the reserved value: it files a durable reconcile request
 through `reconcile-requests`, binding `herdr-firstmate-flow` as its captured
 source on first use, and never closes anything by itself. The call leaves
@@ -425,7 +428,7 @@ Plugin config lives in:
   fm_home        # legacy single-home config (still honored)
   homes.conf     # optional label=path list
   show_landed    # optional: 0 hides the Landed column
-  wake_owner     # optional: 0 skips the owner steer after an answer
+  wake_owner     # optional: 0 skips the Deck's own owner steer after a submit
   homes_only     # optional: 1 limits discovery to FM_FLOW_HOMES/homes.conf
   bearings_secs  # optional: seconds a bearings snapshot stays cached
   bearings_timeout # optional: seconds allowed for one snapshot walk
@@ -446,7 +449,7 @@ Environment knobs:
 | `FM_FLOW_ALL` | `0` | `1` = request every row from bearings instead of Firstmate's bounds |
 | `FM_FLOW_HOMES` | — | Explicit `label=path` crew list |
 | `FM_FLOW_HOMES_ONLY` | `0` | `1` = discover only `FM_FLOW_HOMES`/`homes.conf` homes |
-| `FM_FLOW_WAKE` | `1` | `0` = record the answer without steering the owning lane |
+| `FM_FLOW_WAKE` | `1` | `0` = skip the Deck's own owner steer (an intake that wakes the owner still does) |
 | `FM_FLOW_DEBUG` | — | Append click/collector debug lines to this file |
 
 ## Contributing
