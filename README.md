@@ -11,6 +11,66 @@ It is the captain's view of agent orchestration: small surface area, like [Pi](h
 
 Source: <https://github.com/deimantasnork/captains-deck>
 
+## Quick start
+
+Install and enable the plugin, then open the board:
+
+```bash
+herdr plugin install deimantasnork/captains-deck
+herdr plugin enable herdr-firstmate-flow
+herdr plugin action invoke open-captain-deck --plugin herdr-firstmate-flow
+```
+
+The last command opens the board in its own `captain's deck` workspace.
+The launcher creates that workspace on the first use, then refocuses it.
+For the floating overlay, invoke `open-flow` instead:
+
+```bash
+herdr plugin action invoke open-flow --plugin herdr-firstmate-flow
+```
+
+Press `q` in the board pane to exit.
+
+The plugin ID is `herdr-firstmate-flow`, not the repository name, because the
+project started under that name.
+
+Bind the board to a key in `~/.config/herdr/config.toml`:
+
+```toml
+[[keys.command]]
+key = "prefix+shift+f"
+type = "shell"
+command = "herdr plugin action invoke open-captain-deck --plugin herdr-firstmate-flow"
+description = "open captain's deck (full-pane flow board)"
+```
+
+Press `prefix+shift+f` from any Herdr pane. Use the key you want.
+
+Both launchers only touch panes this plugin opened. The launcher reads the
+recorded pane id, or it verifies the pane's foreground process.
+A user pane that merely shares the `Flow` label is never touched.
+
+Local development:
+
+```bash
+herdr plugin link /path/to/herdr-firstmate-flow
+```
+
+Check the board without a TTY (run this from a checkout of this repository):
+
+```bash
+scripts/kanban-view.sh --homes        # list discovered homes
+scripts/kanban-view.sh --once         # one plain-text frame, all homes
+scripts/kanban-view.sh --once --home 2ndmate-demo
+```
+
+Use `scripts/kanban-view.sh --once --home <name>` with a label from `--homes` to
+check one home.
+
+Herdr's plugin marketplace indexes public GitHub repositories tagged with the
+`herdr-plugin` topic, and this repository is listed there:
+<https://herdr.dev/plugins/>. Installation is still `herdr plugin install`.
+
 ## Why Captain's Deck
 
 Parallel coding agents only feel like a crew when nothing important stalls in a forgotten tab.
@@ -388,52 +448,6 @@ Environment knobs:
 | `FM_FLOW_HOMES_ONLY` | `0` | `1` = discover only `FM_FLOW_HOMES`/`homes.conf` homes |
 | `FM_FLOW_WAKE` | `1` | `0` = record the answer without steering the owning lane |
 | `FM_FLOW_DEBUG` | — | Append click/collector debug lines to this file |
-
-## Open the board
-
-- Action **Open flow board** — floating overlay pane
-- Action **Open captain's deck** — full board in a dedicated `captain's deck`
-  workspace (created on first use, refocused afterwards)
-- Or bind keys in `~/.config/herdr/config.toml`
-
-Both launchers only focus or close panes this plugin opened - tracked by
-recorded pane id, or verified by the pane's foreground process being the board.
-A user pane that merely shares the `Flow` label is never touched.
-
-Press `q` in the pane to exit.
-
-## Install / share
-
-### Quick start
-
-Install and enable the plugin:
-
-```bash
-herdr plugin install deimantasnork/captains-deck
-herdr plugin enable herdr-firstmate-flow
-```
-
-Then [open the board](#open-the-board) from Herdr's actions.
-
-Local development:
-
-```bash
-herdr plugin link /path/to/herdr-firstmate-flow
-```
-
-From a checkout of this repository, probe without a TTY (useful for CI or troubleshooting):
-
-```bash
-scripts/kanban-view.sh --homes        # list discovered homes
-scripts/kanban-view.sh --once         # one plain-text frame, all homes
-scripts/kanban-view.sh --once --home 2ndmate-demo
-```
-
-Use `scripts/kanban-view.sh --once --home <name>` with a label from `--homes` to check one home.
-
-Herdr's plugin marketplace indexes public GitHub repositories tagged with the
-`herdr-plugin` topic, and this repository is listed there:
-<https://herdr.dev/plugins/>. Installation is still `herdr plugin install`.
 
 ## Contributing
 
