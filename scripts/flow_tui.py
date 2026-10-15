@@ -12,10 +12,12 @@ Captain's Call is the one column that acts: clicking (or pressing Enter on) a
 ticket opens its composed board card as a decision dialog, and the captain's
 choice is piped to firstmate's one keyed-answer intake
 (``bin/fm-captain-hold.sh answers``) - or to its reconcile-request intake for
-the reserved ``reconcile`` value. A recorded answer wakes the owning lane once:
-an intake that settles answers wakes it itself, and otherwise - and for every
-reconcile request - the Deck steers it through the parent home's inbox
-(``bin/fm-send.sh``); set ``FM_FLOW_WAKE=0`` to skip the Deck's own steer.
+the reserved ``reconcile`` value. An intake that settles answers wakes the
+owning home itself, and the Deck adds no second steer. For an older intake or a
+reconcile request, the Deck can steer a secondmate-owned call through the
+parent home's lane inbox (``bin/fm-send.sh``). A main-home-owned call has no
+lane, so the Deck sends it no steer. Set ``FM_FLOW_WAKE=0`` to skip the Deck's
+own lane steer.
 Reconcile binds this Deck as its captured source on first use, and keyed lines
 flatten CR/LF/TAB so card text can never split into a second answer row.
 Everything else stays read-only.
@@ -264,9 +266,9 @@ def _config_truthy(name: str, filename: str, default: bool) -> bool:
 
 
 def wake_owner_default() -> bool:
-    """Whether the Deck steers the owning lane after a submit the intake does
-    not wake it for (default on). FM_FLOW_WAKE=0, or wake_owner=0 in the plugin
-    config dir, skips the Deck's own steer."""
+    """Whether the Deck can steer a secondmate-owned call's lane after a submit
+    the intake does not wake it for (default on). FM_FLOW_WAKE=0, or
+    wake_owner=0 in the plugin config dir, skips the Deck's own lane steer."""
     return _config_truthy("FM_FLOW_WAKE", "wake_owner", True)
 
 
@@ -1652,9 +1654,10 @@ def intake_wakes_owner(home_path: str) -> bool:
     """Whether this home's keyed-answer intake wakes the owning home itself.
 
     Such an intake already notifies the owner of every answer it records, so a
-    Deck steer on top would be a second notification for one answer. An older
-    intake without that step, or one that cannot be read, still relies on the
-    Deck's steer. ``reconcile-requests`` wakes nobody either way.
+    Deck steer on top would be a second notification for one answer. For an
+    older or unreadable intake, the Deck can instead steer a secondmate-owned
+    call's lane. A main-home-owned call has no Deck lane steer, and
+    ``reconcile-requests`` wakes nobody either way.
     """
     if not home_path:
         return False
@@ -1715,11 +1718,11 @@ def ensure_decision_binding(home_path: str) -> tuple[bool, str]:
 
 
 def wake_owner(dialog: DecisionDialog) -> str:
-    """Steer the owning agent through the parent home's lane inbox.
+    """Steer a secondmate-owned agent through the parent home's lane inbox.
 
-    The record is durable, but the wake is what makes someone act on it. Returns
-    an empty string on success (or when there is no lane to wake) and a one-line
-    warning the dialog can show otherwise.
+    A main-home-owned call has no lane to steer. Returns an empty string on
+    success (or when there is no lane to wake) and a one-line warning the
+    dialog can show otherwise.
     """
     if not dialog.wake_home or not dialog.wake_lane:
         return ""
@@ -1767,9 +1770,10 @@ def wake_owner(dialog: DecisionDialog) -> str:
 
 
 def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
-    """Feed the captain's choice to firstmate's intake, then make sure the
-    owning agent is woken exactly once. Reconcile takes the separate
-    reconcile-request path; everything else is a keyed answer."""
+    """Feed the captain's choice to firstmate's intake without duplicating its
+    owner wake, with a secondmate lane steer when the Deck supplies the wake.
+    Reconcile takes the separate reconcile-request path; everything else is a
+    keyed answer."""
     if not dialog.home_path:
         return False, (
             f"cannot tell which home owns {dialog.key}; "
@@ -1803,9 +1807,9 @@ def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
             dialog.keyed_line() + "\n",
         )
     # An intake that settles answers has already woken the owner of this one
-    # (its own wake problem rides the intake's detail), so the Deck steers only
-    # what that intake does not wake for: a reconcile request, or an answer
-    # recorded by an older intake.
+    # (its own wake problem rides the intake's detail), so the Deck only tries
+    # its secondmate lane steer for a reconcile request or an answer recorded
+    # by an older intake. A main-home-owned call has no lane to steer.
     deck_wakes = reconcile or not intake_wakes_owner(dialog.home_path)
     if ok and deck_wakes and wake_owner_default():
         # A wake failure never reverses the recorded answer, so it is reported
