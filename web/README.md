@@ -5,6 +5,13 @@ Push notifications. It serves the same board the TUI shows: the bridge imports
 `../scripts/flow_tui.py` instead of reimplementing it, so the two views cannot
 drift apart.
 
+![The board in a desktop browser](assets/board-desktop.png)
+
+On a phone the board pages one column per screen: swipe to the next column, or
+tap a dot to jump.
+
+![The board on a phone](assets/board-phone.png)
+
 ## Requirements
 
 | Requirement | Why |

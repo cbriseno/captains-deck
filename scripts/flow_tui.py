@@ -2,7 +2,8 @@
 """Firstmate Flow - multi-home kanban TUI for Herdr.
 
 Shows every Firstmate home (captain + secondmates) as a crew tab, projected
-into five columns: Charted Next, Underway, Captain's Call, In Review, Landed.
+into five columns: Charted Next, Underway, Captain's Call, Awaiting Merge,
+Landed.
 
 Per ticket it shows a live status badge, the agent harness, model,
 thinking effort, and (on click / Enter) focuses the Herdr pane where that ticket's
