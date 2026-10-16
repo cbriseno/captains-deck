@@ -305,8 +305,6 @@ body {
   color: var(--dim);
   font-size: 0.8rem;
   margin: 0.3rem 0 0;
-  /* A long URL in a status line must wrap inside the card, not spill out. */
-  overflow-wrap: anywhere;
 }
 
 .card-cta {

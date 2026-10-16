@@ -548,15 +548,6 @@ function cardNode(card, columnId) {
 
   if (card.doing) item.append(node("p", "card-doing", card.doing));
 
-  // A card whose status repeats its doing line must not show the paragraph
-  // twice. The doing text is truncated with an ellipsis, so the comparison
-  // uses the head of it.
-  function repeatsDoing(text) {
-    if (!card.doing || !text) return false;
-    const head = card.doing.replace(/\u2026$/, "").trim();
-    return head.length > 12 && (text.startsWith(head) || card.doing.startsWith(text));
-  }
-
   const meta = [];
   if (card.owner && card.owner !== "(main)") meta.push(card.owner);
   const agent = [card.agent, card.model, card.effort].filter(Boolean).join(" ");
@@ -567,7 +558,7 @@ function cardNode(card, columnId) {
     );
   }
   if (card.run_tokens) meta.push(card.run_tokens);
-  if (card.status_text && !repeatsDoing(card.status_text)) meta.push(card.status_text);
+  if (card.status_text) meta.push(card.status_text);
   if (meta.length) item.append(node("p", "card-meta", meta.join(" · ")));
 
   if (answerable) {
