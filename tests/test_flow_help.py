@@ -64,7 +64,12 @@ def test_footer_actions_route_landed_and_refresh():
 
 def test_footer_shows_the_quick_actions():
     labels = [label for label, _ in flow._FOOTER_HINTS]
-    assert labels == ["? help", "L - Show/Hide Landed", "r - Refresh board"]
+    assert labels == [
+        "? help",
+        "L - Show/Hide Landed",
+        "A - Show/Hide answered",
+        "r - Refresh board",
+    ]
 
 
 def test_click_outside_closes_help():
