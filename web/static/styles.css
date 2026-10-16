@@ -705,5 +705,37 @@ body {
     gap: 1rem;
     grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
     align-items: start;
+    overflow: visible;
+  }
+
+  /* The phone rules must not reach the grid: a fixed height with its own
+     scrollbar let a section sit above the row under it and clip its card. */
+  .column {
+    flex: none;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    padding: 0;
+    scroll-snap-align: none;
+  }
+
+  /* Other Agents is the last section, whatever order the data arrived in. */
+  .column.others {
+    order: 99;
+  }
+
+  .column-head {
+    background: transparent;
+    position: static;
+  }
+
+  .page-dots {
+    display: none;
+  }
+
+  body {
+    display: block;
+    height: auto;
+    overflow: visible;
   }
 }
