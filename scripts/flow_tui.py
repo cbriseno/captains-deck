@@ -64,6 +64,7 @@ COLUMNS = [
 _FOOTER_HINTS = (
     ("? help", "help"),
     ("L - Show/Hide Landed", "landed"),
+    ("A - Show/Hide answered", "answered"),
     ("r - Refresh board", "refresh"),
 )
 
@@ -263,6 +264,119 @@ def _config_truthy(name: str, filename: str, default: bool) -> bool:
             val = ""
     fallback = "1" if default else "0"
     return (val or fallback).strip().lower() in ("1", "true", "yes", "on")
+
+
+def hide_answered_default() -> bool:
+    """Whether an answered Captain's Call hides until its owner takes the work.
+
+    The deck answers a call and Firstmate keeps a live captain hold until the
+    owning agent starts, so the same row returns with no new question.
+    FM_FLOW_HIDE_ANSWERED=0, or hide_answered_calls=0 in the plugin config dir,
+    keeps every answered row on the board."""
+    return _config_truthy("FM_FLOW_HIDE_ANSWERED", "hide_answered_calls", True)
+
+
+# ----------------------------------------------------------------------------
+# answered calls: the ledger that keeps an answered row off the board
+# ----------------------------------------------------------------------------
+
+ANSWERED_LEDGER = "answered-calls.json"
+# A weekend must not expire a record: a Friday answer stays hidden on Monday.
+ANSWERED_TTL_SECS = 7 * 24 * 3600
+
+
+def _plugin_state_dir() -> str:
+    """The plugin's own state directory. Herdr hands the path to plugin
+    processes; the fallback matches the directory Herdr uses for this plugin."""
+    return os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".local", "state", "herdr", "plugins", DECISION_SOURCE_ID
+    )
+
+
+def answered_ledger_path() -> str:
+    return os.path.join(_plugin_state_dir(), ANSWERED_LEDGER)
+
+
+def load_answered_calls() -> dict[str, dict]:
+    """task key -> the record written when its Captain's Call was answered."""
+    try:
+        with open(answered_ledger_path(), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in data.items()
+        if isinstance(key, str) and KEY_RE.fullmatch(key) and isinstance(value, dict)
+    }
+
+
+def save_answered_calls(records: dict[str, dict]) -> None:
+    path = answered_ledger_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(records, fh, indent=1, sort_keys=True)
+        os.replace(tmp, path)
+    except OSError as exc:
+        _debug(f"answered-calls ledger write failed: {exc!r}")
+
+
+def call_digest(key: str, title: str, options, close: str) -> str:
+    """A stable identity for the question the captain answered.
+
+    The record's generated stamp is rewritten every time the board re-composes
+    an open call (measured 2026-10-16: the same three cards were rewritten at
+    12:09 and again at 12:27 with unchanged content), so the stamp alone cannot
+    tell the answered question from a new one. The content can."""
+    values = sorted(
+        _flatten_field(opt.get("value")) for opt in (options or []) if isinstance(opt, dict)
+    )
+    payload = "\x1f".join(
+        [_flatten_field(key), _flatten_field(title), ",".join(values), close or ""]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
+def answer_match_field() -> str:
+    """Which field decides that a row is the one the captain answered.
+
+    The captain chose the generated stamp. FM_FLOW_ANSWER_MATCH=content compares
+    the question's own content instead, which survives a re-compose."""
+    value = (os.environ.get("FM_FLOW_ANSWER_MATCH") or "").strip().lower()
+    return "content" if value == "content" else "generated"
+
+
+def answered_row_hidden(record, stamp: str, digest: str, now: float) -> bool:
+    """Whether one Captain's Call row hides as already answered."""
+    if not isinstance(record, dict):
+        return False
+    answered_at = _float(record.get("answered_at"), 0.0)
+    if answered_at <= 0 or now - answered_at > ANSWERED_TTL_SECS:
+        return False
+    if answer_match_field() == "content":
+        return bool(digest) and record.get("digest") == digest
+    return bool(stamp) and record.get("generated") == stamp
+
+
+def record_answered_call(dialog: "DecisionDialog") -> None:
+    """Remember an answered call, so the board hides it until its owner takes
+    the work. A reconcile request is not an answer and writes nothing."""
+    if not dialog.home_path or not KEY_RE.fullmatch(dialog.key):
+        return
+    records = load_answered_calls()
+    records[dialog.key] = {
+        "home": dialog.home_path,
+        "title": _flatten_field(dialog.title),
+        "answer": _flatten_field(dialog.display_answer()),
+        "generated": dialog.stamp,
+        "digest": dialog.digest,
+        "answered_at": time.time(),
+    }
+    save_answered_calls(records)
 
 
 def wake_owner_default() -> bool:
@@ -1307,34 +1421,49 @@ def _payload_file_cards(path: str) -> dict[str, dict]:
     return _cached_cards(path, extract)
 
 
-def _store_card(path: str) -> dict:
+def _store_entry(path: str) -> tuple[dict, str]:
     """One durable state/decision-cards/<task>.json record (schema
-    fm-decision-card.v1), cached by mtime+size like the other card sources."""
+    fm-decision-card.v1): the card and the generated stamp beside it, cached by
+    mtime+size like the other card sources. The stamp says when the board last
+    composed the card, and the answered-call ledger records it."""
     try:
         st = os.stat(path)
         sig = (st.st_mtime_ns, st.st_size)
     except OSError:
-        return {}
+        return {}, ""
     hit = _BOARD_CARD_CACHE.get(path)
     if hit is not None and hit[0] == sig:
-        cached = hit[1].get("__card__")
-        return cached if isinstance(cached, dict) else {}
+        cached = hit[1]
+        card = cached.get("__card__")
+        stamp = cached.get("__stamp__")
+        if isinstance(card, dict) and isinstance(stamp, str):
+            return card, stamp
     card: dict = {}
+    stamp = ""
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             data = json.loads(fh.read())
-        inner = data.get("card") if isinstance(data, dict) else None
-        if isinstance(inner, dict):
-            card = inner
+        if isinstance(data, dict):
+            inner = data.get("card")
+            if isinstance(inner, dict):
+                card = inner
+            stamp = str(data.get("generated") or "")
     except Exception as exc:
         _debug(f"decision card store read failed for {path}: {exc!r}")
-        card = {}
-    _BOARD_CARD_CACHE[path] = (sig, {"__card__": card})
-    return card
+        card, stamp = {}, ""
+    _BOARD_CARD_CACHE[path] = (sig, {"__card__": card, "__stamp__": stamp})
+    return card, stamp
 
 
-def decision_card_for(key: str, *homes: Home | None) -> dict:
-    """The composed card for one captain-held task id.
+def _store_card(path: str) -> dict:
+    """The card half of :func:`_store_entry`."""
+    return _store_entry(path)[0]
+
+
+def decision_card_record(key: str, *homes: Home | None) -> tuple[dict, str]:
+    """The composed card for one captain-held task id, and the generated stamp
+    of the store record it came from. A card read from a board file or a
+    payload carries no stamp of its own, so it answers "".
 
     The durable decision-card store is AUTHORITATIVE: a raise-time card is
     written there the moment the call is raised (bin/fm-captain-hold.sh), and
@@ -1351,19 +1480,19 @@ def decision_card_for(key: str, *homes: Home | None) -> dict:
     # every card source is keyed by a validated slug; never build a path from
     # anything else
     if not KEY_RE.fullmatch(key):
-        return {}
+        return {}, ""
     for home in ordered:
-        card = _store_card(
+        card, stamp = _store_entry(
             os.path.join(home.path, "state", "decision-cards", f"{key}.json")
         )
         if card:
-            return card
+            return card, stamp
     for home in ordered:
         card = _board_file_cards(
             os.path.join(home.path, ".lavish", "bearings-board.html")
         ).get(key)
         if card:
-            return card
+            return card, ""
     for home in ordered:
         for path in sorted(
             glob.glob(os.path.join(home.path, "data", "bearings-board-payload-*.json")),
@@ -1371,8 +1500,13 @@ def decision_card_for(key: str, *homes: Home | None) -> dict:
         ):
             card = _payload_file_cards(path).get(key)
             if card:
-                return card
-    return {}
+                return card, ""
+    return {}, ""
+
+
+def decision_card_for(key: str, *homes: Home | None) -> dict:
+    """The composed card for one captain-held task id."""
+    return decision_card_record(key, *homes)[0]
 
 
 def resolve_owner_home(
@@ -1455,7 +1589,9 @@ def decision_card_content(
     call re-checked.
     """
     owner_home = resolve_owner_home(homes, card.owner, active)
-    raw = decision_card_for(card.task, *_decision_lookup_homes(homes, owner_home, active))
+    raw, stamp = decision_card_record(
+        card.task, *_decision_lookup_homes(homes, owner_home, active)
+    )
     ctype = (str(raw.get("type") or "decision").strip() or "decision")
     options: list[dict[str, str]] = []
     for opt in raw.get("options") or []:
@@ -1530,6 +1666,7 @@ def decision_card_content(
         "wake_lane": wake_lane,
         "wake_enabled": wake_owner_default(),
         "intake_wakes": intake_wakes_owner(home_path),
+        "stamp": stamp,
     }
 
 
@@ -1554,6 +1691,8 @@ class DecisionDialog:
         "wake_lane",
         "wake_enabled",
         "intake_wakes",
+        "digest",
+        "stamp",
         "cursor",
         "selected",
         "note",
@@ -1584,6 +1723,9 @@ class DecisionDialog:
         # the submit itself re-reads the live setting and the live intake.
         self.wake_enabled = bool(content.get("wake_enabled", True))
         self.intake_wakes = bool(content.get("intake_wakes", False))
+        # What the captain is answering, for the answered-call ledger.
+        self.stamp = str(content.get("stamp") or "")
+        self.digest = call_digest(self.key, self.title, self.options, self.close)
         self.cursor = 0
         # The board preselects the recommended option; without one the captain
         # starts on the freeform row.
@@ -1806,6 +1948,10 @@ def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
             ["answers", "--source", DECISION_SOURCE],
             dialog.keyed_line() + "\n",
         )
+        if ok:
+            # The row leaves Captain's Call until its owner takes the work:
+            # make_cards hides it while this record still matches the row.
+            record_answered_call(dialog)
     # An intake that settles answers has already woken the owner of this one
     # (its own wake problem rides the intake's detail), so the Deck only tries
     # its secondmate lane steer for a reconcile request or an answer recorded
@@ -1915,6 +2061,9 @@ class Card:
         "run_elapsed",
         "run_tokens",
         "spawn_epoch",
+        # Set on every Captain's Call row: this question is answered and its
+        # owner has not taken the work yet.
+        "answered_hidden",
     )
 
 
@@ -1931,11 +2080,16 @@ def make_cards(
     agents: dict[str, dict],
     panes: dict[str, dict],
     homes: list[Home] | None = None,
+    reveal_answered: bool = False,
 ) -> tuple[dict[str, list[Card]], dict[str, int]]:
     """Bucket snapshot entries into the five columns.
 
     Returns ``(columns, totals)`` where totals counts the entries per column
     before the Landed cap, so the UI can show e.g. ``Landed (10/18)``.
+
+    A call the captain already answered stays in the column and carries
+    ``answered_hidden``; each view decides whether to show it, and ``totals``
+    counts only the actionable calls.
     """
     cols: dict[str, list[Card]] = {key: [] for key, _ in COLUMNS}
     totals: dict[str, int] = {key: 0 for key, _ in COLUMNS}
@@ -2079,6 +2233,45 @@ def make_cards(
         cols["captains_call"].append(c)
         totals["captains_call"] += 1
 
+    # An answered call leaves the column until its owning agent takes the work.
+    # Firstmate keeps a live captain hold after an answer, so without this the
+    # same row returns with no new question and the calls pile up.
+    if hide_answered_default() and not reveal_answered and cols["captains_call"]:
+        records = load_answered_calls()
+        if records:
+            now = time.time()
+            present = {card.task for card in cols["captains_call"]}
+            hidden = 0
+            for card in cols["captains_call"]:
+                content = decision_card_content(card, homes, home)
+                digest = call_digest(
+                    content.get("key") or card.task,
+                    content.get("title") or "",
+                    content.get("options"),
+                    content.get("close") or "",
+                )
+                card.answered_hidden = answered_row_hidden(
+                    records.get(card.task), content.get("stamp") or "", digest, now
+                )
+                if card.answered_hidden:
+                    hidden += 1
+            totals["captains_call"] = max(0, totals["captains_call"] - hidden)
+            totals["captains_call_hidden"] = hidden
+            # A record whose row left the column, or an old one, is spent.
+            spent = [
+                key
+                for key, record in records.items()
+                if isinstance(record, dict)
+                and (
+                    (record.get("home") == home.path and key not in present)
+                    or now - _float(record.get("answered_at"), 0.0) > ANSWERED_TTL_SECS
+                )
+            ]
+            if spent:
+                for key in spent:
+                    records.pop(key, None)
+                save_answered_calls(records)
+
     landed_entries = snap.get("landed") or []
     totals["landed"] = len(landed_entries)
     for entry in landed_entries[:LANDED_LIMIT] if LANDED_LIMIT else landed_entries:
@@ -2209,6 +2402,8 @@ class Snapshot:
         self.counts: dict[str, int] = {}
         self.landed_counts: dict[str, int] = {}
         self.totals: dict[str, int] = {}
+        # Calls the captain answered that are still off the board.
+        self.hidden_calls = 0
         self.activity: dict[str, str] = {}
         self.loading = False
         self.error = ""
@@ -2237,6 +2432,7 @@ class Collector(threading.Thread):
         self.lock = threading.Lock()
         self._snap = Snapshot()
         self._active = active_label
+        self._reveal_answered = False
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._force = False
@@ -2263,6 +2459,13 @@ class Collector(threading.Thread):
     def refresh_now(self) -> None:
         self._force = True
         self._wake.set()
+
+    def set_reveal_answered(self, value: bool) -> None:
+        """Show the calls the captain already answered. The build leaves them
+        off the board, so the flag lives here and a forced refresh republishes
+        them."""
+        self._reveal_answered = bool(value)
+        self.refresh_now()
 
     def stop(self) -> None:
         self._stop.set()
@@ -2362,7 +2565,9 @@ class Collector(threading.Thread):
             # error: the tab carries the offline marker itself.
             err = "" if home.route else f"bearings snapshot failed for {home.path}"
             return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
-        cols, totals = make_cards(home, raw, self._meta_index, agents, panes, homes)
+        cols, totals = make_cards(
+            home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered
+        )
         enrich_cards_run_stats(cols, agents)
         return raw, cols, totals, loading, ""
 
@@ -2429,6 +2634,7 @@ class Collector(threading.Thread):
         snap.homes = homes
         snap.home = active
         snap.cols = cols
+        snap.hidden_calls = int((totals or {}).get("captains_call_hidden", 0))
         snap.others = list(self._others)
         snap.offline = {
             label: self._raw.get(label, ({}, 0.0, ""))[1]
@@ -2495,7 +2701,13 @@ class Collector(threading.Thread):
                         if stale:
                             if raw:
                                 cached, cached_totals = make_cards(
-                                    active, raw, self._meta_index, agents, panes, homes
+                                    active,
+                                    raw,
+                                    self._meta_index,
+                                    agents,
+                                    panes,
+                                    homes,
+                                    reveal_answered=self._reveal_answered,
                                 )
                                 enrich_cards_run_stats(cached, agents)
                             else:
@@ -2522,7 +2734,13 @@ class Collector(threading.Thread):
                         _debug("iter: make_cards")
                         if raw:
                             cols, totals = make_cards(
-                                active, raw, self._meta_index, agents, panes, homes
+                                active,
+                                raw,
+                                self._meta_index,
+                                agents,
+                                panes,
+                                homes,
+                                reveal_answered=self._reveal_answered,
                             )
                             enrich_cards_run_stats(cols, agents)
                         else:
@@ -2646,6 +2864,9 @@ class UI:
     def __init__(self) -> None:
         self.collector = Collector()
         self.show_landed = show_landed_default()
+        # Session-only view state: the collector leaves answered calls off the
+        # board unless this is on, because they leave and return with the flag.
+        self.reveal_answered = False
         self.columns = self.board_columns(None)
         self.col_idx = 0
         self.card_idx = 0
@@ -2705,6 +2926,13 @@ class UI:
         set_show_landed_pref(self.show_landed)
         self.dirty = True
         self.say(f"landed column {'shown' if self.show_landed else 'hidden'}")
+
+    def toggle_answered(self) -> None:
+        """Show or hide the Captain's Call rows the captain already answered."""
+        self.reveal_answered = not self.reveal_answered
+        self.collector.set_reveal_answered(self.reveal_answered)
+        self.dirty = True
+        self.say(f"answered calls {'shown' if self.reveal_answered else 'hidden'}")
 
     def crew_tab_count(self, snap: Snapshot, home_label: str) -> int | None:
         if home_label == ALL_CREW_LABEL:
@@ -2991,6 +3219,8 @@ class UI:
                         self.open_help()
                     elif action == "landed":
                         self.toggle_landed()
+                    elif action == "answered":
+                        self.toggle_answered()
                     elif action == "refresh":
                         self.collector.refresh_now()
                         self.say("refreshing\u2026")
@@ -3164,6 +3394,8 @@ class UI:
             lines.append("")
         self.footer_hits = []
         footer_text = " " + " \u00b7 ".join(label for label, _ in _FOOTER_HINTS)
+        if snap.hidden_calls and not self.reveal_answered:
+            footer_text += f" \u00b7 {snap.hidden_calls} answered"
         lines.append(f"{fg(C_DIM)}{clip(footer_text, w)}{RESET}")
         if self.flash and time.time() - self.flash_at < 6:
             lines[-1] = f"{fg(C_WARN)}{clip(self.flash, w)}{RESET}"
@@ -3526,6 +3758,7 @@ class UI:
         ("m", "message Firstmate"),
         ("1-9 / tab", "switch crew (All = fleet)"),
         ("L", "show/hide Landed"),
+        ("A", "show/hide the calls you already answered"),
         ("r", "refresh the board"),
         ("? / esc", "close this help"),
         ("q", "quit"),
@@ -3964,6 +4197,8 @@ def parse_input(buf: bytes, ui: UI) -> bytes:
             ui.card_idx = 0
         elif text == "L":
             ui.toggle_landed()
+        elif text == "A":
+            ui.toggle_answered()
         elif text == "o":
             ui.open_selected()
         elif text == "m":
