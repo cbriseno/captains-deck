@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Captain's Deck</title>
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Deck">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png" sizes="192x192">
+<link rel="stylesheet" href="/styles.css?v=9">
+<script>
+  /* Paint the saved theme before the first frame, so a dark deck never
+     flashes light. app.js owns the setting from then on. */
+  (function () {
+    try {
+      var mode = localStorage.getItem("deck.theme") || "auto";
+      var light =
+        mode === "light" ||
+        (mode === "auto" && window.matchMedia("(prefers-color-scheme: light)").matches);
+      document.documentElement.dataset.theme = light ? "light" : "dark";
+    } catch (err) {
+      document.documentElement.dataset.theme = "dark";
+    }
+  })();
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <h1>Captain&rsquo;s Deck</h1>
+    <span id="stamp" class="stamp"></span>
+    <button id="settings-button" class="icon" type="button" title="Settings" aria-label="Settings">&#9881;</button>
+    <button id="refresh" class="icon" type="button" title="Refresh" aria-label="Refresh">&#8635;</button>
+    <span id="conn" class="conn" data-state="idle" title="Connection" aria-label="Connection"></span>
+  </div>
+  <nav id="homes" class="homes" aria-label="Crews"></nav>
+  <p id="error" class="error-bar" hidden></p>
+</header>
+
+<main id="board" class="board" aria-live="polite">
+  <p class="empty">Loading the board&hellip;</p>
+</main>
+<nav id="dots" class="page-dots" aria-label="Columns"></nav>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="sheet-head">
+      <span id="sheet-badge" class="badge"></span>
+      <button id="sheet-close" class="icon" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <h2 id="sheet-title"></h2>
+    <p id="sheet-repo" class="repo"></p>
+    <p id="sheet-about" class="about"></p>
+    <p id="sheet-decide" class="decide"></p>
+    <details id="sheet-detail-box" class="detail-box" hidden>
+      <summary>Detail</summary>
+      <pre id="sheet-detail"></pre>
+    </details>
+    <div id="sheet-options" class="options" role="radiogroup" aria-label="Options"></div>
+    <textarea id="sheet-note" class="note" rows="2" placeholder="or answer in your own words&hellip;"></textarea>
+    <div class="sheet-actions">
+      <span id="sheet-state" class="state"></span>
+      <button id="sheet-submit" class="primary" type="button">
+        <span id="sheet-submit-label">Submit answer</span>
+        <span class="spinner" aria-hidden="true"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="settings" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="sheet-head">
+      <h3 id="settings-title">Settings</h3>
+      <button id="settings-close" class="icon" type="button" aria-label="Close">&#10005;</button>
+    </div>
+
+    <h4 class="settings-heading">Theme</h4>
+    <div class="settings-row" role="radiogroup" aria-label="Theme">
+      <button class="option" type="button" data-theme-mode="auto">
+        <span class="option-label">Auto</span>
+        <span class="option-hint">Follow the device setting</span>
+      </button>
+      <button class="option" type="button" data-theme-mode="dark">
+        <span class="option-label">Dark</span>
+        <span class="option-hint">Deck colours for night work</span>
+      </button>
+      <button class="option" type="button" data-theme-mode="light">
+        <span class="option-label">Light</span>
+        <span class="option-hint">Bright room and daylight</span>
+      </button>
+    </div>
+
+    <h4 class="settings-heading">Captain's Call</h4>
+    <p class="settings-note">An answered call stays off the board until its owner takes the work.</p>
+    <div class="settings-row" role="radiogroup" aria-label="Show answered calls">
+      <button id="show-answered-off" class="option" type="button">
+        <span class="option-label">Hide answered</span>
+        <span class="option-hint">Only the calls that need you</span>
+      </button>
+      <button id="show-answered-on" class="option" type="button">
+        <span class="option-label">Show answered</span>
+        <span class="option-hint">Reveal the calls you already answered</span>
+      </button>
+    </div>
+
+    <h4 class="settings-heading">Notifications</h4>
+    <p id="push-state" class="settings-note">Checking&hellip;</p>
+    <div class="settings-row" role="radiogroup" aria-label="Notifications">
+      <button id="push-on" class="option" type="button">
+        <span class="option-label">On</span>
+        <span class="option-hint">Captain's Call, on this device</span>
+      </button>
+      <button id="push-off" class="option" type="button">
+        <span class="option-label">Off</span>
+        <span class="option-hint">No notifications</span>
+      </button>
+      <button id="push-test" class="option" type="button" hidden>
+        <span class="option-label">Send a test</span>
+        <span class="option-hint">Check that this device receives them</span>
+      </button>
+    </div>
+
+    <div class="settings-row" id="inset-row" hidden>
+      <h4 class="settings-heading">Top space</h4>
+      <div class="inset-control">
+        <span class="option-hint">Raise it if the header sits under the iOS bar</span>
+        <span id="inset-value" class="inset-value">0 px</span>
+        <button id="inset-minus" class="icon" type="button" aria-label="Less space">&#8722;</button>
+        <button id="inset-plus" class="icon" type="button" aria-label="More space">+</button>
+      </div>
+    </div>
+
+    <button id="debug-button" class="option" type="button">
+      <span class="option-label">Diagnostics</span>
+      <span class="option-hint">Show the measured safe-area values</span>
+    </button>
+    <p class="settings-note">These choices stay on this device.</p>
+  </div>
+</div>
+
+<script src="/app.js?v=9"></script>
+</body>
+</html>

@@ -1,0 +1,709 @@
+:root {
+  --bg: #0b1220;
+  --panel: #121a2b;
+  --line: #1e293b;
+  --text: #e6edf7;
+  --dim: #94a3b8;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --decide: #c084fc;
+  --review: #22d3ee;
+  --accent: #38bdf8;
+  --top-bg: #0b1220;
+  --chip-bg: #1f2b40;
+  --dock-bg: rgba(18, 26, 43, 0.92);
+  --answer-line: #3b2a55;
+  --answer-press: #1b2338;
+  --primary-bg: #2563eb;
+  --primary-off: #1e293b;
+  /* iOS can draw its glass bar over an installed app and still report a zero
+     inset. app.js measures the real value and can raise these two. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  color-scheme: dark;
+}
+
+/* Light theme: the same variables, chosen in the settings sheet. */
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --panel: #ffffff;
+  --line: #dbe3ef;
+  --text: #0f172a;
+  --dim: #5b6b85;
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #dc2626;
+  --decide: #7c3aed;
+  --review: #0e7490;
+  --accent: #0284c7;
+  --top-bg: #f5f7fb;
+  --chip-bg: #e2e8f4;
+  --dock-bg: rgba(255, 255, 255, 0.94);
+  --answer-line: #ddd0f5;
+  --answer-press: #f3eefe;
+  --primary-bg: #2563eb;
+  --primary-off: #e2e8f0;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  /* pan and pinch stay, the double tap no longer zooms */
+  touch-action: manipulation;
+}
+
+button,
+.card,
+.option,
+.home,
+.icon,
+.page-dot,
+.column-head {
+  touch-action: manipulation;
+}
+
+body {
+  padding-bottom: var(--safe-bottom);
+}
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--top-bg);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+  padding-top: var(--safe-top);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem 0.35rem;
+}
+
+.bar h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.stamp {
+  color: var(--dim);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.icon {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.4rem 0.6rem;
+}
+
+.icon:active {
+  background: var(--panel);
+}
+
+.conn {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.conn[data-state="live"] {
+  background: var(--ok);
+}
+
+.conn[data-state="down"] {
+  background: var(--bad);
+}
+
+.homes {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding: 0.15rem 0.75rem 0.6rem;
+  scrollbar-width: none;
+}
+
+.homes::-webkit-scrollbar {
+  display: none;
+}
+
+.home {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.home[data-active="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.home-count {
+  background: var(--chip-bg);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  min-width: 1.2rem;
+  padding: 0 0.3rem;
+  text-align: center;
+}
+
+.dot {
+  font-size: 0.7rem;
+}
+
+.dot.working {
+  color: var(--ok);
+}
+
+.dot.blocked {
+  color: var(--bad);
+}
+
+.dot.offline {
+  color: var(--warn);
+}
+
+.board {
+  padding: 0.6rem 0.75rem 2rem;
+}
+
+.column {
+  margin-bottom: 0.9rem;
+}
+
+.column-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  padding: 0.4rem 0;
+  text-align: left;
+}
+
+.column-title {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.column-count {
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+
+.column-note {
+  color: var(--dim);
+  font-size: 0.72rem;
+  margin-right: 0.4rem;
+}
+
+.card-answered {
+  color: var(--ok);
+  font-size: 0.78rem;
+  margin: 0.3rem 0 0;
+}
+
+.column.collapsed .cards {
+  display: none;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.column-empty,
+.empty {
+  color: var(--dim);
+  font-size: 0.85rem;
+  margin: 0.2rem 0;
+}
+
+.error {
+  color: var(--bad);
+  font-size: 0.85rem;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  color: inherit;
+  display: block;
+  font: inherit;
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  width: 100%;
+}
+
+.card.answerable {
+  border-color: var(--answer-line);
+}
+
+.card.answerable:active {
+  background: var(--answer-press);
+}
+
+.card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.card-title {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.badge {
+  flex: 0 0 auto;
+  color: var(--dim);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.card-doing,
+.card-meta {
+  color: var(--dim);
+  font-size: 0.8rem;
+  margin: 0.3rem 0 0;
+}
+
+.card-cta {
+  color: var(--decide);
+  display: block;
+  font-size: 0.8rem;
+  margin-top: 0.35rem;
+}
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(3, 7, 18, 0.7);
+  display: flex;
+  align-items: flex-end;
+  /* a bottom sheet must stop below the status bar, not under it */
+  padding-top: var(--safe-top);
+}
+
+.sheet[hidden] {
+  display: none;
+}
+
+/* The panel leaves the way it arrived. */
+.sheet.closing .sheet-card {
+  opacity: 0;
+  transform: translateY(1.5rem);
+}
+
+/* Shown again, it slides back in. */
+.sheet:not(.closing) .sheet-card {
+  animation: deck-sheet-in 190ms ease-out;
+}
+
+@keyframes deck-sheet-in {
+  from {
+    opacity: 0.4;
+    transform: translateY(1.5rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet:not(.closing) .sheet-card {
+    animation: none;
+  }
+
+  .sheet-card {
+    transition: none;
+  }
+
+  .spinner {
+    animation-duration: 1.4s;
+  }
+}
+
+.sheet-card {
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  border-radius: 1rem 1rem 0 0;
+  max-height: 100%;
+  transition: opacity 190ms ease, transform 190ms ease;
+  overflow-y: auto;
+  padding: 0.8rem 1rem calc(1rem + var(--safe-bottom));
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+}
+
+.sheet-head .badge {
+  flex: 1;
+  color: var(--decide);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.sheet-card h2 {
+  font-size: 1.15rem;
+  margin: 0.4rem 0 0.2rem;
+}
+
+.repo {
+  color: var(--review);
+  font-size: 0.8rem;
+  margin: 0 0 0.5rem;
+}
+
+.about {
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
+  white-space: pre-wrap;
+}
+
+.decide {
+  color: var(--dim);
+  font-size: 0.85rem;
+  margin: 0 0 0.7rem;
+  white-space: pre-wrap;
+}
+
+.detail-box summary {
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.detail-box pre {
+  background: var(--panel);
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  overflow-x: auto;
+  padding: 0.6rem;
+  white-space: pre-wrap;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.5rem 0;
+}
+
+.option {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: inherit;
+  display: block;
+  font: inherit;
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  width: 100%;
+}
+
+.option[data-selected="true"] {
+  border-color: var(--decide);
+  box-shadow: inset 0 0 0 1px var(--decide);
+}
+
+.option:disabled {
+  opacity: 0.55;
+}
+
+.option-label {
+  display: block;
+  font-weight: 600;
+}
+
+.option-hint {
+  color: var(--dim);
+  display: block;
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.rec {
+  color: var(--decide);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.note {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: var(--text);
+  font: inherit;
+  /* 16 px is not a style choice: a smaller field makes iOS zoom the whole
+     page when the field takes focus, and the zoom outlives the sheet. */
+  font-size: 1rem;
+  padding: 0.6rem 0.7rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.sheet-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+}
+
+.state {
+  color: var(--dim);
+  flex: 1;
+  font-size: 0.8rem;
+}
+
+.state[data-tone="ok"] {
+  color: var(--ok);
+}
+
+.state[data-tone="bad"] {
+  color: var(--bad);
+}
+
+.primary {
+  background: var(--primary-bg);
+  border: 0;
+  border-radius: 0.6rem;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.55rem 1rem;
+  position: relative;
+}
+
+/* A running circle in the button says "in progress" better than a word. */
+.spinner {
+  animation: deck-spin 700ms linear infinite;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  border-top-color: #fff;
+  display: none;
+  height: 1rem;
+  left: 50%;
+  margin: -0.5rem 0 0 -0.5rem;
+  position: absolute;
+  top: 50%;
+  width: 1rem;
+}
+
+.primary[data-busy] #sheet-submit-label {
+  visibility: hidden;
+}
+
+.primary[data-busy] .spinner {
+  display: block;
+}
+
+@keyframes deck-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.primary:disabled {
+  background: var(--primary-off);
+  color: var(--dim);
+}
+
+.error-bar {
+  color: var(--bad);
+  font-size: 0.8rem;
+  margin: 0;
+  padding: 0 0.75rem 0.4rem;
+}
+
+.sheet-head h3 {
+  flex: 1;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.6rem 0 0.2rem;
+}
+
+.settings-note {
+  color: var(--dim);
+  font-size: 0.8rem;
+  margin: 0.6rem 0 0;
+}
+
+.settings-heading {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 1.1rem 0 0.2rem;
+  text-transform: uppercase;
+}
+
+.inset-control {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.inset-value {
+  color: var(--dim);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.page-dots {
+  display: none;
+  gap: 0.45rem;
+  position: fixed;
+  bottom: calc(0.7rem + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  background: var(--dock-bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.4rem 0.6rem;
+  backdrop-filter: blur(8px);
+}
+
+.page-dot {
+  background: var(--dim);
+  border: 0;
+  border-radius: 999px;
+  display: block;
+  height: 0.45rem;
+  opacity: 0.5;
+  padding: 0;
+  transition: width 160ms ease, opacity 160ms ease;
+  width: 0.45rem;
+}
+
+.page-dot[data-active="true"] {
+  background: var(--accent);
+  opacity: 1;
+  width: 1.3rem;
+}
+
+.debug {
+  background: rgba(3, 7, 18, 0.9);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font: 0.7rem/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  left: 0;
+  margin: 0;
+  max-height: 45vh;
+  overflow: auto;
+  padding: 0.5rem 0.75rem;
+  position: fixed;
+  right: 0;
+  top: 0;
+  white-space: pre-wrap;
+  z-index: 40;
+}
+
+/* Phone: one column per screen. A short drag to the right carries the board
+   toward the next column, and the snap finishes the movement. */
+@media (max-width: 699px) {
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior-y: none;
+  }
+
+  .top {
+    flex: 0 0 auto;
+    position: static;
+  }
+
+  .board {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .column {
+    flex: 0 0 100%;
+    height: 100%;
+    margin: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding: 0.5rem 0.75rem calc(4.5rem + var(--safe-bottom));
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+
+  .column-head {
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  .page-dots {
+    display: flex;
+  }
+}
+
+@media (min-width: 700px) {
+  .board {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    align-items: start;
+  }
+}

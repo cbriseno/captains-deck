@@ -1,0 +1,6 @@
+{
+  "include": ["bridge.py", "push.py", "tools"],
+  "extraPaths": ["../scripts"],
+  "pythonVersion": "3.14",
+  "reportMissingImports": "none"
+}
