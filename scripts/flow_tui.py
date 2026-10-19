@@ -5,8 +5,9 @@ Shows every Firstmate home (captain + secondmates) as a crew tab, projected
 into five columns: Charted Next, Underway, Captain's Call, Awaiting Merge,
 Landed.
 
-Per ticket it shows a live status badge, the agent harness, model,
-thinking effort, and (on click / Enter) focuses the Herdr pane where that ticket's
+Per ticket it shows a live status badge, the running account (or the harness
+when the record names none), model, thinking effort, and (on click / Enter)
+focuses the Herdr pane where that ticket's
 agent runs, which selects it in the Herdr agents sidebar.
 
 Captain's Call is the one column that acts: clicking (or pressing Enter on) a
@@ -1287,6 +1288,77 @@ def build_meta_index(homes: list[Home]) -> dict[str, tuple[str, str]]:
     return index
 
 
+def _store_key(path: str) -> str:
+    return os.path.normpath(os.path.expanduser(path.strip()))
+
+
+def load_account_names(homes: list[Home]) -> dict[str, str]:
+    """store path -> account name from each home's crew-accounts.json.
+
+    Firstmate's account file is host-local and optional; a home without one
+    simply contributes no names and the card keeps its harness label.
+    """
+    names: dict[str, str] = {}
+    for home in homes:
+        if not home.path:
+            continue
+        path = os.path.join(home.path, "config", "crew-accounts.json")
+        try:
+            with open(path, errors="replace") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        entries = data.get("accounts") if isinstance(data, dict) else None
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name:
+                continue
+            for key in ("codex_home", "claude_config_dir"):
+                store = str(entry.get(key) or "").strip()
+                if store:
+                    names.setdefault(_store_key(store), name)
+    return names
+
+
+def account_label(meta: dict, store_names: dict[str, str]) -> str:
+    """The account running a ticket: ``claude-b``, ``codex-a``, ``deepseek``.
+
+    A worker meta records the account name directly (``account=``); a
+    secondmate meta records the store path plus the pinned account name per
+    vendor. A pi worker has no account name, so its provider stands in. An
+    unknown record returns an empty string and the card falls back to the
+    harness.
+    """
+    harness = (meta.get("harness") or "").strip()
+
+    def is_path(value: str) -> bool:
+        return os.path.isabs(value) or value.startswith("~/")
+
+    for key in ("account", f"account_{harness}"):
+        value = (meta.get(key) or "").strip()
+        if value and not is_path(value):
+            return value
+    for key in (f"{harness}_home", "claude_config_dir" if harness == "claude" else "codex_home"):
+        value = (meta.get(key) or "").strip()
+        if value:
+            name = store_names.get(_store_key(value))
+            if name:
+                return name
+    if harness == "pi":
+        model = (meta.get("model") or "").strip()
+        provider = (meta.get("account_provider") or "").strip()
+        if not provider and "/" in model:
+            provider = model.split("/", 1)[0].strip()
+        if provider:
+            return provider
+    value = (meta.get("account") or "").strip()
+    if value:
+        return os.path.basename(value.rstrip("/")).lstrip(".")
+    return ""
+
+
 def bearings_flags() -> list[str]:
     """Follow Firstmate's own bounds by default (in_flight 20, gates 20,
     landed 6 newest per home). FM_FLOW_ALL=1 asks for every row instead."""
@@ -2044,6 +2116,7 @@ class Card:
         "badge_color",
         "doing",
         "agent",
+        "account",
         "model",
         "effort",
         "kind",
@@ -2094,6 +2167,7 @@ def make_cards(
     """
     cols: dict[str, list[Card]] = {key: [] for key, _ in COLUMNS}
     totals: dict[str, int] = {key: 0 for key, _ in COLUMNS}
+    store_names = load_account_names(list(homes) if homes else [home])
 
     paths: dict[str, dict] = {}
     for p in snap.get("paths") or []:
@@ -2120,6 +2194,7 @@ def make_cards(
         meta_path, meta_home = meta_index.get(card.task, ("", ""))
         meta = read_meta(meta_path) if meta_path else {}
         card.agent = meta.get("harness", "")
+        card.account = account_label(meta, store_names)
         card.model = meta.get("model", "")
         card.effort = meta.get("effort", "")
         card.mode = meta.get("mode", "")
@@ -2376,6 +2451,7 @@ def other_agent_cards(
         else:
             c.doing = ""
         c.agent = agent.get("display_agent") or agent.get("agent") or ""
+        c.account = ""
         c.model = c.effort = c.kind = c.worktree = c.branch = ""
         c.mode = f"{tab} \u00b7 {pid}" if tab else pid
         c.pane_id, c.workspace_id, c.tab_id = pid, ws_id, tab_id
@@ -3924,7 +4000,16 @@ class UI:
 
     @staticmethod
     def card_agent_line(card: Card) -> str:
-        parts = [p for p in (card.agent, card.model, card.effort) if p]
+        """``account·model·effort``; the account names the subscription store.
+
+        A pi worker's model carries its provider prefix (``deepseek/...``), so
+        the prefix is dropped when the account line already shows it.
+        """
+        lead = getattr(card, "account", "") or card.agent
+        model = card.model
+        if lead and model.startswith(lead + "/"):
+            model = model.split("/", 1)[1]
+        parts = [p for p in (lead, model, card.effort) if p]
         return "\u00b7".join(parts) if parts else "no agent yet"
 
     @staticmethod
@@ -4222,7 +4307,7 @@ def _print_home_cols(label: str, path: str, cols: dict[str, list[Card]]) -> None
         cards = cols.get(key) or []
         print(f"  {title} ({len(cards)})")
         for c in cards:
-            agent = " ".join(p for p in (c.agent, c.model, c.effort) if p) or "-"
+            agent = UI.card_agent_line(c)
             pane = c.pane_id or "-"
             line = f"    {c.id} [{c.badge}] {agent} pane={pane}"
             if c.bucket == "charted":
