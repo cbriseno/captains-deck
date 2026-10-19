@@ -222,12 +222,16 @@ column including Landed when that column is visible.
 ```text
 ╭─ demo-issue-197 ─────────────────────╮
 │ ◐ validating                         │   live badge
-│ claude·opus·xhigh                    │   harness · model · thinking effort
+│ claude-a·opus·xhigh                  │   account (or harness) · model · thinking effort
 │ Add retry to the…                    │   title / summary / landed what
 │ 9m 59s · ↓ 55.5k tokens · xhigh      │   total run time · tokens · thinking
 │ ⌸ 4/my-app-feat…                     │   worktree (or ↗ PR artifact for landed)
 ╰──────────────────────────────────────╯
 ```
+
+`claude-a` is the subscription account that runs the ticket.
+The deck reads it from the task meta, and from the store path in the home's `config/crew-accounts.json`.
+A ticket with no account record keeps its harness label, and a pi worker shows its provider.
 
 Badges: `● shipping`, `◐ validating`, `⛔ blocked`, `⚑ decision` /
 `⚑ captain`, `◍ awaits merge`, `⏸ parked` / `⏸ paused`, `⛔ failed`,
@@ -469,4 +473,5 @@ Report bugs, ask questions, or suggest features with a [new GitHub issue](https:
   the crew, closes worktrees into PRs (and optional yolo release), and owns the
   bearings snapshot and Captain's Call intake this board projects.
 - [Pi](https://pi.dev/) — one of the supported primary harnesses; each ticket
-  shows whichever harness, model, and thinking effort that home actually uses.
+  shows whichever account (or harness), model, and thinking effort that home
+  actually uses.

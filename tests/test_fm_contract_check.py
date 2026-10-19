@@ -106,6 +106,40 @@ def test_contract_flags_multiple_documents_in_one_card():
         assert "more than one JSON document" in _fail_details(report)
 
 
+def test_fixture_home_resolves_account_labels():
+    report = checker.check_home(str(FIXTURES / "home"))
+    by_name = {c["check"]: c for c in report.checks}
+    assert by_name["account"]["status"] == "ok", by_name["account"]["detail"]
+    accounts = by_name["config/crew-accounts.json"]
+    assert accounts["status"] == "ok", accounts["detail"]
+
+
+def test_contract_flags_renamed_account_store_key():
+    with tempfile.TemporaryDirectory() as tmp:
+        dst = _copy_fixtures(Path(tmp))
+        path = dst / "home" / "config" / "crew-accounts.json"
+        data = json.loads(path.read_text())
+        entry = data["accounts"][0]
+        entry["claude_home_dir"] = entry.pop("claude_config_dir")
+        path.write_text(json.dumps(data))
+        report = checker.check_home(str(dst / "home"))
+        failed = {c["check"] for c in report.checks if c["status"] == "fail"}
+        assert "config/crew-accounts.json" in failed
+
+
+def test_contract_warns_on_malformed_account_store():
+    with tempfile.TemporaryDirectory() as tmp:
+        dst = _copy_fixtures(Path(tmp))
+        path = dst / "home" / "config" / "crew-accounts.json"
+        path.write_text('{"accounts": true}')
+        report = checker.check_home(str(dst / "home"))
+        assert report.is_ok()
+        assert any(
+            c["check"] == "config/crew-accounts.json" and c["status"] == "warn"
+            for c in report.checks
+        )
+
+
 def test_contract_tolerates_fresh_home_without_state():
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)

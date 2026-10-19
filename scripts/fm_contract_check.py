@@ -8,6 +8,8 @@ checker asserts those surfaces still exist and still parse:
   - ``bin/fm-bearings-snapshot.sh --json --fields paths`` and the sections /
     item fields ``make_cards()`` reads
   - ``state/<task>.meta`` keys the card uses
+  - the account label the card line resolves from a meta and
+    ``config/crew-accounts.json``
   - ``state/<task>.status`` tail lines (``<state> [at=<epoch>]: <text>``)
   - ``state/decision-cards/<task>.json`` (the ``fm-decision-card.v1`` store)
   - ``bin/fm-captain-hold.sh`` / ``bin/fm-send.sh`` exist and are executable
@@ -44,7 +46,23 @@ ITEM_FIELDS = {
     "landed": ("id", "what", "artifact"),
     "paths": ("id", "worktree"),
 }
-META_KEYS = ("harness", "model", "effort", "spawn_gen")
+META_KEYS = ("harness", "model", "effort", "spawn_gen", "account", "account_provider")
+ACCOUNT_CASES = (
+    ({"harness": "claude", "account": "claude-b"}, "claude-b"),
+    (
+        {
+            "harness": "claude",
+            "account": "/home/me/.claude-store",
+            "account_claude": "claude-a",
+        },
+        "claude-a",
+    ),
+    (
+        {"harness": "pi-signed", "account_provider": "deepseek", "model": "deepseek/chat"},
+        "deepseek",
+    ),
+    ({"harness": "codex", "account": "ordinary"}, ""),
+)
 STATUS_RE = re.compile(
     r"^(?P<state>[a-zA-Z_-]+)(?:\s+\[at=(?P<at>\d+)\])?\s*:?\s*(?P<text>.*)$"
 )
@@ -140,6 +158,7 @@ def check_home(home: str) -> Report:
     if data is not None:
         _check_snapshot(data, report)
     _check_state(home, report)
+    _check_account(home, report)
     return report
 
 
@@ -316,6 +335,101 @@ def _check_meta(paths: list[str], report: Report) -> None:
         report.warn(
             "state/*.meta",
             f"{len(malformed)} file(s) had unparsable lines, e.g. {malformed[0]}",
+        )
+
+
+def _deck_model():
+    """The deck module that renders the card line (sibling of this checker)."""
+    scripts = os.path.dirname(os.path.abspath(__file__))
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    try:
+        import flow_tui
+    except Exception:
+        return None
+    return flow_tui
+
+
+def _check_account(home: str, report: Report) -> None:
+    """The deck still names the account a task meta and its home record.
+
+    The card line reads ``account=``, ``account_<vendor>`` and
+    ``account_provider`` from a meta and resolves store paths through
+    ``config/crew-accounts.json``, so this check runs the deck's own resolver
+    over those surfaces instead of grepping keys.
+    """
+    deck = _deck_model()
+    if deck is None:
+        report.fail(
+            "account",
+            "scripts/flow_tui.py does not import (the card line has no model)",
+        )
+        return
+    names = deck.load_account_names([deck.Home(label="contract", path=home, kind="captain")])
+    wrong: list[str] = []
+    for meta, expected in ACCOUNT_CASES:
+        label = deck.account_label(meta, names)
+        if label != expected:
+            wrong.append(
+                f"{meta.get('harness')} {sorted(meta)} -> {label!r}, not {expected!r}"
+            )
+    if wrong:
+        report.fail("account", f"{len(wrong)} meta shape(s) mislabel; first: {wrong[0]}")
+    else:
+        report.ok(
+            "account",
+            "account= / account_<vendor> / account_provider resolve to the account",
+        )
+
+    path = os.path.join(home, "config", "crew-accounts.json")
+    if not os.path.isfile(path):
+        report.ok(
+            "config/crew-accounts.json",
+            "absent (optional; a store path keeps the harness label)",
+        )
+        return
+    try:
+        with open(path, errors="replace") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as exc:
+        report.warn("config/crew-accounts.json", f"does not parse: {exc}")
+        return
+    entries = data.get("accounts") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        report.warn(
+            "config/crew-accounts.json",
+            "no accounts list; a store path keeps the harness label",
+        )
+        return
+    stores = 0
+    unresolved: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            continue
+        entry_stores = 0
+        for key, vendor in (("codex_home", "codex"), ("claude_config_dir", "claude")):
+            store = str(entry.get(key) or "").strip()
+            if not store:
+                continue
+            entry_stores += 1
+            stores += 1
+            label = deck.account_label({"harness": vendor, "account": store}, names)
+            if label != name:
+                unresolved.append(f"{store} -> {label!r}, not {name!r}")
+        if not entry_stores:
+            unresolved.append(f"{name!r} names no codex_home or claude_config_dir")
+    if unresolved:
+        report.fail(
+            "config/crew-accounts.json",
+            f"{len(unresolved)} store path(s) do not resolve; first: {unresolved[0]}",
+        )
+    else:
+        report.ok(
+            "config/crew-accounts.json",
+            f"{stores} store path(s) resolve to their account names",
         )
 
 

@@ -39,6 +39,7 @@ import sys
 import threading
 import time
 import unicodedata
+from typing import Any
 
 # ----------------------------------------------------------------------------
 # constants
@@ -1292,6 +1293,44 @@ def _store_key(path: str) -> str:
     return os.path.normpath(os.path.expanduser(path.strip()))
 
 
+def _is_store_path(value: str) -> bool:
+    return os.path.isabs(value) or value.startswith("~")
+
+
+_ACCOUNT_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
+
+
+def _read_account_names(path: str) -> dict[str, str]:
+    """store path -> account name from one crew-accounts.json, cached by mtime."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return {}
+    cached = _ACCOUNT_CACHE.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    names: dict[str, str] = {}
+    try:
+        with open(path, errors="replace") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = None
+    entries = data.get("accounts") if isinstance(data, dict) else None
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name:
+                continue
+            for key in ("codex_home", "claude_config_dir"):
+                store = str(entry.get(key) or "").strip()
+                if store:
+                    names.setdefault(_store_key(store), name)
+    _ACCOUNT_CACHE[path] = (mtime, names)
+    return names
+
+
 def load_account_names(homes: list[Home]) -> dict[str, str]:
     """store path -> account name from each home's crew-accounts.json.
 
@@ -1303,59 +1342,40 @@ def load_account_names(homes: list[Home]) -> dict[str, str]:
         if not home.path:
             continue
         path = os.path.join(home.path, "config", "crew-accounts.json")
-        try:
-            with open(path, errors="replace") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            continue
-        entries = data.get("accounts") if isinstance(data, dict) else None
-        for entry in entries or []:
-            if not isinstance(entry, dict):
-                continue
-            name = str(entry.get("name") or "").strip()
-            if not name:
-                continue
-            for key in ("codex_home", "claude_config_dir"):
-                store = str(entry.get(key) or "").strip()
-                if store:
-                    names.setdefault(_store_key(store), name)
+        for store, name in _read_account_names(path).items():
+            names.setdefault(store, name)
     return names
 
 
 def account_label(meta: dict, store_names: dict[str, str]) -> str:
     """The account running a ticket: ``claude-b``, ``codex-a``, ``deepseek``.
 
-    A worker meta records the account name directly (``account=``); a
-    secondmate meta records the store path plus the pinned account name per
-    vendor. A pi worker has no account name, so its provider stands in. An
-    unknown record returns an empty string and the card falls back to the
-    harness.
+    A worker meta records the account name directly (``account=``) or a store
+    path; a secondmate meta pins the name per vendor (``account_<vendor>``).
+    Every store path resolves through each home's ``crew-accounts.json``. A pi
+    worker has no account name, so its provider stands in. A meta that names no
+    account returns an empty string and the card keeps the harness label.
     """
     harness = (meta.get("harness") or "").strip()
-
-    def is_path(value: str) -> bool:
-        return os.path.isabs(value) or value.startswith("~/")
-
-    for key in ("account", f"account_{harness}"):
+    vendor = "pi" if harness == "pi-signed" else harness
+    keys = ("account", f"account_{vendor}")
+    for key in keys:
         value = (meta.get(key) or "").strip()
-        if value and not is_path(value):
+        if value and value != "ordinary" and not _is_store_path(value):
             return value
-    for key in (f"{harness}_home", "claude_config_dir" if harness == "claude" else "codex_home"):
+    for key in (*keys, f"{vendor}_home", "claude_config_dir", "codex_home"):
         value = (meta.get(key) or "").strip()
         if value:
             name = store_names.get(_store_key(value))
             if name:
                 return name
-    if harness == "pi":
+    if vendor == "pi":
         model = (meta.get("model") or "").strip()
         provider = (meta.get("account_provider") or "").strip()
         if not provider and "/" in model:
             provider = model.split("/", 1)[0].strip()
         if provider:
             return provider
-    value = (meta.get("account") or "").strip()
-    if value:
-        return os.path.basename(value.rstrip("/")).lstrip(".")
     return ""
 
 
@@ -1427,7 +1447,7 @@ def _strip_owner(task_id: str) -> str:
 # Captain's Call decision cards
 # ----------------------------------------------------------------------------
 
-_BOARD_CARD_CACHE: dict[str, tuple[tuple, dict[str, dict]]] = {}
+_BOARD_CARD_CACHE: dict[str, tuple[tuple, dict[str, Any]]] = {}
 
 
 def _cards_from_json(data: object) -> dict[str, dict]:
@@ -1507,10 +1527,10 @@ def _store_entry(path: str) -> tuple[dict, str]:
     hit = _BOARD_CARD_CACHE.get(path)
     if hit is not None and hit[0] == sig:
         cached = hit[1]
-        card = cached.get("__card__")
-        stamp = cached.get("__stamp__")
-        if isinstance(card, dict) and isinstance(stamp, str):
-            return card, stamp
+        cached_card = cached.get("__card__")
+        cached_stamp = cached.get("__stamp__")
+        if isinstance(cached_card, dict) and isinstance(cached_stamp, str):
+            return cached_card, cached_stamp
     card: dict = {}
     stamp = ""
     try:

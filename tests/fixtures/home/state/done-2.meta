@@ -1,4 +1,6 @@
 harness=pi
+account=/home/me/.pi/agent
+account_provider=deepseek
 model=sonnet
 effort=medium
 mode=local-only
