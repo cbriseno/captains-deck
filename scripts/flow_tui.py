@@ -1273,19 +1273,20 @@ def read_status_tail(path: str) -> tuple[str, str, int]:
     return m.group("state"), m.group("text")[:200], _int(m.group("at") or 0)
 
 
-def build_meta_index(homes: list[Home]) -> dict[str, tuple[str, str]]:
-    """task_id -> (meta_path, home_path) across all homes."""
-    index: dict[str, tuple[str, str]] = {}
+def build_meta_index(homes: list[Home]) -> dict[str, dict[str, str]]:
+    """home path -> task id -> state/<task>.meta path across all homes."""
+    index: dict[str, dict[str, str]] = {}
     for home in homes:
         state = os.path.join(home.path, "state")
         try:
             names = os.listdir(state)
         except OSError:
             continue
+        tasks = index.setdefault(home.path, {})
         for name in names:
             if name.endswith(".meta"):
                 task = name[: -len(".meta")]
-                index.setdefault(task, (os.path.join(state, name), home.path))
+                tasks.setdefault(task, os.path.join(state, name))
     return index
 
 
@@ -1331,19 +1332,18 @@ def _read_account_names(path: str) -> dict[str, str]:
     return names
 
 
-def load_account_names(homes: list[Home]) -> dict[str, str]:
-    """store path -> account name from each home's crew-accounts.json.
+def load_account_names(homes: list[Home]) -> dict[str, dict[str, str]]:
+    """home path -> store path -> account name from its crew-accounts.json.
 
     Firstmate's account file is host-local and optional; a home without one
     simply contributes no names and the card keeps its harness label.
     """
-    names: dict[str, str] = {}
+    names: dict[str, dict[str, str]] = {}
     for home in homes:
         if not home.path:
             continue
         path = os.path.join(home.path, "config", "crew-accounts.json")
-        for store, name in _read_account_names(path).items():
-            names.setdefault(store, name)
+        names[home.path] = _read_account_names(path)
     return names
 
 
@@ -2175,7 +2175,7 @@ def _trunc(s: str, n: int) -> str:
 def make_cards(
     home: Home,
     snap: dict,
-    meta_index: dict[str, tuple[str, str]],
+    meta_index: dict[str, dict[str, str]],
     agents: dict[str, dict],
     panes: dict[str, dict],
     homes: list[Home] | None = None,
@@ -2192,7 +2192,8 @@ def make_cards(
     """
     cols: dict[str, list[Card]] = {key: [] for key, _ in COLUMNS}
     totals: dict[str, int] = {key: 0 for key, _ in COLUMNS}
-    store_names = load_account_names(list(homes) if homes else [home])
+    home_list = list(homes) if homes else [home]
+    account_names = load_account_names(home_list)
 
     paths: dict[str, dict] = {}
     for p in snap.get("paths") or []:
@@ -2207,6 +2208,11 @@ def make_cards(
         raw_id = entry.get("id") or entry.get("key") or "?"
         card.id = raw_id
         card.task = _strip_owner(raw_id)
+        owner_path = home.path
+        if "/" in raw_id:
+            owner = resolve_owner_home(home_list, _owner_prefix(raw_id), None)
+            if owner is not None and owner.path:
+                owner_path = owner.path
         card.kind = (entry.get("kind") or "").strip()
         card.blocked_by = (entry.get("blocked_by") or "").strip()
         card.artifact = (entry.get("artifact") or "").strip()
@@ -2216,10 +2222,10 @@ def make_cards(
         p = paths.get(raw_id) or paths.get(card.task) or {}
         card.worktree = p.get("worktree") or ""
 
-        meta_path, meta_home = meta_index.get(card.task, ("", ""))
+        meta_path = (meta_index.get(owner_path) or {}).get(card.task, "")
         meta = read_meta(meta_path) if meta_path else {}
         card.agent = meta.get("harness", "")
-        card.account = account_label(meta, store_names)
+        card.account = account_label(meta, account_names.get(owner_path) or {})
         card.model = meta.get("model", "")
         card.effort = meta.get("effort", "")
         card.mode = meta.get("mode", "")
@@ -2246,7 +2252,7 @@ def make_cards(
         if live and not card.agent:
             card.agent = live.get("agent", "")
 
-        status_file = p.get("status") or os.path.join(meta_home or home.path, "state", f"{card.task}.status")
+        status_file = p.get("status") or os.path.join(owner_path, "state", f"{card.task}.status")
         st_state, st_text, _ = read_status_tail(status_file) if status_file else ("", "", 0)
         card.status_text = st_text
 
@@ -2405,13 +2411,14 @@ _AGENT_BADGES = {
 }
 
 
-def firstmate_pane_ids(meta_index: dict[str, tuple[str, str]]) -> set[str]:
+def firstmate_pane_ids(meta_index: dict[str, dict[str, str]]) -> set[str]:
     """Every Herdr pane a Firstmate task record names (state/<task>.meta)."""
     out: set[str] = set()
-    for meta_path, _home in meta_index.values():
-        pane = read_meta(meta_path).get("herdr_pane_id", "")
-        if pane:
-            out.add(pane)
+    for tasks in meta_index.values():
+        for meta_path in tasks.values():
+            pane = read_meta(meta_path).get("herdr_pane_id", "")
+            if pane:
+                out.add(pane)
     return out
 
 
@@ -2540,7 +2547,7 @@ class Collector(threading.Thread):
         self._force = False
         self._last_discover = 0.0
         self._raw: dict[str, tuple[dict, float, str]] = {}
-        self._meta_index: dict[str, tuple[str, str]] = {}
+        self._meta_index: dict[str, dict[str, str]] = {}
         self._meta_at = 0.0
         self._counts: dict[str, int] = {}
         self._landed_counts: dict[str, int] = {}

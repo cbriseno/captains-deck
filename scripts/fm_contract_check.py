@@ -32,6 +32,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 
 SNAPSHOT_SCRIPT = os.path.join("bin", "fm-bearings-snapshot.sh")
 HOLD_SCRIPT = os.path.join("bin", "fm-captain-hold.sh")
@@ -47,34 +48,18 @@ ITEM_FIELDS = {
     "paths": ("id", "worktree"),
 }
 META_KEYS = ("harness", "model", "effort", "spawn_gen", "account", "account_provider")
-ACCOUNT_CASES = (
-    ({"harness": "claude", "account": "claude-b"}, "claude-b"),
-    (
-        {
-            "harness": "claude",
-            "account": "/home/me/.claude-store",
-            "account_claude": "claude-a",
-        },
-        "claude-a",
-    ),
-    (
-        {"harness": "pi-signed", "account_provider": "deepseek", "model": "deepseek/chat"},
-        "deepseek",
-    ),
-    (
-        {
-            "harness": "pi",
-            "account": "/home/me/.pi/agent",
-            "account_provider": "deepseek",
-            "model": "deepseek/chat",
-            "account_claude": "claude-a",
-            "claude_config_dir": "/home/me/.claude-karolina",
-            "codex_home": "/home/me/.codex-lets-padel",
-        },
-        "deepseek",
-    ),
-    ({"harness": "codex", "account": "ordinary"}, ""),
+ACCOUNT_META_KEYS = (
+    "account",
+    "account_pin",
+    "account_provider",
+    "account_codex",
+    "account_codex_pin",
+    "account_claude",
+    "account_claude_pin",
+    "codex_home",
+    "claude_config_dir",
 )
+ACCOUNT_STORE_FIELDS = (("codex", "codex_home"), ("claude", "claude_config_dir"))
 STATUS_RE = re.compile(
     r"^(?P<state>[a-zA-Z_-]+)(?:\s+\[at=(?P<at>\d+)\])?\s*:?\s*(?P<text>.*)$"
 )
@@ -362,38 +347,79 @@ def _deck_model():
     return flow_tui
 
 
-def _check_account(home: str, report: Report) -> None:
-    """The deck still names the account a task meta and its home record.
+def _account_record_name(meta: dict, vendor: str) -> str:
+    """The account name a task record states directly, or "" for a store path."""
+    for key in ("account", f"account_{vendor}"):
+        value = str(meta.get(key) or "").strip()
+        if value and value != "ordinary" and not value.startswith(("/", "~")):
+            return value
+    return ""
 
-    The card line reads ``account=``, ``account_<vendor>`` and
-    ``account_provider`` from a meta and resolves store paths through
-    ``config/crew-accounts.json``, so this check runs the deck's own resolver
-    over those surfaces instead of grepping keys.
+
+def _account_record_provider(meta: dict, vendor: str) -> str:
+    """The provider a pi task record states, directly or in its model prefix."""
+    if vendor != "pi":
+        return ""
+    provider = str(meta.get("account_provider") or "").strip()
+    if provider:
+        return provider
+    model = str(meta.get("model") or "").strip()
+    return model.split("/", 1)[0] if "/" in model else ""
+
+
+def _check_account_records(
+    home: str, deck, names: dict[str, str], report: Report
+) -> None:
+    """The deck labels the account each real task record names.
+
+    Firstmate writes the record, so a renamed or added account key shows up
+    here; the deck's resolver is the consumer under test.
     """
-    deck = _deck_model()
-    if deck is None:
-        report.fail(
+    metas = sorted(glob.glob(os.path.join(home, "state", "*.meta")))
+    if not metas:
+        report.warn(
             "account",
-            "scripts/flow_tui.py does not import (the card line has no model)",
+            "no task record (state/*.meta) here, so the account keys are unverified",
         )
         return
-    names = deck.load_account_names([deck.Home(label="contract", path=home, kind="captain")])
-    wrong: list[str] = []
-    for meta, expected in ACCOUNT_CASES:
+    bad: list[str] = []
+    unknown: set[str] = set()
+    for path in metas:
+        file_name = os.path.basename(path)
+        meta = deck.read_meta(path)
+        harness = str(meta.get("harness") or "").strip()
+        vendor = "pi" if harness == "pi-signed" else harness
+        for key in meta:
+            if key in ACCOUNT_META_KEYS:
+                continue
+            if key.startswith("account"):
+                unknown.add(key)
         label = deck.account_label(meta, names)
-        if label != expected:
-            wrong.append(
-                f"{meta.get('harness')} {sorted(meta)} -> {label!r}, not {expected!r}"
-            )
-    if wrong:
-        report.fail("account", f"{len(wrong)} meta shape(s) mislabel; first: {wrong[0]}")
-    else:
-        report.ok(
+        stated = _account_record_name(meta, vendor)
+        if stated and label != stated:
+            bad.append(f"{file_name}: {label!r}, not the recorded {stated!r}")
+        provider = _account_record_provider(meta, vendor)
+        if provider and not stated and label != provider:
+            bad.append(f"{file_name}: {label!r}, not the recorded provider {provider!r}")
+        store = str(meta.get("account") or "").strip()
+        if not stated and store.startswith(("/", "~")):
+            mapped = names.get(os.path.normpath(os.path.expanduser(store)), "")
+            if mapped and label != mapped:
+                bad.append(f"{file_name}: {label!r}, not the configured {mapped!r}")
+    if unknown:
+        report.fail(
             "account",
-            "account= / account_<vendor> / account_provider resolve to the account",
+            "state/*.meta carries account keys the deck does not read: "
+            + ", ".join(sorted(unknown)),
         )
+    elif bad:
+        report.fail("account", f"{len(bad)} record(s) mislabel; first: {bad[0]}")
+    else:
+        report.ok("account", f"{len(metas)} task record(s) label their recorded account")
 
-    path = os.path.join(home, "config", "crew-accounts.json")
+
+def _check_account_config(path: str, deck, names: dict[str, str], report: Report) -> None:
+    """The deck resolves every configured store path to its account name."""
     if not os.path.isfile(path):
         report.ok(
             "config/crew-accounts.json",
@@ -422,7 +448,7 @@ def _check_account(home: str, report: Report) -> None:
         if not name:
             continue
         entry_stores = 0
-        for key, vendor in (("codex_home", "codex"), ("claude_config_dir", "claude")):
+        for vendor, key in ACCOUNT_STORE_FIELDS:
             store = str(entry.get(key) or "").strip()
             if not store:
                 continue
@@ -443,6 +469,82 @@ def _check_account(home: str, report: Report) -> None:
             "config/crew-accounts.json",
             f"{stores} store path(s) resolve to their account names",
         )
+
+
+def _check_account_schema(home: str, config: str, report: Report) -> None:
+    """Firstmate's own account selector must still accept the deck's fields.
+
+    On a home with no account file, a probe file carries the schema the deck
+    reads, so a renamed field is caught before a real file exists.
+    """
+    script = os.path.join(home, "bin", "fm-account-choose.sh")
+    if not os.path.isfile(script):
+        report.warn(
+            "account schema",
+            "bin/fm-account-choose.sh is absent, so the account fields are unverified",
+        )
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        if not os.path.isfile(config):
+            stores = {
+                "codex_home": tempfile.mkdtemp(dir=tmp),
+                "claude_config_dir": tempfile.mkdtemp(dir=tmp),
+            }
+            config = os.path.join(tmp, "crew-accounts.json")
+            try:
+                with open(config, "w", encoding="utf-8") as handle:
+                    json.dump({"accounts": [{"name": "contract", **stores}]}, handle)
+            except OSError as exc:
+                report.warn("account schema", f"probe account file failed: {exc!r}")
+                return
+        try:
+            proc = subprocess.run(
+                ["bash", script, "--validate", "--config", config],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                stdin=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            report.warn("account schema", f"bin/fm-account-choose.sh could not run: {exc!r}")
+            return
+    if proc.returncode != 0:
+        lines = [
+            line
+            for line in ((proc.stderr or "") + (proc.stdout or "")).splitlines()
+            if line.strip()
+        ]
+        report.fail(
+            "account schema",
+            "fm-account-choose.sh --validate rejected the deck's fields: "
+            f"{lines[-1] if lines else f'exit {proc.returncode}'}",
+        )
+        return
+    report.ok(
+        "account schema",
+        "fm-account-choose.sh --validate accepts name/codex_home/claude_config_dir",
+    )
+
+
+def _check_account(home: str, report: Report) -> None:
+    """The deck still names the account a task record and its home configure.
+
+    The inputs are the home's real task records and its account file, and
+    Firstmate's own selector validates the file schema.
+    """
+    deck = _deck_model()
+    if deck is None:
+        report.fail(
+            "account",
+            "scripts/flow_tui.py does not import (the card line has no model)",
+        )
+        return
+    home_obj = deck.Home(label="contract", path=home, kind="captain")
+    names = deck.load_account_names([home_obj]).get(home_obj.path, {})
+    _check_account_records(home, deck, names, report)
+    config = os.path.join(home, "config", "crew-accounts.json")
+    _check_account_config(config, deck, names, report)
+    _check_account_schema(home, config, report)
 
 
 def _check_status(paths: list[str], report: Report) -> None:
