@@ -126,6 +126,7 @@ def card_json(card) -> dict:
     # A slot the model never set reads as "" through getattr, and the phone
     # needs a boolean for its "show answered" switch.
     out["answered_hidden"] = bool(out.get("answered_hidden"))
+    out["agent_line"] = fm.UI.card_agent_line(card)
     return out
 
 

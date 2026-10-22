@@ -129,7 +129,7 @@ def test_firstmate_panes_are_left_out():
         meta = home / "state" / "crew-task.meta"
         meta.write_text("harness=claude\nherdr_pane_id=w2:p1\n")
         homes = [Home("captain", str(home), "captain")]
-        meta_index = {"crew-task": (str(meta), str(home))}
+        meta_index = {str(home): {"crew-task": str(meta)}}
         state = _state(
             [
                 _agent("w1:p1", "done", cwd=str(home)),  # the supervisor, by home cwd

@@ -349,9 +349,7 @@ function cardSignature(card) {
     card.badge_color,
     card.doing,
     card.owner,
-    card.agent,
-    card.model,
-    card.effort,
+    card.agent_line,
     card.run_elapsed,
     card.run_tokens,
     card.status_text,
@@ -562,8 +560,7 @@ function cardNode(card, columnId) {
 
   const meta = [];
   if (card.owner && card.owner !== "(main)") meta.push(card.owner);
-  const agent = [card.agent, card.model, card.effort].filter(Boolean).join(" ");
-  if (agent) meta.push(agent);
+  if (card.agent_line) meta.push(card.agent_line);
   if (card.run_elapsed) {
     meta.push(
       typeof card.run_elapsed === "number" ? fmtElapsed(card.run_elapsed) : card.run_elapsed

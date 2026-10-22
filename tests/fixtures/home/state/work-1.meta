@@ -1,4 +1,5 @@
 harness=claude
+account=/home/me/.claude-karolina
 model=opus
 effort=xhigh
 mode=direct-PR

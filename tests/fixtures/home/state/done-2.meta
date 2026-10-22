@@ -1,4 +1,9 @@
 harness=pi
+account=/home/me/.pi/agent
+account_provider=deepseek
+account_claude=claude-a
+claude_config_dir=/home/me/.claude-karolina
+codex_home=/home/me/.codex-lets-padel
 model=sonnet
 effort=medium
 mode=local-only

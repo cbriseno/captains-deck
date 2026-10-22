@@ -5,8 +5,9 @@ Shows every Firstmate home (captain + secondmates) as a crew tab, projected
 into five columns: Charted Next, Underway, Captain's Call, Awaiting Merge,
 Landed.
 
-Per ticket it shows a live status badge, the agent harness, model,
-thinking effort, and (on click / Enter) focuses the Herdr pane where that ticket's
+Per ticket it shows a live status badge, the running account (or the harness
+when the record names none), model, thinking effort, and (on click / Enter)
+focuses the Herdr pane where that ticket's
 agent runs, which selects it in the Herdr agents sidebar.
 
 Captain's Call is the one column that acts: clicking (or pressing Enter on) a
@@ -38,6 +39,7 @@ import sys
 import threading
 import time
 import unicodedata
+from typing import Any
 
 # ----------------------------------------------------------------------------
 # constants
@@ -1271,20 +1273,115 @@ def read_status_tail(path: str) -> tuple[str, str, int]:
     return m.group("state"), m.group("text")[:200], _int(m.group("at") or 0)
 
 
-def build_meta_index(homes: list[Home]) -> dict[str, tuple[str, str]]:
-    """task_id -> (meta_path, home_path) across all homes."""
-    index: dict[str, tuple[str, str]] = {}
+def build_meta_index(homes: list[Home]) -> dict[str, dict[str, str]]:
+    """home path -> task id -> state/<task>.meta path across all homes."""
+    index: dict[str, dict[str, str]] = {}
     for home in homes:
         state = os.path.join(home.path, "state")
         try:
             names = os.listdir(state)
         except OSError:
             continue
+        tasks = index.setdefault(home.path, {})
         for name in names:
             if name.endswith(".meta"):
                 task = name[: -len(".meta")]
-                index.setdefault(task, (os.path.join(state, name), home.path))
+                tasks.setdefault(task, os.path.join(state, name))
     return index
+
+
+def _store_key(path: str) -> str:
+    return os.path.normpath(os.path.expanduser(path.strip()))
+
+
+def _is_store_path(value: str) -> bool:
+    return os.path.isabs(value) or value.startswith("~")
+
+
+_ACCOUNT_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
+
+
+def _read_account_names(path: str) -> dict[str, str]:
+    """store path -> account name from one crew-accounts.json, cached by mtime."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return {}
+    cached = _ACCOUNT_CACHE.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    names: dict[str, str] = {}
+    try:
+        with open(path, errors="replace") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = None
+    entries = data.get("accounts") if isinstance(data, dict) else None
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name:
+                continue
+            for key in ("codex_home", "claude_config_dir"):
+                store = str(entry.get(key) or "").strip()
+                if store:
+                    names.setdefault(_store_key(store), name)
+    _ACCOUNT_CACHE[path] = (mtime, names)
+    return names
+
+
+def load_account_names(homes: list[Home]) -> dict[str, dict[str, str]]:
+    """home path -> store path -> account name from its crew-accounts.json.
+
+    Firstmate's account file is host-local and optional; a home without one
+    simply contributes no names and the card keeps its harness label.
+    """
+    names: dict[str, dict[str, str]] = {}
+    for home in homes:
+        if not home.path:
+            continue
+        path = os.path.join(home.path, "config", "crew-accounts.json")
+        names[home.path] = _read_account_names(path)
+    return names
+
+
+def account_label(meta: dict, store_names: dict[str, str]) -> str:
+    """The account running a ticket: ``claude-b``, ``codex-a``, ``deepseek``.
+
+    A worker meta records the account name directly (``account=``) or a store
+    path; a secondmate meta pins the name per vendor (``account_<vendor>``).
+    The store path resolves through the worker's own vendor field in each home's
+    ``crew-accounts.json``. A pi worker has no account name, so its provider
+    stands in. A meta that names no account returns an empty string and the card
+    keeps the harness label.
+    """
+    harness = (meta.get("harness") or "").strip()
+    vendor = "pi" if harness == "pi-signed" else harness
+    keys = ("account", f"account_{vendor}")
+    for key in keys:
+        value = (meta.get(key) or "").strip()
+        if value and value != "ordinary" and not _is_store_path(value):
+            return value
+    store_keys = list(keys)
+    store_field = {"claude": "claude_config_dir", "codex": "codex_home"}.get(vendor)
+    if store_field:
+        store_keys.append(store_field)
+    for key in store_keys:
+        value = (meta.get(key) or "").strip()
+        if value:
+            name = store_names.get(_store_key(value))
+            if name:
+                return name
+    if vendor == "pi":
+        model = (meta.get("model") or "").strip()
+        provider = (meta.get("account_provider") or "").strip()
+        if not provider and "/" in model:
+            provider = model.split("/", 1)[0].strip()
+        if provider:
+            return provider
+    return ""
 
 
 def bearings_flags() -> list[str]:
@@ -1355,7 +1452,7 @@ def _strip_owner(task_id: str) -> str:
 # Captain's Call decision cards
 # ----------------------------------------------------------------------------
 
-_BOARD_CARD_CACHE: dict[str, tuple[tuple, dict[str, dict]]] = {}
+_BOARD_CARD_CACHE: dict[str, tuple[tuple, dict[str, Any]]] = {}
 
 
 def _cards_from_json(data: object) -> dict[str, dict]:
@@ -1435,10 +1532,10 @@ def _store_entry(path: str) -> tuple[dict, str]:
     hit = _BOARD_CARD_CACHE.get(path)
     if hit is not None and hit[0] == sig:
         cached = hit[1]
-        card = cached.get("__card__")
-        stamp = cached.get("__stamp__")
-        if isinstance(card, dict) and isinstance(stamp, str):
-            return card, stamp
+        cached_card = cached.get("__card__")
+        cached_stamp = cached.get("__stamp__")
+        if isinstance(cached_card, dict) and isinstance(cached_stamp, str):
+            return cached_card, cached_stamp
     card: dict = {}
     stamp = ""
     try:
@@ -2044,6 +2141,7 @@ class Card:
         "badge_color",
         "doing",
         "agent",
+        "account",
         "model",
         "effort",
         "kind",
@@ -2077,7 +2175,7 @@ def _trunc(s: str, n: int) -> str:
 def make_cards(
     home: Home,
     snap: dict,
-    meta_index: dict[str, tuple[str, str]],
+    meta_index: dict[str, dict[str, str]],
     agents: dict[str, dict],
     panes: dict[str, dict],
     homes: list[Home] | None = None,
@@ -2094,6 +2192,8 @@ def make_cards(
     """
     cols: dict[str, list[Card]] = {key: [] for key, _ in COLUMNS}
     totals: dict[str, int] = {key: 0 for key, _ in COLUMNS}
+    home_list = list(homes) if homes else [home]
+    account_names = load_account_names(home_list)
 
     paths: dict[str, dict] = {}
     for p in snap.get("paths") or []:
@@ -2108,6 +2208,11 @@ def make_cards(
         raw_id = entry.get("id") or entry.get("key") or "?"
         card.id = raw_id
         card.task = _strip_owner(raw_id)
+        owner_path = home.path
+        if "/" in raw_id:
+            owner = resolve_owner_home(home_list, _owner_prefix(raw_id), None)
+            if owner is not None and owner.path:
+                owner_path = owner.path
         card.kind = (entry.get("kind") or "").strip()
         card.blocked_by = (entry.get("blocked_by") or "").strip()
         card.artifact = (entry.get("artifact") or "").strip()
@@ -2117,9 +2222,10 @@ def make_cards(
         p = paths.get(raw_id) or paths.get(card.task) or {}
         card.worktree = p.get("worktree") or ""
 
-        meta_path, meta_home = meta_index.get(card.task, ("", ""))
+        meta_path = (meta_index.get(owner_path) or {}).get(card.task, "")
         meta = read_meta(meta_path) if meta_path else {}
         card.agent = meta.get("harness", "")
+        card.account = account_label(meta, account_names.get(owner_path) or {})
         card.model = meta.get("model", "")
         card.effort = meta.get("effort", "")
         card.mode = meta.get("mode", "")
@@ -2146,7 +2252,7 @@ def make_cards(
         if live and not card.agent:
             card.agent = live.get("agent", "")
 
-        status_file = p.get("status") or os.path.join(meta_home or home.path, "state", f"{card.task}.status")
+        status_file = p.get("status") or os.path.join(owner_path, "state", f"{card.task}.status")
         st_state, st_text, _ = read_status_tail(status_file) if status_file else ("", "", 0)
         card.status_text = st_text
 
@@ -2305,13 +2411,14 @@ _AGENT_BADGES = {
 }
 
 
-def firstmate_pane_ids(meta_index: dict[str, tuple[str, str]]) -> set[str]:
+def firstmate_pane_ids(meta_index: dict[str, dict[str, str]]) -> set[str]:
     """Every Herdr pane a Firstmate task record names (state/<task>.meta)."""
     out: set[str] = set()
-    for meta_path, _home in meta_index.values():
-        pane = read_meta(meta_path).get("herdr_pane_id", "")
-        if pane:
-            out.add(pane)
+    for tasks in meta_index.values():
+        for meta_path in tasks.values():
+            pane = read_meta(meta_path).get("herdr_pane_id", "")
+            if pane:
+                out.add(pane)
     return out
 
 
@@ -2376,6 +2483,7 @@ def other_agent_cards(
         else:
             c.doing = ""
         c.agent = agent.get("display_agent") or agent.get("agent") or ""
+        c.account = ""
         c.model = c.effort = c.kind = c.worktree = c.branch = ""
         c.mode = f"{tab} \u00b7 {pid}" if tab else pid
         c.pane_id, c.workspace_id, c.tab_id = pid, ws_id, tab_id
@@ -2439,7 +2547,7 @@ class Collector(threading.Thread):
         self._force = False
         self._last_discover = 0.0
         self._raw: dict[str, tuple[dict, float, str]] = {}
-        self._meta_index: dict[str, tuple[str, str]] = {}
+        self._meta_index: dict[str, dict[str, str]] = {}
         self._meta_at = 0.0
         self._counts: dict[str, int] = {}
         self._landed_counts: dict[str, int] = {}
@@ -3924,7 +4032,16 @@ class UI:
 
     @staticmethod
     def card_agent_line(card: Card) -> str:
-        parts = [p for p in (card.agent, card.model, card.effort) if p]
+        """``account·model·effort``; the account names the subscription store.
+
+        A pi worker's model carries its provider prefix (``deepseek/...``), so
+        the prefix is dropped when the account line already shows it.
+        """
+        lead = getattr(card, "account", "") or card.agent
+        model = card.model
+        if lead and model.startswith(lead + "/"):
+            model = model.split("/", 1)[1]
+        parts = [p for p in (lead, model, card.effort) if p]
         return "\u00b7".join(parts) if parts else "no agent yet"
 
     @staticmethod
@@ -4222,7 +4339,7 @@ def _print_home_cols(label: str, path: str, cols: dict[str, list[Card]]) -> None
         cards = cols.get(key) or []
         print(f"  {title} ({len(cards)})")
         for c in cards:
-            agent = " ".join(p for p in (c.agent, c.model, c.effort) if p) or "-"
+            agent = UI.card_agent_line(c)
             pane = c.pane_id or "-"
             line = f"    {c.id} [{c.badge}] {agent} pane={pane}"
             if c.bucket == "charted":

@@ -52,7 +52,7 @@ Smaller, focused changes are easier to land than large rewrites.
 ## Repo conventions
 
 - `scripts/flow_tui.py` owns the Captain's Deck TUI; keep bash helpers in `scripts/`.
-- `scripts/fm_contract_check.py` owns the Firstmate contract check; add a field there and a matching fixture assertion when the deck reads a new surface.
+- `scripts/fm_contract_check.py` owns the Firstmate contract check; keep it and its fixture assertions aligned when you change a surface that it covers.
 - `herdr-plugin.toml` is the Herdr marketplace manifest; bump `version` when you ship user-visible behavior.
 - In Markdown, put each full sentence on its own line (same style as [Firstmate](https://github.com/kunchenguid/firstmate)).
 - `README.md` stays a concise overview; route long detail to comments in code or issue discussion unless it belongs in the README.

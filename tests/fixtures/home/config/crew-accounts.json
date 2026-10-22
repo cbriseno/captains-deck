@@ -1,0 +1,12 @@
+{
+  "accounts": [
+    {
+      "name": "claude-a",
+      "claude_config_dir": "/home/me/.claude-karolina"
+    },
+    {
+      "name": "codex-a",
+      "codex_home": "/home/me/.codex-lets-padel"
+    }
+  ]
+}

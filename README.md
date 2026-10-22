@@ -222,12 +222,17 @@ column including Landed when that column is visible.
 ```text
 ╭─ demo-issue-197 ─────────────────────╮
 │ ◐ validating                         │   live badge
-│ claude·opus·xhigh                    │   harness · model · thinking effort
+│ claude-a·opus·xhigh                  │   account (or harness) · model · thinking effort
 │ Add retry to the…                    │   title / summary / landed what
 │ 9m 59s · ↓ 55.5k tokens · xhigh      │   total run time · tokens · thinking
 │ ⌸ 4/my-app-feat…                     │   worktree (or ↗ PR artifact for landed)
 ╰──────────────────────────────────────╯
 ```
+
+`claude-a` is the subscription account that runs the ticket.
+For a local home, the deck reads it from the task meta and resolves store paths through that home's `config/crew-accounts.json`.
+A ticket with no account record keeps its harness label, and a pi worker shows its provider.
+Remote-home cards keep the harness label because their account metadata is not available locally.
 
 Badges: `● shipping`, `◐ validating`, `⛔ blocked`, `⚑ decision` /
 `⚑ captain`, `◍ awaits merge`, `⏸ parked` / `⏸ paused`, `⛔ failed`,
@@ -264,10 +269,11 @@ cards rather than an error. Three guards keep that visible:
 
 - **Contract check** - `scripts/fm-contract-check.sh --home ~/firstmate` (or
   `python3 scripts/fm_contract_check.py --home ~/firstmate --json`) runs the
-  home's `bin/fm-bearings-snapshot.sh --json --fields paths` and asserts every
-  section, item field, meta key, status line, decision card, and the
-  `fm-captain-hold.sh` / `fm-send.sh` intakes that the deck reads. Exit code 1
-  lists the missing surface; run it after an `updatefirstmate`.
+  home's `bin/fm-bearings-snapshot.sh --json --fields paths` and checks its
+  sections and selected item and task-meta fields. It also checks status lines,
+  decision cards, and the `fm-captain-hold.sh` / `fm-send.sh` intakes that the
+  deck reads. Exit code 1 lists the missing surface; run it after an
+  `updatefirstmate`.
 - **Recorded fixtures** - `tests/fixtures/` keeps a sanitized snapshot and a
   minimal home. `tests/test_fixture_board.py` proves the recorded shape still
   projects into the same columns, and `tests/test_fm_contract_check.py` proves
@@ -468,5 +474,6 @@ Report bugs, ask questions, or suggest features with a [new GitHub issue](https:
 - [Firstmate](https://github.com/kunchenguid/firstmate) — agent distro that runs
   the crew, closes worktrees into PRs (and optional yolo release), and owns the
   bearings snapshot and Captain's Call intake this board projects.
-- [Pi](https://pi.dev/) — one of the supported primary harnesses; each ticket
-  shows whichever harness, model, and thinking effort that home actually uses.
+- [Pi](https://pi.dev/) — one of the supported primary harnesses; see
+  [What each ticket shows](#what-each-ticket-shows) for its provider and model
+  display.
