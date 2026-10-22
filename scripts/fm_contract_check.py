@@ -3,11 +3,11 @@
 
 The deck reads a small set of Firstmate surfaces from the home and only ever
 writes through the guarded answer intakes. Firstmate updates itself, so this
-checker asserts those surfaces still exist and still parse:
+checker verifies that these parts still exist and still parse:
 
   - ``bin/fm-bearings-snapshot.sh --json --fields paths`` and the sections /
     item fields ``make_cards()`` reads
-  - ``state/<task>.meta`` keys the card uses
+  - the configured subset of ``state/<task>.meta`` keys
   - ``state/<task>.status`` tail lines (``<state> [at=<epoch>]: <text>``)
   - ``state/decision-cards/<task>.json`` (the ``fm-decision-card.v1`` store)
   - ``bin/fm-captain-hold.sh`` / ``bin/fm-send.sh`` exist and are executable
