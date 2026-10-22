@@ -61,6 +61,18 @@ ACCOUNT_CASES = (
         {"harness": "pi-signed", "account_provider": "deepseek", "model": "deepseek/chat"},
         "deepseek",
     ),
+    (
+        {
+            "harness": "pi",
+            "account": "/home/me/.pi/agent",
+            "account_provider": "deepseek",
+            "model": "deepseek/chat",
+            "account_claude": "claude-a",
+            "claude_config_dir": "/home/me/.claude-karolina",
+            "codex_home": "/home/me/.codex-lets-padel",
+        },
+        "deepseek",
+    ),
     ({"harness": "codex", "account": "ordinary"}, ""),
 )
 STATUS_RE = re.compile(

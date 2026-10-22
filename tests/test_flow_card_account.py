@@ -65,6 +65,47 @@ def test_pi_provider_becomes_the_label():
     assert flow.account_label(meta, {}) == "deepseek"
 
 
+def test_pi_worker_ignores_the_vendor_store_block():
+    with tempfile.TemporaryDirectory() as tmp:
+        write_accounts(tmp, ACCOUNTS)
+        home = flow.Home(label="home", path=tmp, kind="captain")
+        names = flow.load_account_names([home])
+        meta = {
+            "harness": "pi",
+            "account": "/home/me/.pi/agent",
+            "account_provider": "deepseek",
+            "model": "deepseek/deepseek-flash",
+            "account_claude": "claude-a",
+            "claude_config_dir": "/home/me/.claude-karolina",
+            "codex_home": "/home/me/.codex-lets-padel",
+        }
+        card = flow.Card()
+        card.agent = "pi"
+        card.account = flow.account_label(meta, names)
+        card.model = meta["model"]
+        card.effort = "max"
+        assert flow.UI.card_agent_line(card) == "deepseek\u00b7deepseek-flash\u00b7max"
+
+
+def test_each_vendor_reads_only_its_own_store_field():
+    with tempfile.TemporaryDirectory() as tmp:
+        write_accounts(tmp, ACCOUNTS)
+        home = flow.Home(label="home", path=tmp, kind="captain")
+        names = flow.load_account_names([home])
+        claude = {
+            "harness": "claude",
+            "account": "/home/me/.claude-unknown",
+            "codex_home": "/home/me/.codex-lets-padel",
+        }
+        codex = {
+            "harness": "codex",
+            "account": "/home/me/.codex-unknown",
+            "claude_config_dir": "/home/me/.claude-karolina",
+        }
+        assert flow.account_label(claude, names) == ""
+        assert flow.account_label(codex, names) == ""
+
+
 def test_store_path_in_account_maps_through_crew_accounts():
     with tempfile.TemporaryDirectory() as tmp:
         write_accounts(tmp, ACCOUNTS)

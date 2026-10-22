@@ -1352,9 +1352,10 @@ def account_label(meta: dict, store_names: dict[str, str]) -> str:
 
     A worker meta records the account name directly (``account=``) or a store
     path; a secondmate meta pins the name per vendor (``account_<vendor>``).
-    Every store path resolves through each home's ``crew-accounts.json``. A pi
-    worker has no account name, so its provider stands in. A meta that names no
-    account returns an empty string and the card keeps the harness label.
+    The store path resolves through the worker's own vendor field in each home's
+    ``crew-accounts.json``. A pi worker has no account name, so its provider
+    stands in. A meta that names no account returns an empty string and the card
+    keeps the harness label.
     """
     harness = (meta.get("harness") or "").strip()
     vendor = "pi" if harness == "pi-signed" else harness
@@ -1363,7 +1364,11 @@ def account_label(meta: dict, store_names: dict[str, str]) -> str:
         value = (meta.get(key) or "").strip()
         if value and value != "ordinary" and not _is_store_path(value):
             return value
-    for key in (*keys, f"{vendor}_home", "claude_config_dir", "codex_home"):
+    store_keys = list(keys)
+    store_field = {"claude": "claude_config_dir", "codex": "codex_home"}.get(vendor)
+    if store_field:
+        store_keys.append(store_field)
+    for key in store_keys:
         value = (meta.get(key) or "").strip()
         if value:
             name = store_names.get(_store_key(value))
