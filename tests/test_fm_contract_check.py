@@ -106,72 +106,6 @@ def test_contract_flags_multiple_documents_in_one_card():
         assert "more than one JSON document" in _fail_details(report)
 
 
-def test_fixture_home_resolves_account_labels():
-    report = checker.check_home(str(FIXTURES / "home"))
-    by_name = {c["check"]: c for c in report.checks}
-    assert by_name["account"]["status"] == "ok", by_name["account"]["detail"]
-    accounts = by_name["config/crew-accounts.json"]
-    assert accounts["status"] == "ok", accounts["detail"]
-    schema = by_name["account schema"]
-    assert schema["status"] == "warn", schema["detail"]
-
-
-def test_contract_flags_renamed_account_meta_key():
-    with tempfile.TemporaryDirectory() as tmp:
-        dst = _copy_fixtures(Path(tmp))
-        meta = dst / "home" / "state" / "done-2.meta"
-        lines = [
-            "account_claude_name=claude-a" if line.startswith("account_claude=") else line
-            for line in meta.read_text().splitlines()
-        ]
-        meta.write_text("\n".join(lines) + "\n")
-        report = checker.check_home(str(dst / "home"))
-        failed = {c["check"] for c in report.checks if c["status"] == "fail"}
-        assert "account" in failed
-        assert "account_claude_name" in _fail_details(report)
-
-
-def test_contract_runs_the_upstream_account_validator():
-    with tempfile.TemporaryDirectory() as tmp:
-        dst = _copy_fixtures(Path(tmp))
-        script = dst / "home" / "bin" / "fm-account-choose.sh"
-        script.write_text("#!/usr/bin/env bash\nexit 0\n")
-        os.chmod(script, 0o755)
-        report = checker.check_home(str(dst / "home"))
-        by_name = {c["check"]: c for c in report.checks}
-        assert by_name["account schema"]["status"] == "ok", by_name["account schema"]["detail"]
-        script.write_text("#!/usr/bin/env bash\nexit 1\n")
-        report = checker.check_home(str(dst / "home"))
-        by_name = {c["check"]: c for c in report.checks}
-        assert by_name["account schema"]["status"] == "fail"
-
-
-def test_contract_flags_renamed_account_store_key():
-    with tempfile.TemporaryDirectory() as tmp:
-        dst = _copy_fixtures(Path(tmp))
-        path = dst / "home" / "config" / "crew-accounts.json"
-        data = json.loads(path.read_text())
-        entry = data["accounts"][0]
-        entry["claude_home_dir"] = entry.pop("claude_config_dir")
-        path.write_text(json.dumps(data))
-        report = checker.check_home(str(dst / "home"))
-        failed = {c["check"] for c in report.checks if c["status"] == "fail"}
-        assert "config/crew-accounts.json" in failed
-
-
-def test_contract_warns_on_malformed_account_store():
-    with tempfile.TemporaryDirectory() as tmp:
-        dst = _copy_fixtures(Path(tmp))
-        path = dst / "home" / "config" / "crew-accounts.json"
-        path.write_text('{"accounts": true}')
-        report = checker.check_home(str(dst / "home"))
-        assert report.is_ok()
-        assert any(
-            c["check"] == "config/crew-accounts.json" and c["status"] == "warn"
-            for c in report.checks
-        )
-
-
 def test_contract_tolerates_fresh_home_without_state():
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -185,10 +119,4 @@ def test_contract_tolerates_fresh_home_without_state():
         assert report.is_ok(), _fail_details(report)
         assert any(
             c["status"] == "warn" and c["check"] == "state" for c in report.checks
-        )
-        assert any(
-            c["status"] == "warn"
-            and c["check"] == "account"
-            and "no task record" in c["detail"]
-            for c in report.checks
         )

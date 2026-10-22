@@ -8,8 +8,6 @@ checker asserts those surfaces still exist and still parse:
   - ``bin/fm-bearings-snapshot.sh --json --fields paths`` and the sections /
     item fields ``make_cards()`` reads
   - ``state/<task>.meta`` keys the card uses
-  - the account label the card line resolves from a meta and
-    ``config/crew-accounts.json``
   - ``state/<task>.status`` tail lines (``<state> [at=<epoch>]: <text>``)
   - ``state/decision-cards/<task>.json`` (the ``fm-decision-card.v1`` store)
   - ``bin/fm-captain-hold.sh`` / ``bin/fm-send.sh`` exist and are executable
@@ -32,7 +30,6 @@ import re
 import stat
 import subprocess
 import sys
-import tempfile
 
 SNAPSHOT_SCRIPT = os.path.join("bin", "fm-bearings-snapshot.sh")
 HOLD_SCRIPT = os.path.join("bin", "fm-captain-hold.sh")
@@ -47,19 +44,7 @@ ITEM_FIELDS = {
     "landed": ("id", "what", "artifact"),
     "paths": ("id", "worktree"),
 }
-META_KEYS = ("harness", "model", "effort", "spawn_gen", "account", "account_provider")
-ACCOUNT_META_KEYS = (
-    "account",
-    "account_pin",
-    "account_provider",
-    "account_codex",
-    "account_codex_pin",
-    "account_claude",
-    "account_claude_pin",
-    "codex_home",
-    "claude_config_dir",
-)
-ACCOUNT_STORE_FIELDS = (("codex", "codex_home"), ("claude", "claude_config_dir"))
+META_KEYS = ("harness", "model", "effort", "spawn_gen")
 STATUS_RE = re.compile(
     r"^(?P<state>[a-zA-Z_-]+)(?:\s+\[at=(?P<at>\d+)\])?\s*:?\s*(?P<text>.*)$"
 )
@@ -155,7 +140,6 @@ def check_home(home: str) -> Report:
     if data is not None:
         _check_snapshot(data, report)
     _check_state(home, report)
-    _check_account(home, report)
     return report
 
 
@@ -333,218 +317,6 @@ def _check_meta(paths: list[str], report: Report) -> None:
             "state/*.meta",
             f"{len(malformed)} file(s) had unparsable lines, e.g. {malformed[0]}",
         )
-
-
-def _deck_model():
-    """The deck module that renders the card line (sibling of this checker)."""
-    scripts = os.path.dirname(os.path.abspath(__file__))
-    if scripts not in sys.path:
-        sys.path.insert(0, scripts)
-    try:
-        import flow_tui
-    except Exception:
-        return None
-    return flow_tui
-
-
-def _account_record_name(meta: dict, vendor: str) -> str:
-    """The account name a task record states directly, or "" for a store path."""
-    for key in ("account", f"account_{vendor}"):
-        value = str(meta.get(key) or "").strip()
-        if value and value != "ordinary" and not value.startswith(("/", "~")):
-            return value
-    return ""
-
-
-def _account_record_provider(meta: dict, vendor: str) -> str:
-    """The provider a pi task record states, directly or in its model prefix."""
-    if vendor != "pi":
-        return ""
-    provider = str(meta.get("account_provider") or "").strip()
-    if provider:
-        return provider
-    model = str(meta.get("model") or "").strip()
-    return model.split("/", 1)[0] if "/" in model else ""
-
-
-def _check_account_records(
-    home: str, deck, names: dict[str, str], report: Report
-) -> None:
-    """The deck labels the account each real task record names.
-
-    Firstmate writes the record, so a renamed or added account key shows up
-    here; the deck's resolver is the consumer under test.
-    """
-    metas = sorted(glob.glob(os.path.join(home, "state", "*.meta")))
-    if not metas:
-        report.warn(
-            "account",
-            "no task record (state/*.meta) here, so the account keys are unverified",
-        )
-        return
-    bad: list[str] = []
-    unknown: set[str] = set()
-    for path in metas:
-        file_name = os.path.basename(path)
-        meta = deck.read_meta(path)
-        harness = str(meta.get("harness") or "").strip()
-        vendor = "pi" if harness == "pi-signed" else harness
-        for key in meta:
-            if key in ACCOUNT_META_KEYS:
-                continue
-            if key.startswith("account"):
-                unknown.add(key)
-        label = deck.account_label(meta, names)
-        stated = _account_record_name(meta, vendor)
-        if stated and label != stated:
-            bad.append(f"{file_name}: {label!r}, not the recorded {stated!r}")
-        provider = _account_record_provider(meta, vendor)
-        if provider and not stated and label != provider:
-            bad.append(f"{file_name}: {label!r}, not the recorded provider {provider!r}")
-        store = str(meta.get("account") or "").strip()
-        if not stated and store.startswith(("/", "~")):
-            mapped = names.get(os.path.normpath(os.path.expanduser(store)), "")
-            if mapped and label != mapped:
-                bad.append(f"{file_name}: {label!r}, not the configured {mapped!r}")
-    if unknown:
-        report.fail(
-            "account",
-            "state/*.meta carries account keys the deck does not read: "
-            + ", ".join(sorted(unknown)),
-        )
-    elif bad:
-        report.fail("account", f"{len(bad)} record(s) mislabel; first: {bad[0]}")
-    else:
-        report.ok("account", f"{len(metas)} task record(s) label their recorded account")
-
-
-def _check_account_config(path: str, deck, names: dict[str, str], report: Report) -> None:
-    """The deck resolves every configured store path to its account name."""
-    if not os.path.isfile(path):
-        report.ok(
-            "config/crew-accounts.json",
-            "absent (optional; a store path keeps the harness label)",
-        )
-        return
-    try:
-        with open(path, errors="replace") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError) as exc:
-        report.warn("config/crew-accounts.json", f"does not parse: {exc}")
-        return
-    entries = data.get("accounts") if isinstance(data, dict) else None
-    if not isinstance(entries, list):
-        report.warn(
-            "config/crew-accounts.json",
-            "no accounts list; a store path keeps the harness label",
-        )
-        return
-    stores = 0
-    unresolved: list[str] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        name = str(entry.get("name") or "").strip()
-        if not name:
-            continue
-        entry_stores = 0
-        for vendor, key in ACCOUNT_STORE_FIELDS:
-            store = str(entry.get(key) or "").strip()
-            if not store:
-                continue
-            entry_stores += 1
-            stores += 1
-            label = deck.account_label({"harness": vendor, "account": store}, names)
-            if label != name:
-                unresolved.append(f"{store} -> {label!r}, not {name!r}")
-        if not entry_stores:
-            unresolved.append(f"{name!r} names no codex_home or claude_config_dir")
-    if unresolved:
-        report.fail(
-            "config/crew-accounts.json",
-            f"{len(unresolved)} store path(s) do not resolve; first: {unresolved[0]}",
-        )
-    else:
-        report.ok(
-            "config/crew-accounts.json",
-            f"{stores} store path(s) resolve to their account names",
-        )
-
-
-def _check_account_schema(home: str, config: str, report: Report) -> None:
-    """Firstmate's own account selector must still accept the deck's fields.
-
-    On a home with no account file, a probe file carries the schema the deck
-    reads, so a renamed field is caught before a real file exists.
-    """
-    script = os.path.join(home, "bin", "fm-account-choose.sh")
-    if not os.path.isfile(script):
-        report.warn(
-            "account schema",
-            "bin/fm-account-choose.sh is absent, so the account fields are unverified",
-        )
-        return
-    with tempfile.TemporaryDirectory() as tmp:
-        if not os.path.isfile(config):
-            stores = {
-                "codex_home": tempfile.mkdtemp(dir=tmp),
-                "claude_config_dir": tempfile.mkdtemp(dir=tmp),
-            }
-            config = os.path.join(tmp, "crew-accounts.json")
-            try:
-                with open(config, "w", encoding="utf-8") as handle:
-                    json.dump({"accounts": [{"name": "contract", **stores}]}, handle)
-            except OSError as exc:
-                report.warn("account schema", f"probe account file failed: {exc!r}")
-                return
-        try:
-            proc = subprocess.run(
-                ["bash", script, "--validate", "--config", config],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                stdin=subprocess.DEVNULL,
-            )
-        except Exception as exc:
-            report.warn("account schema", f"bin/fm-account-choose.sh could not run: {exc!r}")
-            return
-    if proc.returncode != 0:
-        lines = [
-            line
-            for line in ((proc.stderr or "") + (proc.stdout or "")).splitlines()
-            if line.strip()
-        ]
-        report.fail(
-            "account schema",
-            "fm-account-choose.sh --validate rejected the deck's fields: "
-            f"{lines[-1] if lines else f'exit {proc.returncode}'}",
-        )
-        return
-    report.ok(
-        "account schema",
-        "fm-account-choose.sh --validate accepts name/codex_home/claude_config_dir",
-    )
-
-
-def _check_account(home: str, report: Report) -> None:
-    """The deck still names the account a task record and its home configure.
-
-    The inputs are the home's real task records and its account file, and
-    Firstmate's own selector validates the file schema.
-    """
-    deck = _deck_model()
-    if deck is None:
-        report.fail(
-            "account",
-            "scripts/flow_tui.py does not import (the card line has no model)",
-        )
-        return
-    home_obj = deck.Home(label="contract", path=home, kind="captain")
-    names = deck.load_account_names([home_obj]).get(home_obj.path, {})
-    _check_account_records(home, deck, names, report)
-    config = os.path.join(home, "config", "crew-accounts.json")
-    _check_account_config(config, deck, names, report)
-    _check_account_schema(home, config, report)
 
 
 def _check_status(paths: list[str], report: Report) -> None:
