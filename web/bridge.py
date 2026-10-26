@@ -27,12 +27,13 @@ from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
+from localization import Localization
 import flow_tui as fm  # noqa: E402
 from deck_platform import endpoint_path, private_directory, safe_file_reads, shell_command
 
 STATIC = HERE / 'static'
-COLUMNS = [('charted', 'Por comenzar'), ('underway', 'En curso'),
-           ('captains_call', 'Tu decisión'), ('landed', 'Entregado')]
+COLUMNS = [('charted', 'Up next'), ('underway', 'Underway'),
+           ('captains_call', 'Your decision'), ('landed', 'Delivered')]
 MAX_BODY = 16384
 
 
@@ -51,21 +52,21 @@ def home_id(home):
     return hashlib.sha256(fm.delivery_home_identity(home).encode('utf-8')).hexdigest()[:32]
 
 
-def event_json(event):
+def event_json(event, translate=None):
     if not isinstance(event, fm.CardTime):
         event = fm.CardTime('Updated')
     return {'label': event.label, 'epoch': event.epoch,
             'date': event.day.isoformat() if event.day else None,
             'source': event.source, 'problem': event.problem,
-            'detail': fm.card_time_detail(event)}
+            'detail': fm.card_time_detail(event, translate=translate)}
 
 
-def human_title(value):
+def human_title(value, translate=lambda text: text):
     # Canonical titles sometimes retain a report link as a trailing token.
     # Keep the original in Details; a filesystem location is not the headline.
     text = fm.readable_markdown(str(value or ''))
     text = re.sub(r'(?<!\S)(?:data/|/[^\s]*/data/)[^\s]+\.(?:md|json|txt)(?=\s|$)', '', text)
-    return re.sub(r'\s+', ' ', text).strip(' ·–-') or 'Tarea sin título legible'
+    return re.sub(r'\s+', ' ', text).strip(' ·–-') or translate('Task without a readable title')
 
 
 class Collector(fm.Collector):
@@ -83,18 +84,23 @@ class Collector(fm.Collector):
         result = super()._load_bearings(home, now, agents, panes, homes)
         after = self._raw.get(home.label, ({}, 0, ''))[1]
         if stale:
-            self.source_errors[home.label] = '' if after > before else 'No se pudo actualizar Firstmate.'
+            self.source_errors[home.label] = '' if after > before else 'Could not refresh Firstmate.'
         return result
 
 
 class Board:
-    def __init__(self, data_dir, herdr_origin='', collector=None):
+    def __init__(self, data_dir, herdr_origin='', collector=None, language=None):
+        self.i18n = Localization(language if language is not None else os.environ.get('CD_WEB_LANGUAGE', 'en'))
+        self.t = self.i18n.t
         self.collector = collector or Collector()
         self.data_dir = Path(data_dir).expanduser().absolute()
         self.herdr_origin = herdr_origin
         self.mutation_lock = threading.Lock()
         self.history_lock = threading.Lock()
         self.history_cache = {}
+
+    def event_json(self, event):
+        return event_json(event, self.t)
 
     def start(self):
         self.collector.start()
@@ -115,7 +121,7 @@ class Board:
     def home(self, identity):
         matches = [h for h in self.homes() if home_id(h) == identity]
         if len(matches) != 1:
-            raise Refusal('El home ya no está disponible o su identidad es ambigua.', 404)
+            raise Refusal('The home is unavailable or its identity is ambiguous.', 404)
         return matches[0]
 
     def owner(self, card):
@@ -128,7 +134,7 @@ class Board:
         else:
             matches = [h for h in homes if h.path == card.home_path]
         if len(matches) != 1:
-            raise Refusal('El responsable de esta tarea no está confirmado.')
+            raise Refusal('The owner of this task is unconfirmed.')
         return matches[0]
 
     def key(self, card):
@@ -142,7 +148,7 @@ class Board:
         matches = [c for column, _ in COLUMNS for c in self.collector.snapshot().cols.get(column, [])
                    if self.key(c) == key]
         if len(matches) != 1:
-            raise Refusal('Esta tarea cambió o ya no está en la vista. Actualiza el tablero.', 404)
+            raise Refusal('This task changed or is no longer in view. Refresh the board.', 404)
         return matches[0]
 
     def card_json(self, card):
@@ -151,7 +157,7 @@ class Board:
             owner = self.owner(card)
         except Refusal:
             pass
-        context = fm.flow_context(card)
+        context = fm.flow_context(card, translate=self.t)
         report_state, report_text, report_time = fm.durable_report(card)
         pane = str(getattr(card, 'pane_id', '') or '')
         # The installed Herdr Web supports ?machine=local&pane=…&view=chat.
@@ -159,17 +165,17 @@ class Board:
         link = ''
         if self.herdr_origin and owner and not fm.is_remote_home(owner) and pane:
             link = self.herdr_origin + '/?' + urlencode({'machine': 'local', 'pane': pane, 'view': 'chat'})
-        return {'key': self.key(card), 'task': card.task, 'title': human_title(card.title),
+        return {'key': self.key(card), 'task': card.task, 'title': human_title(card.title, self.t),
                 'original_title': card.title,
-                'bucket': card.bucket, 'owner': owner.label if owner else 'Responsable sin confirmar',
+                'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unconfirmed owner'),
                 'home': home_id(owner) if owner else '', 'context': context,
-                'report': {'state': report_state, 'text': report_text, 'time': event_json(report_time)},
+                'report': {'state': report_state, 'text': report_text, 'time': self.event_json(report_time)},
                 'native': {'state': getattr(card, 'snapshot_state', '') or 'unknown',
-                           'detail': getattr(card, 'doing', '') or 'Sin observación registrada.',
+                           'detail': getattr(card, 'doing', '') or self.t('No observation recorded.'),
                            'herdr': getattr(card, 'live_status', '') or 'unknown'},
                 'dependencies': getattr(card, 'dependencies', []) or [],
                 'supervisor': getattr(card, 'supervisor', {}) or {},
-                'time': event_json(getattr(card, 'event_time', None)),
+                'time': self.event_json(getattr(card, 'event_time', None)),
                 'summary': getattr(card, 'delivery_summary', '') or '',
                 'answered': bool(getattr(card, 'answered_hidden', False)),
                 'agent': fm.UI.card_agent_line(card), 'herdr_url': link}
@@ -183,7 +189,7 @@ class Board:
             cards = [self.card_json(c) for c in snap.cols.get(key, [])]
             if chosen:
                 cards = [c for c in cards if c['home'] == selected]
-            columns.append({'id': key, 'title': title, 'cards': cards})
+            columns.append({'id': key, 'title': self.t(title), 'cards': cards})
         sources = []
         for h in homes:
             if chosen and home_id(h) != selected:
@@ -192,22 +198,22 @@ class Board:
             error = getattr(self.collector, 'source_errors', {}).get(h.label, '')
             sources.append({'home': home_id(h), 'label': h.label,
                             'received_at': received, 'generated': raw.get('generated', ''),
-                            'error': error, 'remote': fm.is_remote_home(h),
+                            'error': self.t(error), 'remote': fm.is_remote_home(h),
                             'supervisor': raw.get('supervisor') or {}})
         return {'seq': snap.seq, 'collected_at': snap.collected_at,
                 'server_at': time.time(), 'loading': bool(snap.loading),
-                'error': snap.error, 'sources': sources,
+                'error': self.t(snap.error), 'sources': sources,
                 'homes': [{'id': home_id(h), 'label': h.label} for h in homes],
                 'columns': columns, 'home': selected,
                 'source_ttl': fm._bearings_ttl(),
-                'retention': 'Recientes es una vista limitada. El historial busca sólo entregas retenidas; no recupera registros borrados.'}
+                'retention': self.t('Recent is a limited view. History searches retained deliveries only; it cannot recover deleted records.')}
 
     def receipts(self, actor):
         directory = self.data_dir / 'answers'
         if not directory.exists():
             return []
         if directory.is_symlink():
-            raise Refusal('Directorio de recibos inseguro.')
+            raise Refusal('Unsafe receipt directory.')
         result = []
         for path in sorted(directory.glob('*.json'))[:1000]:
             if not re.fullmatch(r'[a-f0-9]{64}\.json', path.name):
@@ -218,18 +224,18 @@ class Board:
                     result.append({k: v for k, v in data.items() if k not in ('actor', 'payload_hash')})
             except (OSError, ValueError):
                 continue
-        return sorted(result, key=lambda r: r.get('at', 0), reverse=True)[:10]
+        return sorted((self.present_receipt(r) for r in result), key=lambda r: r.get('at', 0), reverse=True)[:10]
 
     def resolve(self, identity, task, view, actor, item=''):
         if not fm.KEY_RE.fullmatch(task) or view not in ('call', 'delivery'):
-            raise Refusal('Enlace de tarea inválido.', 400)
+            raise Refusal('Invalid task link.', 400)
         home = self.home(identity)
         if view == 'delivery':
             try:
                 return {'view': 'delivery', 'delivery': self.delivery(identity, task),
-                        'notice': 'La entrega se identifica por home y tarea. El historial no permite verificar el identificador del aviso original.' if item else ''}
+                        'notice': self.t('The delivery is identified by home and task. History cannot verify the original notification identifier.') if item else ''}
             except Refusal as exc:
-                return {'view': 'unavailable', 'task': task, 'owner': home.label, 'message': str(exc), 'receipts': []}
+                return {'view': 'unavailable', 'task': task, 'owner': home.label, 'message': self.t(str(exc)), 'receipts': []}
         matches = []
         for card in self.collector.snapshot().cols.get('captains_call', []):
             try:
@@ -237,7 +243,7 @@ class Board:
                     matches.append(card)
             except Refusal:
                 continue
-        message = 'Esta tarea ya no aparece entre las preguntas actuales. Puede haberse resuelto, reabierto o cambiado de estado; este enlace no prueba cuál. Consulta el tablero o sus recibos.'
+        message = 'This task is no longer among current questions. It may have been resolved, reopened or changed state; this link does not prove which. Check the board or its receipts.'
         current_key = self.key(matches[0]) if len(matches) == 1 else ''
         occurrence = re.fullmatch(r'hold:([1-9][0-9]{0,8})', item)
         if current_key:
@@ -248,8 +254,8 @@ class Board:
                 ordinal = int(current.rsplit('#', 1)[1]) + 1
                 if occurrence and int(occurrence[1]) == ordinal:
                     return {'view': 'call', 'key': current_key}
-                message = ('El aviso corresponde a una pregunta anterior o a una identidad no verificable. '
-                           'No se presenta la pregunta actual como si fuera la del aviso. Puedes abrirla explícitamente para revisarla.')
+                message = ('The notification refers to an earlier question or an unverifiable identity. '
+                           'The current question is not presented as the notification’s question. You can explicitly open it for review.')
             except Refusal:
                 pass
         if occurrence and not fm.is_remote_home(home):
@@ -259,11 +265,11 @@ class Board:
                                         capture_output=True, text=True, timeout=15,
                                         stdin=subprocess.DEVNULL)
                 if result.returncode == 0:
-                    message = 'La pregunta de este aviso ya está resuelta, según el intake canónico de Firstmate. Este enlace no vuelve a enviar una respuesta.'
+                    message = 'The question from this notification is resolved according to Firstmate’s canonical intake. This link does not resend an answer.'
             except (OSError, subprocess.SubprocessError):
                 pass
         return {'view': 'unavailable', 'task': task, 'owner': home.label,
-                'message': message, 'current_key': current_key,
+                'message': self.t(message), 'current_key': current_key,
                 'receipts': [r for r in self.receipts(actor) if r.get('home') == identity and r.get('task') == task]}
 
     def records(self, home, force=False):
@@ -271,7 +277,7 @@ class Board:
         with self.history_lock:
             rows, note, at = self.history_cache.get(identity, ([], '', 0))
             if force or time.time() - at > 15:
-                rows, note = fm.delivery_records(home)
+                rows, note = fm.delivery_records(home, translate=self.t)
                 self.history_cache[identity] = rows, note, time.time()
             return rows, note
 
@@ -287,54 +293,52 @@ class Board:
                     continue
                 event = fm.producer_card_time(row.get('card_time'), 'landed',
                                               fm.CardTime('Delivered', row.get('closed')))
-                result.append({'task': row['id'], 'title': human_title(row.get('title') or row['id']),
+                result.append({'task': row['id'], 'title': human_title(row.get('title') or row['id'], self.t),
                                'home': home_id(home), 'owner': home.label,
-                               'time': event_json(event), 'closed': row.get('closed') or ''})
+                               'time': self.event_json(event), 'closed': row.get('closed') or ''})
         result.sort(key=lambda row: (row['closed'], row['task'], row['home']), reverse=True)
         return {'records': result[:1000], 'omitted': max(0, len(result) - 1000),
-                'details': details, 'scope': 'Entregas retenidas por Firstmate. Recientes tiene un límite distinto; buscar no cambia la retención.'}
+                'details': details, 'scope': self.t('Deliveries retained by Firstmate. Recent has a separate limit; searching does not change retention.')}
 
     def delivery(self, identity, task):
         home = self.home(identity)
         if not fm.KEY_RE.fullmatch(task):
-            raise Refusal('Identidad de tarea inválida.', 400)
+            raise Refusal('Invalid task identity.', 400)
         rows, note = self.records(home, force=True)
         matches = [r for r in rows if r['id'] == task]
         if len(matches) != 1:
-            raise Refusal('Esta entrega ya no está retenida o la tarea se reabrió.', 404)
+            raise Refusal('This delivery is no longer retained or the task was reopened.', 404)
         record = matches[0]
-        content = fm.delivery_content(record, home, split_views=True)
+        content = fm.delivery_content(record, home, split_views=True, translate=self.t, report_heading=False)
         if not isinstance(content, dict):
-            content = {'summary': 'No hay resumen disponible para esta entrega.', 'report': '', 'details': content}
-        # The TUI's report lead is a keyboard hint/path; the web has its own tabs.
-        content['report'] = re.sub(r'^Informe completo[^\n]*\n*', '', content['report'])
+            content = {'summary': self.t('No summary is available for this delivery.'), 'report': '', 'details': content}
         return {'task': task, 'home': identity, 'owner': home.label,
-                'title': human_title(record.get('title') or task), **content, 'sources': note,
-                'time': event_json(fm.producer_card_time(record.get('card_time'), 'landed',
+                'title': human_title(record.get('title') or task, self.t), **content, 'sources': note,
+                'time': self.event_json(fm.producer_card_time(record.get('card_time'), 'landed',
                                                        fm.CardTime('Delivered', record.get('closed'))))}
 
     def explanation(self, identity, task, status=True):
         home = self.home(identity)
         if not fm.KEY_RE.fullmatch(task):
-            raise Refusal('Identidad de tarea inválida.', 400)
+            raise Refusal('Invalid task identity.', 400)
         rows, _ = self.records(home, force=not status)
         if len([row for row in rows if row['id'] == task]) != 1:
-            raise Refusal('Esta entrega ya no está retenida o la tarea se reabrió.', 404)
-        return fm.explanation_request(home, task, status=status)
+            raise Refusal('This delivery is no longer retained or the task was reopened.', 404)
+        return fm.explanation_request(home, task, status=status, translate=self.t)
 
     def call_identity(self, home, task):
         if fm.is_remote_home(home) or not fm.KEY_RE.fullmatch(task):
-            raise Refusal('Este home no ofrece respuestas web verificables.')
+            raise Refusal('This home does not offer verifiable web answers.')
         script = Path(endpoint_path(home.path, 'fm-captain-hold.sh'))
         try:
             result = subprocess.run(shell_command(script, 'open', task, '--identity'),
                                     env=self.child_env(home), capture_output=True, text=True,
                                     stdin=subprocess.DEVNULL, timeout=15)
         except (OSError, subprocess.SubprocessError):
-            raise Refusal('No se pudo comprobar la pregunta actual. Se conserva el borrador.')
+            raise Refusal('Could not check the current question. Your draft is preserved.')
         identity = result.stdout.strip()
         if result.returncode != 0 or not re.fullmatch(r'[^\s#]+#\d+', identity):
-            raise Refusal('La pregunta ya no está abierta o su ocurrencia no se puede verificar.')
+            raise Refusal('The question is no longer open or its occurrence cannot be verified.')
         return identity
 
     @staticmethod
@@ -352,7 +356,7 @@ class Board:
         # The confirmed owning home is the active context, never aggregate All.
         content = fm.decision_card_content(card, self.homes(), home)
         if os.path.realpath(content['home_path']) != fm.delivery_home_identity(home):
-            raise Refusal('El intake no coincide con el home responsable.')
+            raise Refusal('The intake does not match the owning home.')
         context = fm.flow_context(card)
         if context['phase'] == 'human' and not content.get('about'):
             content['about'] = context['reason']
@@ -368,7 +372,7 @@ class Board:
         try:
             identity = self.call_identity(home, card.task)
             guarded = self.guarded_intake(home)
-            error = '' if guarded else 'El intake de este home necesita el guard de ocurrencia para responder desde web.'
+            error = '' if guarded else 'This home’s intake needs an occurrence guard for web answers.'
         except Refusal as exc:
             identity, error = '', str(exc)
         result['call'] = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'options',
@@ -377,6 +381,11 @@ class Board:
         result['call']['occurrence'] = digest(home_id(home), card.task, identity, content['stamp'],
                                             fm.flow_context(card)['reason'], result['call'])
         result['call']['error'] = error
+        display = fm.decision_card_content(card, self.homes(), home, translate=self.t)
+        if not display.get('about') and result['context']['phase'] == 'human':
+            display['about'] = result['context']['reason']
+        result['call']['presentation'] = {k: display[k] for k in ('about', 'decide', 'freeform_hint', 'options')}
+        result['call']['error'] = self.t(error)
         result['call']['answer_limit'] = min(fm.ANSWER_LIMIT, 512)
         return result
 
@@ -396,53 +405,53 @@ class Board:
 
     def submit(self, key, body, actor):
         if not all(isinstance(body.get(k, ''), str) for k in ('value', 'note', 'occurrence', 'request_id')):
-            raise Refusal('Formato de respuesta inválido.', 400)
+            raise Refusal('Invalid answer format.', 400)
         request_id = body.get('request_id', '')
         if not re.fullmatch(r'[a-zA-Z0-9_-]{16,80}', request_id):
-            raise Refusal('Falta el identificador de envío.', 400)
+            raise Refusal('Missing submission identifier.', 400)
         occurrence = body.get('occurrence', '')
         if not re.fullmatch(r'[a-f0-9]{64}', occurrence):
-            raise Refusal('Falta la ocurrencia de la pregunta.', 400)
+            raise Refusal('Missing question occurrence.', 400)
         # One immutable receipt per occurrence, across clients and server restarts.
         # Lock is held across validation/intake; Firstmate additionally owns CAS.
         if not safe_file_reads():
-            raise Refusal('El backend seguro de respuestas requiere POSIX; ejecuta Deck y Firstmate en WSL.', 503)
+            raise Refusal('The secure answer backend requires POSIX; run Deck and Firstmate in WSL.', 503)
         with self.mutation_lock:
             receipt_dir = self.data_dir / 'answers'
             if receipt_dir.is_symlink():
-                raise Refusal('Directorio de recibos inseguro.')
+                raise Refusal('Unsafe receipt directory.')
             path = receipt_dir / (digest(key, occurrence) + '.json')
             payload_hash = digest(key, occurrence, body.get('value', ''), body.get('note', ''))
             if path.exists() or path.is_symlink():
                 try:
                     previous = json.loads(fm.delivery_read(str(self.data_dir), str(path), 65536))
                 except (OSError, ValueError):
-                    raise Refusal('Recibo no verificable; Firstmate debe revisar este envío.')
+                    raise Refusal('Unverifiable receipt; Firstmate must review this submission.')
                 if previous.get('payload_hash') != payload_hash or previous.get('actor') != actor:
-                    raise Refusal('Esta ocurrencia ya tiene otro envío. Tu borrador se conserva.')
-                return dict(previous, replay=True)
+                    raise Refusal('This occurrence already has another submission. Your draft is preserved.')
+                return self.present_receipt(dict(previous, replay=True))
             card = self.card(key)
             if card.bucket != 'captains_call':
-                raise Refusal('La tarea ya no espera una respuesta humana.')
+                raise Refusal('The task is no longer waiting for a human answer.')
             home = self.owner(card)
             ticket = self.ticket(key)
             call = ticket['call']
             if call['error']:
                 raise Refusal(call['error'])
             if not secrets.compare_digest(call['occurrence'], occurrence):
-                raise Refusal('La pregunta cambió. Revisa la versión actual; tu borrador se conserva.')
+                raise Refusal('The question changed. Review the current version; your draft is preserved.')
             value, note = body.get('value', '').strip(), body.get('note', '').strip()
             # The installed keyed intake bounds each field to 512 bytes. Reject
             # rather than silently truncate the captain's words.
             if any(ch in value + note for ch in ('\x00', '\t', '\n', '\r')):
-                raise Refusal('La respuesta debe ocupar una sola línea; no se ha enviado.', 400)
+                raise Refusal('The answer must be a single line; it has not been sent.', 400)
             if len(note.encode()) > min(fm.ANSWER_LIMIT, 512):
-                raise Refusal('La respuesta supera 512 bytes; acórtala antes de enviarla.', 400)
+                raise Refusal('The answer exceeds 512 bytes; shorten it before sending.', 400)
             options = call['options']
             if value and value not in [o['value'] for o in options]:
-                raise Refusal('Esa opción ya no está disponible.')
+                raise Refusal('That option is no longer available.')
             if (not value and (not call['freeform'] or not note)):
-                raise Refusal('Elige una opción o escribe una respuesta.', 400)
+                raise Refusal('Choose an option or write an answer.', 400)
             content = self.content(card, home)
             dialog = fm.DecisionDialog(content)
             dialog.selected = next((i for i, opt in enumerate(options) if opt['value'] == value), -1)
@@ -455,7 +464,7 @@ class Board:
                 fields[2] = fm._flatten_field(card.title)[:80]
                 line = '\t'.join(fields)
             if any(len(field.encode()) > 512 for field in line.split('\t')):
-                raise Refusal('La opción y el texto juntos superan el límite del intake.', 400)
+                raise Refusal('The option and text together exceed the intake limit.', 400)
             # No write until all checks pass. The pending marker is deliberately
             # durable: after an interrupted call retry cannot submit twice.
             receipt_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -463,7 +472,7 @@ class Board:
                        'home': home_id(home), 'task': card.task, 'title': card.title, 'occurrence': occurrence,
                        'at': time.time(), 'saved': None, 'notice': 'unknown',
                        'ack': 'unknown', 'consumed': 'unknown', 'state': 'uncertain',
-                       'message': 'Envío iniciado. Si la conexión se interrumpe, verifica este recibo antes de repetir.'}
+                       'message': 'Submission started. If the connection drops, check this receipt before retrying.'}
             self.store_receipt(path, receipt, exclusive=True)
             try:
                 args = ['reconcile-requests', '--source-id', fm.DECISION_SOURCE_ID,
@@ -479,7 +488,7 @@ class Board:
                                                  env=self.child_env(home), capture_output=True, text=True,
                                                  stdin=subprocess.DEVNULL, timeout=15)
                         if binding.returncode:
-                            raise Refusal('No se pudo vincular el intake de revisión.')
+                            raise Refusal('Could not bind the review intake.')
                 args += ['--expected-identity', call['identity']]
                 process = subprocess.run(shell_command(endpoint_path(home.path, 'fm-captain-hold.sh'), *args),
                                          input=line + '\n', text=True, capture_output=True,
@@ -487,9 +496,9 @@ class Board:
                 output = (process.stdout + '\n' + process.stderr).strip()
                 receipt.update(state='saved' if process.returncode == 0 else 'uncertain',
                                saved=True if process.returncode == 0 else None,
-                               message=('Solicitud de revisión guardada.' if value == 'reconcile' else
-                                        'Respuesta guardada por Firstmate.') if process.returncode == 0 else
-                                       'El intake no confirmó el envío. Verifica el recibo; tu borrador se conserva.',
+                               message=('Review request saved.' if value == 'reconcile' else
+                                        'Answer saved by Firstmate.') if process.returncode == 0 else
+                                       'The intake did not confirm submission. Check the receipt; your draft is preserved.',
                                detail=fm.delivery_text(output)[-4000:])
                 if process.returncode == 3:
                     try:
@@ -498,14 +507,19 @@ class Board:
                         conflict = {}
                     if conflict.get('error') == 'identity-conflict':
                         receipt.update(state='conflict', saved=False, notice='none',
-                                       message='La ocurrencia cambió antes de guardar. No se envió la respuesta; tu borrador se conserva.')
+                                       message='The occurrence changed before saving. The answer was not sent; your draft is preserved.')
                 # Success is durable intake acceptance, never native execution,
                 # wake acknowledgement or consumption by the owning agent.
                 self.collector.refresh_now()
             except (OSError, subprocess.SubprocessError, Refusal) as exc:
-                receipt.update(message='No se pudo confirmar el envío. Tu borrador se conserva.', detail=str(exc))
+                receipt.update(message='Could not confirm submission. Your draft is preserved.', detail=str(exc))
             self.store_receipt(path, receipt)
-            return receipt
+            return self.present_receipt(receipt)
+
+    def present_receipt(self, receipt):
+        # Old receipt messages are bridge-owned text. Only this field is migrated
+        # for display; receipt files, authored titles and intake output stay intact.
+        return dict(receipt, message=self.i18n.receipt_message(receipt.get("message", "")))
 
     def store_receipt(self, path, receipt, exclusive=False):
         flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
@@ -545,9 +559,9 @@ class Security:
         elif self.origin and host == urlsplit(self.origin).netloc and forwarded in self.users:
             expected, actor = self.origin, forwarded
         else:
-            raise Refusal('Identidad u origen no autorizado.', 403)
+            raise Refusal('Unauthorized identity or origin.', 403)
         if origin and origin != expected:
-            raise Refusal('Origen no autorizado.', 403)
+            raise Refusal('Unauthorized origin.', 403)
         # A clicked dashboard/notification link may cross sites or schemes,
         # including through a redirect. Permit only the user-activated GET
         # document entry; API reads, subresources, frames and all POSTs keep
@@ -560,14 +574,14 @@ class Security:
             handler.headers.get('Sec-Fetch-User', '') == '?1'
         )
         if handler.headers.get('Sec-Fetch-Site', '') == 'cross-site' and not document_entry:
-            raise Refusal('Petición de otro sitio rechazada.', 403)
+            raise Refusal('Cross-site request rejected.', 403)
         if unsafe and (origin != expected or handler.headers.get('Content-Type', '').split(';')[0] != 'application/json'):
-            raise Refusal('La acción requiere el origen exacto y JSON.', 403)
+            raise Refusal('The action requires the exact origin and JSON.', 403)
         cookie = http.cookies.SimpleCookie()
         try:
             cookie.load(handler.headers.get('Cookie', ''))
         except http.cookies.CookieError:
-            raise Refusal('Sesión inválida.', 403)
+            raise Refusal('Invalid session.', 403)
         sid = cookie['deck_session'].value if 'deck_session' in cookie else ''
         with self.lock:
             now = time.time()
@@ -575,12 +589,12 @@ class Security:
             session = self.sessions.get(sid)
             if not session or session[0] != actor:
                 if unsafe:
-                    raise Refusal('La sesión expiró. Actualiza sin perder el borrador.', 403)
+                    raise Refusal('The session expired. Refresh without losing your draft.', 403)
                 sid = secrets.token_urlsafe(32)
                 session = (actor, secrets.token_urlsafe(32), now)
                 self.sessions[sid] = session
             if unsafe and not secrets.compare_digest(handler.headers.get('X-Deck-CSRF', ''), session[1]):
-                raise Refusal('Token de acción inválido. Actualiza sin perder el borrador.', 403)
+                raise Refusal('Invalid action token. Refresh without losing your draft.', 403)
         return actor, session[1], sid, expected.startswith('https:')
 
 
@@ -598,6 +612,7 @@ class Server(ThreadingHTTPServer):
     def __init__(self, address, board, security):
         super().__init__(address, Handler)
         self.board, self.security = board, security
+        self.i18n = board.i18n if board is not None else Localization('en')
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -620,7 +635,7 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlsplit(self.path)
             path = unquote(parsed.path)
             if '\\' in path or '\x00' in path or any(p in ('.', '..') for p in path.split('/')):
-                raise Refusal('Ruta inválida.', 400)
+                raise Refusal('Invalid route.', 400)
             query = parse_qs(parsed.query)
             value = lambda key: query.get(key, [''])[0]
             parts = path.strip('/').split('/')
@@ -629,16 +644,18 @@ class Handler(BaseHTTPRequestHandler):
             status = 200
             if unsafe:
                 if self.headers.get('Transfer-Encoding'):
-                    raise Refusal('Transfer-Encoding no permitido.', 400)
+                    raise Refusal('Transfer-Encoding is not allowed.', 400)
                 length = int(self.headers.get('Content-Length', '0'))
                 if not 0 < length <= MAX_BODY:
-                    raise Refusal('Petición demasiado grande o vacía.', 413)
+                    raise Refusal('Request is too large or empty.', 413)
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
-                    raise Refusal('Se necesita un objeto JSON.', 400)
+                    raise Refusal('A JSON object is required.', 400)
             if not unsafe and path == '/health':
                 data = board.health()
                 status = 200 if data['ok'] else 503
+            elif not unsafe and path == '/api/locale':
+                data = self.server.i18n.client()
             elif not unsafe and path == '/api/board':
                 data = board.board(value('home'))
                 data['csrf'] = csrf
@@ -658,25 +675,25 @@ class Handler(BaseHTTPRequestHandler):
                 elif len(parts) == 5 and parts[4] == 'explanation':
                     data = board.explanation(parts[2], parts[3], status=not unsafe)
                 else:
-                    raise Refusal('Ruta no disponible.', 404)
+                    raise Refusal('Route unavailable.', 404)
             elif not unsafe and not path.startswith('/api/'):
                 rel = path.lstrip('/') or 'index.html'
                 try:
                     content = fm.delivery_read(str(STATIC), rel, 2 * 1024 * 1024).encode() if not rel.endswith('.png') else self.read_binary(rel)
                 except (OSError, ValueError):
-                    raise Refusal('Archivo no disponible.', 404)
+                    raise Refusal('File unavailable.', 404)
                 self.respond(200, content, mimetypes.guess_type(rel)[0] or 'application/octet-stream', sid, secure)
                 return
             else:
-                raise Refusal('Ruta no disponible.', 404)
+                raise Refusal('Route unavailable.', 404)
             self.respond(status, json.dumps(data, ensure_ascii=False).encode(), 'application/json; charset=utf-8', sid, secure)
         except (Refusal, ValueError, json.JSONDecodeError) as exc:
-            self.respond(getattr(exc, 'status', 400), json.dumps({'error': str(exc)}).encode())
+            self.respond(getattr(exc, 'status', 400), json.dumps({'error': self.server.i18n.t(str(exc))}).encode())
         except (BrokenPipeError, ConnectionResetError):
             return
         except Exception as exc:
             print(f'bridge request failed: {type(exc).__name__}: {exc}', file=sys.stderr)
-            self.respond(500, b'{"error":"No se pudo completar la consulta. El borrador se conserva."}')
+            self.respond(500, json.dumps({'error': self.server.i18n.t('Could not complete the request. Your draft is preserved.')}).encode())
 
     def read_binary(self, relative):
         # Icons are repo-owned static files, never a report path from a client.

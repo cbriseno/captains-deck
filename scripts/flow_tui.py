@@ -1823,8 +1823,14 @@ def _decision_lookup_homes(
     return ordered
 
 
+def _presentation_text(message, legacy=None, **values):
+    """Default shared wording; web supplies a catalog without changing TUI text."""
+    text = legacy if legacy is not None else message
+    return text.format_map(values) if values else text
+
+
 def decision_card_content(
-    card: Card, homes: list[Home] | None, active: Home | None
+    card: Card, homes: list[Home] | None, active: Home | None, *, translate=None
 ) -> dict:
     """Normalized dialog content for a Captain's Call ticket.
 
@@ -1833,6 +1839,7 @@ def decision_card_content(
     and the captain answers in their own words - or sends Reconcile to have the
     call re-checked.
     """
+    tr = translate or _presentation_text
     owner_home = resolve_owner_home(homes, card.owner, active)
     raw, stamp = decision_card_record(
         card.task, *_decision_lookup_homes(homes, owner_home, active)
@@ -1856,7 +1863,7 @@ def decision_card_content(
     # The board's build injects the standard reconcile choice on every decision
     # card; do the same for a raw payload or a card-less ticket.
     if ctype == "decision" and all(o["value"] != "reconcile" for o in options):
-        options.append(dict(RECONCILE_OPTION))
+        options.append({k: tr(v) if k in ('label', 'hint') else v for k, v in RECONCILE_OPTION.items()})
     recommend = raw.get("recommend_value")
     repo = str(raw.get("repo") or "")
     if not repo and card.owner and card.owner != "(main)":
@@ -1885,11 +1892,11 @@ def decision_card_content(
         # a truncated reason stub is noise, not context
         if about.endswith("\u2026") and len(about) < 24:
             about = ""
-        decide = "Answer in your own words, or send Reconcile to re-check the latest state."
+        decide = tr('Answer in your own words, or send Reconcile to re-check the latest state.')
     elif not title:
         title = str(card.title or card.task)
     if not decide:
-        decide = "Pick an option below, or answer in your own words."
+        decide = tr('Pick an option below, or answer in your own words.')
     home_path = answer_home_path(card, homes, active)
     return {
         "key": card.task,
@@ -1903,7 +1910,7 @@ def decision_card_content(
         "recommend": recommend if isinstance(recommend, str) else "",
         "freeform": bool(raw.get("allow_freeform")) if raw else True,
         "freeform_hint": _flatten_field(
-            raw.get("freeform_hint") or "or answer in your own words\u2026"
+            raw.get("freeform_hint") or tr('or answer in your own words…')
         ),
         "close": raw.get("close") if raw.get("close") in ("done", "release") else "",
         "home_path": home_path,
@@ -2455,32 +2462,33 @@ def card_time_line(event: CardTime, width: int, now: float | None = None) -> str
     return next((candidate for candidate in candidates if display_width(candidate) <= width), clip(candidates[-1], width))
 
 
-def card_time_detail(event: CardTime) -> str:
+def card_time_detail(event: CardTime, *, translate=None) -> str:
+    tr = translate or _presentation_text
     if event.day is not None:
-        value = f"{event.day.isoformat()} (date only; time and timezone not recorded)"
+        value = tr('{date} (date only; time and timezone not recorded)', date=event.day.isoformat())
     elif event.epoch is not None:
         utc = datetime.fromtimestamp(event.epoch, timezone.utc)
-        value = f"{utc.astimezone().isoformat()} (terminal local); {utc.isoformat()} (UTC)"
+        value = tr('{local} (terminal local); {utc} (UTC)', local=utc.astimezone().isoformat(), utc=utc.isoformat())
         if event.epoch > time.time():
-            value += "; future timestamp: check producer/terminal clock"
+            value += tr('; future timestamp: check producer/terminal clock')
     else:
-        value = event.problem
-    detail = f"{event.label}: {value}. Source: {event.source}."
+        value = tr(event.problem) if translate else event.problem
+    detail = tr('{label}: {value}. Source: {source}.', label=tr(event.label), value=value, source=event.source)
     if event.producer_kind:
         precision = "date" if event.day is not None else "second"
-        detail += f" Producer event: {event.producer_kind}; precision: {precision}."
+        detail += tr(' Producer event: {kind}; precision: {precision}.', kind=event.producer_kind, precision=precision)
     if event.event_id:
-        detail += f" Event ID: {event.event_id}."
+        detail += tr(' Event ID: {id}.', id=event.event_id)
     if event.exported_value:
-        detail += f" Exported value: {event.exported_value}."
+        detail += tr(' Exported value: {value}.', value=event.exported_value)
     context_labels = {"original_value": "Original value", "attempt_boundary": "Attempt boundary",
                       "attempt": "Attempt", "current_attempt": "Current attempt (context only)"}
     for name, context in event.producer_context.items():
-        detail += f" {context_labels[name]}: {context}."
+        detail += tr(' {label}: {value}.', label=tr(context_labels[name]), value=context)
     if event.rejected_context:
-        detail += " Ignored invalid producer context: " + ", ".join(event.rejected_context) + "."
+        detail += tr(' Ignored invalid producer context: {fields}.', fields=", ".join(event.rejected_context))
     if event.rejected_producer:
-        detail += f" Producer card_time ignored: {event.rejected_producer}; fallback shown."
+        detail += tr(' Producer card_time ignored: {reason}; fallback shown.', reason=event.rejected_producer)
     return detail
 
 
@@ -2999,12 +3007,13 @@ def _tasks_read(data):
     return json.loads(result.stdout)
 
 
-def delivery_records(home: Home, task_id: str = "") -> tuple[list[dict], str]:
+def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[list[dict], str]:
     """Current and configured archive, without changing done_keep or any rows.
     Unsupported backends/remotes report the missing surface explicitly.
     """
+    tr = translate or _presentation_text
     if is_remote_home(home) or is_aggregate_home(home):
-        return [], 'History unavailable here; choose a local home. Remote history needs a read-only archive export from Firstmate.'
+        return [], tr('History unavailable here; choose a local home. Remote history needs a read-only archive export from Firstmate.')
     # New public, read-only contract; old homes retain the canonical-reader
     # fallback below. Failure is visible instead of silently hiding archives.
     endpoint = endpoint_path(home.path, 'fm-delivery-history.sh')
@@ -3017,11 +3026,11 @@ def delivery_records(home: Home, task_id: str = "") -> tuple[list[dict], str]:
                                     text=True, timeout=15, stdin=subprocess.DEVNULL)
             data = json.loads(result.stdout)
             if result.returncode or data.get('schema') != 'fm-delivery-history.v1' or os.path.realpath(data.get('home', '')) != os.path.realpath(home.path):
-                raise ValueError('respuesta de historial inválida o de otro home')
+                raise ValueError(tr('invalid history response or different home', 'respuesta de historial inválida o de otro home'))
             rows = []
             for record in data.get('records', []):
                 if not isinstance(record, dict) or not isinstance(record.get('id'), str) or not KEY_RE.fullmatch(record['id']):
-                    raise ValueError('registro de historial inválido')
+                    raise ValueError(tr('invalid history record', 'registro de historial inválido'))
                 row = dict(record, home_path=home.path, owner_label=home.label,
                            delivery_identity=delivery_home_identity(home))
                 completion = record.get('completion')
@@ -3034,18 +3043,18 @@ def delivery_records(home: Home, task_id: str = "") -> tuple[list[dict], str]:
                 row.setdefault('source', 'Firstmate history')
                 if not task_id or record['id'] == task_id:
                     rows.append(row)
-            note = 'Historial retenido de Firstmate. ' + json.dumps(data.get('retention', {}), ensure_ascii=False)
-            note += ' · Fuentes: ' + json.dumps(data.get('sources', []), ensure_ascii=False)
-            note += ' · Recientes es una vista limitada; historial sólo incluye lo conservado, no recupera registros borrados.'
+            note = tr('Retained Firstmate history. ', 'Historial retenido de Firstmate. ') + json.dumps(data.get('retention', {}), ensure_ascii=False)
+            note += tr(' · Sources: ', ' · Fuentes: ') + json.dumps(data.get('sources', []), ensure_ascii=False)
+            note += tr(' · Recent is limited; history includes retained records only and cannot recover deleted records.', ' · Recientes es una vista limitada; historial sólo incluye lo conservado, no recupera registros borrados.')
             if not data.get('complete'):
-                note += ' · incomplete: ' + '; '.join(map(str, data.get('limitations') or []))
+                note += tr(' · incomplete: ') + '; '.join(map(str, data.get('limitations') or []))
             if not task_id or rows:
                 return rows, note
             # History intentionally excludes reopened tasks. Preserve the
             # existing current-record check when opening a stale Landed card.
-            endpoint_warning = 'El historial público no retiene esta entrega; se consulta el registro canónico actual para detectar reapertura.'
+            endpoint_warning = tr('Public history does not retain this delivery; checking the current canonical record for reopening.', 'El historial público no retiene esta entrega; se consulta el registro canónico actual para detectar reapertura.')
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-            endpoint_warning = f'History export unavailable: {exc}; respaldo del lector canónico local'
+            endpoint_warning = tr('History export unavailable: {error}; local canonical reader fallback', 'History export unavailable: {error}; respaldo del lector canónico local', error=exc)
     notes, rows, active_ids = ([endpoint_warning] if endpoint_warning else []), {}, set()
     try:
         config = _tasks_read({'config': delivery_read(home.path, '.tasks.toml', 65536)})
@@ -3106,11 +3115,11 @@ def delivery_records(home: Home, task_id: str = "") -> tuple[list[dict], str]:
                     rows[key] = task
             notes.append(f'{source}: {path}')
         except FileNotFoundError:
-            notes.append(f'{source}: {path} missing; retained history may be incomplete')
+            notes.append(tr('{source}: {path} missing; retained history may be incomplete', source=source, path=path))
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
-            notes.append(f'{source} unavailable: {exc}; retained history may be incomplete')
+            notes.append(tr('{source} unavailable: {error}; retained history may be incomplete', source=source, error=exc))
     ordered = sorted(rows.values(), key=lambda r: (r.get('closed', ''), r['id']), reverse=True)
-    return ordered, '; '.join(notes) + f'. Retained deliveries only; no retention changes. done_keep={cfg.get("done_keep", "no especificado")}: límite del backlog actual; el archivo conserva los registros que aún existan. Recientes no es todo el historial; no se recuperan registros borrados.'
+    return ordered, '; '.join(notes) + tr('. Retained deliveries only; no retention changes. done_keep={count}: current backlog limit; archive retains existing records. Recent is not all history; deleted records cannot be recovered.', '. Retained deliveries only; no retention changes. done_keep={count}: límite del backlog actual; el archivo conserva los registros que aún existan. Recientes no es todo el historial; no se recuperan registros borrados.', count=cfg.get('done_keep', tr('not specified', 'no especificado')))
 
 
 def delivery_home_identity(home: Home) -> str:
@@ -3245,15 +3254,16 @@ def readable_markdown(text: str) -> str:
     return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
-def concise_delivery(text: str, title: str) -> str:
+def concise_delivery(text: str, title: str, *, translate=None) -> str:
     """Quote authored content, with explicit bounds and no generated claims."""
+    tr = translate or _presentation_text
     plain = readable_markdown(re.sub(r'\A\s*# [^\n]*\n+', '', text))
     if not plain:
-        return readable_markdown(title) + '\n\nNo hay un resumen retenido. Consulta el informe o pide una explicación a Firstmate.'
+        return readable_markdown(title) + '\n\n' + tr('No summary is retained. Read the report or ask Firstmate for an explanation.', 'No hay un resumen retenido. Consulta el informe o pide una explicación a Firstmate.')
     explicit_result = re.search(r'^#{1,6}\s+(?:Result|Resultado)\s*:?', text, re.M | re.I)
     technical_receipt = re.match(r'^(ready in branch|(?:para|for) (?:root|firstmate)\b|owner application status|head\s*:|commit\s*:)', plain, re.I)
     if not explicit_result and (len(plain) > 1500 or technical_receipt):
-        return readable_markdown(title) + '\n\nLa entrega conserva un informe técnico, pero no un resumen breve del resultado. Consulta Detalles o pide una explicación a Firstmate.'
+        return readable_markdown(title) + '\n\n' + tr('The delivery retains a technical report but no brief result summary. Read Details or ask Firstmate for an explanation.', 'La entrega conserva un informe técnico, pero no un resumen breve del resultado. Consulta Detalles o pide una explicación a Firstmate.')
     if len(plain) <= 1500:
         return plain
     # A technical recap can be hundreds of lines. Preserve it in Details, and
@@ -3262,7 +3272,7 @@ def concise_delivery(text: str, title: str) -> str:
     excerpt = readable_markdown(excerpt)
     if len(excerpt) > 900:
         excerpt = excerpt[:900].rsplit(' ', 1)[0] + '…'
-    return excerpt + '\n\nResumen abreviado del contenido retenido. Detalles conserva el texto completo.'
+    return excerpt + '\n\n' + tr('Abbreviated summary of retained content. Details retains the full text.', 'Resumen abreviado del contenido retenido. Detalles conserva el texto completo.')
 
 
 def local_time_caption(event: CardTime, now: float | None = None) -> str:
@@ -3297,31 +3307,33 @@ def compact_time_caption(event: CardTime, width: int) -> str:
     return 'Sin fecha/hora' if width >= 14 else '?'
 
 
-def delivery_content(record: dict, home: Home, board_time: CardTime | None = None, *, split_views: bool = False):
+def delivery_content(record: dict, home: Home, board_time: CardTime | None = None, *, split_views: bool = False, translate=None, report_heading=True):
+    tr = translate or _presentation_text
     task = record['id']
     if not delivery_home_identity(home):
-        return 'Delivery owner unavailable: choose the owning crew tab; All is not a filesystem home.'
-    header = (f"Task: {task}\nTitle: {record.get('title') or record.get('what') or task}\n"
-              f"Home: {home.label}\nKind: {record.get('kind') or 'not recorded'}\nState: {record.get('state') or 'landed (snapshot)'}\n"
-              f"Completion: {record.get('verb') or 'not recorded'} · {record.get('closed') or 'date unavailable'}\n"
-              f"Source: {record.get('source') or 'recent snapshot'}\n"
-              "Scope: this delivery/task only; broader intent is not inferred.\n"
-              "Read marks are local reading history, not acceptance or approval.\n")
-    header += "Completion time: " + card_time_detail(CardTime(
+        return tr('Delivery owner unavailable: choose the owning crew tab; All is not a filesystem home.')
+    header = tr('Task: {task}\nTitle: {title}\nHome: {home}\nKind: {kind}\nState: {state}\nCompletion: {verb} · {closed}\nSource: {source}\nScope: this delivery/task only; broader intent is not inferred.\nRead marks are local reading history, not acceptance or approval.\n', task=task,
+                title=record.get('title') or record.get('what') or task,
+                home=home.label, kind=record.get('kind') or tr('not recorded'),
+                state=record.get('state') or 'landed (snapshot)',
+                verb=record.get('verb') or tr('not recorded'),
+                closed=record.get('closed') or tr('date unavailable'),
+                source=record.get('source') or tr('recent snapshot'))
+    header += tr('Completion time: ') + card_time_detail(CardTime(
         "Delivered", record.get("closed"),
-        f"{record.get('source') or 'recent snapshot'} canonical completion field closed")) + "\n"
+        f"{record.get('source') or 'recent snapshot'} canonical completion field closed"), translate=translate) + "\n"
     if board_time is not None:
-        header += "Board time: " + card_time_detail(board_time) + "\n"
+        header += tr('Board time: ') + card_time_detail(board_time, translate=translate) + "\n"
     if record.get('body'):
-        header += '\nCanonical task notes:\n' + record['body'] + '\n'
+        header += tr('\nCanonical task notes:\n') + record['body'] + '\n'
     if record.get('artifact') not in ('', '-', None):
-        header += '\nRecorded artifact: ' + record['artifact'] + '\n'
+        header += tr('\nRecorded artifact: ') + record['artifact'] + '\n'
     if is_remote_home(home):
-        return delivery_text('Remote report/recap unavailable: no local artifact export. Ask the owning home for a read-only report export. Snapshot text may be abbreviated.\n\n' + header)
+        return delivery_text(tr('Remote report/recap unavailable: no local artifact export. Ask the owning home for a read-only report export. Snapshot text may be abbreviated.\n\n') + header)
     try:
         prefix = delivery_task_prefix(task)
     except ValueError:
-        return delivery_text(header + '\nUnsafe task path refused; no artifact read.')
+        return delivery_text(header + tr('\nUnsafe task path refused; no artifact read.'))
     queue = [prefix + 'delivery.md', prefix + 'recap.md', prefix + 'report.md']
     for link in record.get('links') or []:
         if link.get('kind') == 'report':
@@ -3338,13 +3350,13 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
         seen.add(path)
         relative = os.path.relpath(path, os.path.realpath(home.path)) if os.path.isabs(path) else path
         if '..' in path.split('/') or not relative.startswith(prefix) or not relative.endswith(('.md', '.txt', '.json')):
-            sections.append(f'Artifact refused (outside task/text scope): {path}')
+            sections.append(tr('Artifact refused (outside task/text scope): {path}', path=path))
             continue
         try:
             text = delivery_read(home.path, relative, DELIVERY_FILE_LIMIT)
             total += len(text.encode())
             if total > DELIVERY_TOTAL_LIMIT:
-                sections.append('Artifact total exceeds 2 MiB read limit; remaining artifacts unavailable.')
+                sections.append(tr('Artifact total exceeds 2 MiB read limit; remaining artifacts unavailable.'))
                 break
             documents.append((relative, text))
             # Render linked local text inline. Never execute HTML, shell, URL
@@ -3352,49 +3364,49 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
             for target in re.findall(r'\[[^\]\n]*\]\(([^)\n]+)\)', text):
                 target = target.strip().strip('<>')
                 if re.match(r'^[A-Za-z][A-Za-z0-9+.-]*:', target):
-                    sections.append(f'External link (text only, not opened): {target}')
+                    sections.append(tr('External link (text only, not opened): {target}', target=target))
                 elif target.endswith(('.md', '.json', '.txt')):
                     queue.append(target if os.path.isabs(target) or target.startswith('data/') else
                                  os.path.join(os.path.dirname(relative), target))
         except FileNotFoundError:
             if path not in (prefix + 'delivery.md', prefix + 'recap.md', prefix + 'report.md',
                             prefix + 'application-receipt.json', prefix + 'package-receipt.json'):
-                sections.append(f'Artifact missing: {path}')
+                sections.append(tr('Artifact missing: {path}', path=path))
         except (OSError, ValueError) as exc:
-            sections.append(f'Artifact unavailable: {path}: {exc}')
+            sections.append(tr('Artifact unavailable: {path}: {error}', path=path, error=exc))
     if queue:
-        sections.append('Artifact link/read limit reached (32 paths); remaining artifacts not read.')
+        sections.append(tr('Artifact link/read limit reached (32 paths); remaining artifacts not read.'))
     curated = next(((p, t) for p, t in documents if p in (prefix + 'delivery.md', prefix + 'recap.md')
                     and delivery_excerpt(t)), None)
     report = next(((p, t) for p, t in documents if p == prefix + 'report.md' and t.strip()), None)
     if report is None:
         report = next(((p, t) for p, t in documents if p not in (prefix + 'delivery.md', prefix + 'recap.md')
                        and p.endswith(('.md', '.txt')) and t.strip()), None)
-    lead = 'Full report: r / [Report]\n\n' if report else 'Report unavailable: no full report retained for this task.\n\n'
+    lead = tr('Full report: r / [Report]\n\n') if report else tr('Report unavailable: no full report retained for this task.\n\n')
     if curated:
         lead += re.sub(r'\A\s*# [^\n]*\n+', '', curated[1]).strip() + '\n\n'
     else:
-        lead += 'No curated recap (delivery.md or recap.md); showing retained report prose where available.\n\n'
+        lead += tr('No curated recap (delivery.md or recap.md); showing retained report prose where available.\n\n')
     ordered = []
     if report:
-        ordered.append(f'Full report: {report[0]}\n{report[1]}')
+        ordered.append(tr('Full report: {path}\n{text}', path=report[0], text=report[1]))
     for path, text in documents:
         if curated and path == curated[0] or report and path == report[0]:
             continue
-        label = 'Curated recap (home-authored)' if path in (prefix + 'delivery.md', prefix + 'recap.md') else 'Artifact'
-        ordered.append(f'{label}: {path}\n{text}')
-    details = 'Delivery details\n' + header
+        label = tr('Curated recap (home-authored)') if path in (prefix + 'delivery.md', prefix + 'recap.md') else tr('Artifact')
+        ordered.append(tr('{label}: {path}\n{text}', label=label, path=path, text=text))
+    details = tr('Delivery details\n') + header
     if curated:
-        details += '\nCurated recap (home-authored): ' + curated[0]
+        details += tr('\nCurated recap (home-authored): ') + curated[0]
     if record.get('state') and record['state'] != 'done':
-        lead = 'Current task state: ' + record['state'] + '; the retained delivery below is historical.\n\n' + lead
+        lead = tr('Current task state: {state}; the retained delivery below is historical.\n\n', state=record['state']) + lead
     full = delivery_text(lead + '\n\n'.join(ordered) + '\n\n' + details + '\n\n' + '\n\n'.join(sections))
     if split_views:
-        summary = concise_delivery(curated[1] if curated else '', record.get('title') or record.get('what') or task)
+        summary = concise_delivery(curated[1] if curated else '', record.get('title') or record.get('what') or task, translate=translate)
         if record.get('state') and record['state'] != 'done':
-            summary = 'La tarea se reabrió; esta entrega es histórica.\n\n' + summary
+            summary = tr('The task was reopened; this delivery is historical.', 'La tarea se reabrió; esta entrega es histórica.') + '\n\n' + summary
         return {'summary': summary,
-                'report': readable_markdown(f'Informe completo · {report[0]}\n\n{report[1]}') if report else 'No hay informe completo retenido para esta tarea.',
+                'report': readable_markdown(tr('Full report · {path}\n\n{text}', 'Informe completo · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report is retained for this task.', 'No hay informe completo retenido para esta tarea.'),
                 'details': readable_markdown(details + '\n\n' + (curated[1] if curated else '') + '\n\n' + '\n\n'.join(ordered[1:] if report else ordered) + '\n\n' + '\n\n'.join(sections))}
     return full
 
@@ -4007,8 +4019,9 @@ def durable_report(card: Card) -> tuple[str, str, CardTime]:
     return local_state, local_text, CardTime('Updated', local_at or None, 'task status declaration [at]')
 
 
-def flow_context(card: Card) -> dict[str, str]:
+def flow_context(card: Card, *, translate=None) -> dict[str, str]:
     """Workflow semantics come from declarations, never a prose classifier."""
+    tr = translate or _presentation_text
     flow = getattr(card, 'flow', {}) or {}
     blockers = getattr(card, 'blockers', [])
     report_state, report_text, _report_time = durable_report(card)
@@ -4039,21 +4052,21 @@ def flow_context(card: Card) -> dict[str, str]:
             phase = 'reported'
         else:
             phase = 'unknown'
-    labels = {'human': 'Espera respuesta humana', 'dependency': 'Espera dependencia',
-              'integration': 'Integración pendiente', 'technical': 'Retención técnica',
-              'active': 'Actividad declarada', 'unknown': 'Estado sin confirmar',
-              'waiting': 'Espera declarada',
-              'reported': 'Trabajo informado' if report_state == 'done' else 'Último reporte'}
+    labels = {'human': tr('Waiting for a human answer', 'Espera respuesta humana'), 'dependency': tr('Waiting for a dependency', 'Espera dependencia'),
+              'integration': tr('Integration pending', 'Integración pendiente'), 'technical': tr('Technical hold', 'Retención técnica'),
+              'active': tr('Declared activity', 'Actividad declarada'), 'unknown': tr('Unconfirmed state', 'Estado sin confirmar'),
+              'waiting': tr('Declared wait', 'Espera declarada'),
+              'reported': tr('Work reported', 'Trabajo informado') if report_state == 'done' else tr('Last report', 'Último reporte')}
     if phase == 'integration' and flow.get('state') == 'ready':
-        labels['integration'] = 'Lista para integración'
-    actions = {'human': 'Responder la pregunta en Captain’s Call.',
-               'dependency': 'Firstmate revisa la dependencia y retoma al liberarse.',
-               'integration': 'Firstmate verifica e integra el trabajo pendiente.',
-               'technical': 'Firstmate revisa el motivo y la condición para retomar.',
-               'active': 'Firstmate supervisa el trabajo y sus resultados.',
-               'unknown': 'Firstmate debe confirmar el estado de la tarea.',
-               'waiting': 'Firstmate revisa la condición declarada y coordina el siguiente paso.',
-               'reported': 'Firstmate revisa el resultado y los pendientes del encargo.'}
+        labels['integration'] = tr('Ready for integration', 'Lista para integración')
+    actions = {'human': tr('Answer the question in Captain’s Call.', 'Responder la pregunta en Captain’s Call.'),
+               'dependency': tr('Firstmate reviews the dependency and resumes when it is released.', 'Firstmate revisa la dependencia y retoma al liberarse.'),
+               'integration': tr('Firstmate verifies and integrates pending work.', 'Firstmate verifica e integra el trabajo pendiente.'),
+               'technical': tr('Firstmate reviews the reason and condition for resuming.', 'Firstmate revisa el motivo y la condición para retomar.'),
+               'active': tr('Firstmate supervises the work and its results.', 'Firstmate supervisa el trabajo y sus resultados.'),
+               'unknown': tr('Firstmate must confirm the task’s state.', 'Firstmate debe confirmar el estado de la tarea.'),
+               'waiting': tr('Firstmate reviews the declared condition and coordinates the next step.', 'Firstmate revisa la condición declarada y coordina el siguiente paso.'),
+               'reported': tr('Firstmate reviews the result and outstanding work.', 'Firstmate revisa el resultado y los pendientes del encargo.')}
     supervisor = getattr(card, 'supervisor', {}) or {}
     supervision = supervisor_caption(supervisor)
     next_action = flow.get('next_action') or ''
@@ -4065,13 +4078,13 @@ def flow_context(card: Card) -> dict[str, str]:
             and phase in ('waiting', 'reported', 'technical', 'dependency')
             and next_action == 'Firstmate necesita una observación actual; la última declaración se conserva como contexto.'):
         next_action = ''
-    return {'phase': phase, 'label': labels[phase], 'reason': reason or 'No se registró un motivo concreto.',
+    return {'phase': phase, 'label': labels[phase], 'reason': reason or tr('No specific reason was recorded.', 'No se registró un motivo concreto.'),
             'waiting_for': flow.get('waiting_for') or '',
             'next_action': next_action or actions[phase],
             'firstmate_action': supervision,
             'report_state': report_state,
-            'native_status': ('Estado nativo desconocido' if getattr(card, 'activity_unconfirmed', False)
-                              else 'Estado de Firstmate: ' + (state or 'desconocido'))}
+            'native_status': (tr('Unknown native state', 'Estado nativo desconocido') if getattr(card, 'activity_unconfirmed', False)
+                              else tr('Firstmate state: ', 'Estado de Firstmate: ') + (state or tr('unknown', 'desconocido')))}
 
 
 def dependency_caption(card: Card) -> str:
@@ -4085,13 +4098,14 @@ def dependency_caption(card: Card) -> str:
                      for d in deps)
 
 
-def explanation_request(home: Home, task: str, *, status: bool = False) -> dict:
+def explanation_request(home: Home, task: str, *, status: bool = False, translate=None) -> dict:
     """Identity-only intake. A stable key delegates deduplication to Firstmate."""
     if is_remote_home(home) or not delivery_home_identity(home) or not KEY_RE.fullmatch(task):
         return {'state': 'unsupported', 'message': 'Este home no permite solicitar explicaciones desde Deck.'}
+    tr = translate or _presentation_text
     script = endpoint_path(home.path, 'fm-delivery-explain.sh')
     if not os.path.isfile(script):
-        return {'state': 'unsupported', 'message': 'Este backend aún no ofrece el intake de explicación. Firstmate debe actualizar ese home.'}
+        return {'state': 'unsupported', 'message': tr('This backend does not offer the explanation intake yet. Firstmate must update this home.', 'Este backend aún no ofrece el intake de explicación. Firstmate debe actualizar ese home.')}
     request_id = 'deck-explain-' + delivery_key(delivery_home_identity(home), task)[:32]
     command = [script, '--task', task, '--request-id', request_id, '--json']
     if status:
@@ -4106,10 +4120,10 @@ def explanation_request(home: Home, task: str, *, status: bool = False) -> dict:
                 ('queued', 'acknowledged', 'answered', 'saved_unannounced', 'absent') or
                 data.get('request_id') != request_id or data.get('task') != task or
                 os.path.realpath(data.get('home', '')) != os.path.realpath(home.path)):
-            raise ValueError('respuesta inválida o identidad diferente')
+            raise ValueError(tr('invalid response or different identity', 'respuesta inválida o identidad diferente'))
         return data
     except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-        return {'state': 'error', 'request_id': request_id, 'message': f'No se pudo verificar la solicitud: {exc}. Reintentar usa el mismo identificador.'}
+        return {'state': 'error', 'request_id': request_id, 'message': tr('Could not verify the request: {error}. Retrying uses the same identifier.', 'No se pudo verificar la solicitud: {error}. Reintentar usa el mismo identificador.', error=exc)}
 
 
 class UI:

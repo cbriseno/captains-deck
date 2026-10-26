@@ -80,7 +80,7 @@ class WebTests(unittest.TestCase):
             self.assertEqual(card['report']['time']['epoch'], 1792921938)
             self.assertEqual(card['native']['state'], 'unknown')
             self.assertIn('codex-unverified', card['native']['detail'])
-            self.assertEqual(card['context']['native_status'], 'Estado nativo desconocido')
+            self.assertEqual(card['context']['native_status'], 'Unknown native state')
             status, ticket = self.req('/api/ticket/' + card['key'])
             self.assertEqual(status, 200)
             self.assertEqual(ticket['report'], card['report'])
@@ -221,7 +221,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(restarted.resolve(identity,'ask','call','local')['key'],data['key'])
         self.board.collector.snap.cols['captains_call']=[]
         status,data=self.req(route);self.assertEqual(status,200);self.assertEqual(data['view'],'unavailable')
-        self.assertIn('ya no aparece',data['message'])
+        self.assertIn('no longer among current questions',data['message'])
         self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
         self.assertEqual(self.req(f'/api/resolve?home={identity}&task=demo-research&view=delivery')[1]['view'],'delivery')
         self.assertEqual(self.req('/api/resolve?home=unknown&task=demo-research&view=delivery')[0],404)
@@ -233,12 +233,12 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.req(route)[1]['view'],'call')
         self.assertTrue(self.req('/api/ticket/'+key+'/answer',body)[1]['saved'])
         status,data=self.req(route);self.assertEqual(status,200)
-        self.assertEqual(data['view'],'unavailable');self.assertIn('ya está resuelta',data['message'])
+        self.assertEqual(data['view'],'unavailable');self.assertIn('is resolved',data['message'])
         (Path(self.home.path)/'identity').write_text('2026-10-25T17:00:00Z#1')
         (Path(self.home.path)/'open').touch()
         self.board.collector.snap.cols['captains_call']=[card]
         status,data=self.req(route);self.assertEqual(data['view'],'unavailable')
-        self.assertIn('anterior',data['message']);self.assertTrue(data['current_key'])
+        self.assertIn('earlier question',data['message']);self.assertTrue(data['current_key'])
         self.assertEqual(self.req(route.replace('hold:1','hold:2'))[1]['view'],'call')
         self.assertEqual(len((Path(self.home.path)/'mutations.jsonl').read_text().splitlines()),1)
 

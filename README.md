@@ -8,7 +8,7 @@ It is the captain's view of agent orchestration: small surface area, like [Pi](h
 The optional [private web view](web/README.md) brings the same four states to phones and desktop browsers, with retained delivery history and guarded Captain's Call answers.
 It runs locally with Python's standard library and can sit behind private Tailscale Serve.
 
-
+The local [web kanban](web/README.md) defaults to English, supports an explicit per-installation Spanish preference, and offers system, light and dark appearance.
 
 ## Web quick start
 
