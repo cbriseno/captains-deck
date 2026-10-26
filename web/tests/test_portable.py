@@ -20,6 +20,13 @@ from deck_platform import endpoint_path, file_lock
 
 
 class PortableTests(unittest.TestCase):
+    def test_loopback_server_starts_without_hostname_resolution(self):
+        # Loopback startup must also work with slow or unavailable reverse DNS.
+        with patch.object(socket, 'getfqdn', side_effect=OSError('DNS unavailable')):
+            with bridge.Server(('127.0.0.1', 0), None, None) as server:
+                self.assertEqual(server.server_name, '127.0.0.1')
+                self.assertEqual(server.server_port, server.socket.getsockname()[1])
+
     def test_launcher_retains_port_and_bind_validation(self):
         for args, env in [(['--port', '0'], dict(os.environ, CD_WEB_BIND='127.0.0.1')),
                           ([], dict(os.environ, CD_WEB_BIND='0.0.0.0'))]:
@@ -89,7 +96,9 @@ class PortableTests(unittest.TestCase):
 
             try:
                 start = invoke('start')
-                self.assertEqual(start.returncode, 0, start.stdout + start.stderr)
+                log = root / 'runtime/server.log'
+                self.assertEqual(start.returncode, 0, start.stdout + start.stderr +
+                                 (log.read_text() if start.returncode and log.exists() else ''))
                 first = json.loads(start.stdout)
                 again = invoke('start')
                 self.assertEqual(again.returncode, 0, again.stdout + again.stderr)

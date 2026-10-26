@@ -12,3 +12,4 @@ debug_log.log
 .venv/
 .pytest_cache/
 .local/
+node_modules/

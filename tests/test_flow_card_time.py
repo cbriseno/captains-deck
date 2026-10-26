@@ -165,7 +165,9 @@ class CardTimeTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(time, "tzset"), "requires terminal timezone support")
     def test_exact_offset_dst_fold_and_calendar_dates(self):
         try:
-            with patch.dict(os.environ, {"TZ": "America/Edmonton"}):
+            # Specify the fold rules directly: future regional tzdata changes
+            # must not turn this conversion test into a policy prediction.
+            with patch.dict(os.environ, {"TZ": "MST7MDT,M3.2.0,M11.1.0"}):
                 time.tzset()
                 early = flow.CardTime("Updated", "2026-11-01T01:30:00-06:00", "worker status")
                 late = flow.CardTime("Updated", "2026-11-01T01:30:00-07:00", "worker status")

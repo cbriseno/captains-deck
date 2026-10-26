@@ -34,6 +34,8 @@ Please include:
 4. Run the checks before you push:
 
    ```sh
+   npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+   export PATH="$PWD/tests/node_modules/.bin:$PATH"
    python3 tests/test_flow_decision_dialog.py
    python3 tests/test_open_scripts.py
    python3 tests/test_flow_homes.py
@@ -42,6 +44,8 @@ Please include:
    ```
 
    `pytest` is required for the test suite; install it with `pip install pytest` if needed.
+   History fixtures also require Node.js 20 or newer and the locked `tasks-axi` canonical reader installed above.
+   This test dependency stays inside the checkout and does not install a global CLI.
    The contract check runs against the recorded fixture home here; point `--home` at a real Firstmate home to check the live surfaces after an `updatefirstmate`.
 
 5. Open a pull request against `main` with a short summary and test notes.
