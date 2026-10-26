@@ -1,0 +1,7 @@
+{
+  "name": "captains-deck-test-dependencies",
+  "private": true,
+  "devDependencies": {
+    "tasks-axi": "0.2.6"
+  }
+}

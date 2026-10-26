@@ -42,17 +42,17 @@
     {
       "mode": "100644",
       "path": ".github/workflows/test.yml",
-      "sha256": "dc1262dd0417fd480d084ca2e0ba2c661698ed96a04cda904df30298463a14bb"
+      "sha256": "1a2c7430a56551aba6b45a4925512899a5461c3a24d9c98c073805519f5fd475"
     },
     {
       "mode": "100644",
       "path": ".gitignore",
-      "sha256": "9e668753503d54f9464e37d191c67667b803472085feebdf2e05b016ee0d61da"
+      "sha256": "e15578afbc27cb763975678e6861cd936bf8eea77134a5584ecf58f73f0d3d07"
     },
     {
       "mode": "100644",
       "path": "CONTRIBUTING.md",
-      "sha256": "8b51402bd9d6a97c680d96169d3360ab4629ebe2c09ddcde690ad388774de4ef"
+      "sha256": "733ea384f622222a36d5f9942684f5f941e59bacecb2eaaeefd117ffb367d129"
     },
     {
       "mode": "100644",
@@ -82,12 +82,12 @@
     {
       "mode": "100644",
       "path": "herdr-plugin.toml",
-      "sha256": "7cef4ba7ecff6d7dea5fcc496fccef5560f48416566a76bb1b10ae96df5675c2"
+      "sha256": "2cb100f9455c4671c6259505fea9b82728e50e5c4693dd45b70391a227141ea1"
     },
     {
       "mode": "100644",
       "path": "public-export.json",
-      "sha256": "a1b368830aad9eda7fc7c91cd713d99690be8b11c9248b8c1c1d9c0fd9db3481"
+      "sha256": "2cdfffa1c61b490c257887e32c1f1d4eb989c70bdc3c5cfab7765b9e7b09f37b"
     },
     {
       "mode": "100644",
@@ -186,6 +186,16 @@
     },
     {
       "mode": "100644",
+      "path": "tests/package-lock.json",
+      "sha256": "716e8a73f6f15910c78f3d5666e3631f9cc1818e3d789ef22670f72b96420447"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/package.json",
+      "sha256": "3cc82d66bead931b500e2ff957b524ea8901518c661e498132ba7f29ee55b6df"
+    },
+    {
+      "mode": "100644",
       "path": "tests/test_delivery_pty.py",
       "sha256": "0017621092012dfffe41dc58b3aeee2b8e1a9da6a464667cb9c118fedc4259b5"
     },
@@ -222,7 +232,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_card_time.py",
-      "sha256": "4b5484fd65c6519039560ed1ac8c7ff733311884d59480797769d85098f94aa0"
+      "sha256": "0561c494b5a4c4ce22396cb0a5d9427a4abc24f2eec0372ffe6559e187ae722c"
     },
     {
       "mode": "100644",
@@ -322,7 +332,7 @@
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "34a020614256780887e2f4fbae6d45f223c5c40663ba6adb61b74fa9b1aa1f64"
+      "sha256": "8bdb89f97f9db6e03568e2f6fd7161f7c86800edc8ae3633cd27a482da852efd"
     },
     {
       "mode": "100644",
@@ -387,7 +397,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_portable.py",
-      "sha256": "e50bf019ae22dd50efd765260050d3357418ad16038deddf03e06d4f2cc02983"
+      "sha256": "201472d5bbd25775fdeda4145ddabad50ad8c991c207f4a0abb20a730bbffc5a"
     },
     {
       "mode": "100644",

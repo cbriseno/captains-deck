@@ -18,6 +18,13 @@ jobs:
           python-version: "3.12"
       - name: Install pytest
         run: pip install pytest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install canonical history reader for fixtures
+        run: |
+          npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+          echo "$GITHUB_WORKSPACE/tests/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Unit tests
         run: python3 -m pytest tests/ -q
       - name: Web boundary and producer fixtures

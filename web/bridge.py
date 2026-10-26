@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 HERE = Path(__file__).resolve().parent
@@ -586,6 +587,13 @@ class Security:
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 32
+
+    def server_bind(self):
+        # HTTPServer resolves its bound address through reverse DNS. This
+        # loopback-only service uses an explicit authority in Security and
+        # must be ready even when the system hostname resolver is unavailable.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     def __init__(self, address, board, security):
         super().__init__(address, Handler)

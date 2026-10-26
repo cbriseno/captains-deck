@@ -40,6 +40,8 @@
     "tests/fixtures/home/state/done-2.status",
     "tests/fixtures/home/state/work-1.meta",
     "tests/fixtures/home/state/work-1.status",
+    "tests/package-lock.json",
+    "tests/package.json",
     "tests/test_delivery_pty.py",
     "tests/test_fixture_board.py",
     "tests/test_flow_activity_provenance.py",
