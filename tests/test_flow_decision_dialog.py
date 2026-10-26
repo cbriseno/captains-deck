@@ -17,6 +17,7 @@ import re
 import tempfile
 import time
 from typing import Any
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location(
@@ -107,7 +108,141 @@ def make_card(task: str = "demo-issue-29", owner: str = "(main)", title: str = "
     return card
 
 
+def test_reconcile_intake_owns_wake() -> None:
+    """Drive actual run_submit; the fake intake records one observable send."""
+    with tempfile.TemporaryDirectory() as root:
+        mate = make_home(root, "mate")
+        log = os.path.join(root, "send.log")
+        intake = os.path.join(mate.path, "bin", "fm-captain-hold.sh")
+        with open(intake, "w") as fh:
+            fh.write("#!/usr/bin/env bash\nwake_reconcile_owner() {\n"
+                     f"  printf 'intake wake\\n' >> '{log}'\n"
+                     "}\ncase \"$1\" in\n  binding) echo '(any)' ;;\n"
+                     "  reconcile-requests) wake_reconcile_owner; echo 'reconcile saved' ;;\nesac\n")
+        os.chmod(intake, 0o755)
+        content = flow.decision_card_content(make_card(), [mate], mate)
+        content["home_path"] = mate.path
+        dialog = flow.DecisionDialog(content)
+        dialog.selected = next(i for i, x in enumerate(dialog.options) if x["value"] == "reconcile")
+        old = flow.wake_owner
+        try:
+            flow.wake_owner = lambda d: (_ for _ in ()).throw(AssertionError("duplicate Deck steer"))
+            ok, _ = flow.run_submit(dialog)
+        finally:
+            flow.wake_owner = old
+        check(ok and open(log).read().splitlines() == ["intake wake"],
+              "Reconcile with intake capability notifies once without a Deck steer")
+        # An old intake still needs the established secondmate lane fallback.
+        with open(intake, "w") as fh:
+            fh.write("#!/usr/bin/env bash\ncase \"$1\" in\n binding) echo '(any)' ;;\n reconcile-requests) echo saved ;;\nesac\n")
+        calls = []
+        try:
+            flow.wake_owner = lambda d: calls.append(d.key) or ""
+            os.environ["FM_FLOW_WAKE"] = "1"
+            ok, _ = flow.run_submit(dialog)
+        finally:
+            flow.wake_owner = old
+            os.environ.pop("FM_FLOW_WAKE", None)
+        check(ok and calls == [dialog.key], "old intake preserves the Deck wake fallback")
+
+
+def test_submit_wake_compatibility() -> None:
+    """Observe submits and rendered consent against executable temporary intakes."""
+    with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ, {"FM_FLOW_WAKE": "1"}):
+        captain = make_home(root, "captain")
+        mate = make_home(root, "mate", label="2ndmate-demo-lane")
+        os.makedirs(os.path.join(captain.path, "state"))
+        open(os.path.join(captain.path, "state", "demo-lane.meta"), "w").close()
+        log = os.path.join(root, "wake.log")
+        sender = os.path.join(captain.path, "bin", "fm-send.sh")
+        with open(sender, "w") as fh:
+            fh.write(f"#!/usr/bin/env bash\nprintf 'deck:%s\\n' \"$1\" >> '{log}'\n")
+        os.chmod(sender, 0o755)
+        intake = os.path.join(mate.path, "bin", "fm-captain-hold.sh")
+        card = make_card(task="wake-case", owner="demo-lane")
+        write_board(mate, [{**BOARD_CARD, "key": card.task}])
+
+        def write_intake(answer_wake: bool, reconcile_wake: bool) -> None:
+            with open(intake, "w") as fh:
+                fh.write("#!/usr/bin/env bash\n")
+                for action, enabled in (("answer", answer_wake), ("reconcile", reconcile_wake)):
+                    if enabled:
+                        fh.write(f"wake_{action}_owner() {{\n  printf 'intake:{action}\\n' >> '{log}'\n}}\n")
+                fh.write('case "$1" in\n binding) echo bound ;;\n answers)\n')
+                if answer_wake:
+                    fh.write("wake_answer_owner\n")
+                fh.write("echo saved ;;\n reconcile-requests)\n")
+                if reconcile_wake:
+                    fh.write("wake_reconcile_owner\n")
+                fh.write("echo saved ;;\nesac\n")
+            os.chmod(intake, 0o755)
+
+        for answer_wake, reconcile_wake in ((False, False), (True, False), (False, True), (True, True)):
+            write_intake(answer_wake, reconcile_wake)
+            for reconcile, owns_wake in ((False, answer_wake), (True, reconcile_wake)):
+                for enabled in (True, False):
+                    os.environ["FM_FLOW_WAKE"] = "1" if enabled else "0"
+                    open(log, "w").close()
+                    content = flow.decision_card_content(card, [captain, mate], captain)
+                    dialog = flow.DecisionDialog(content)
+                    dialog.selected = next(i for i, option in enumerate(dialog.options)
+                                           if (option["value"] == "reconcile") == reconcile)
+                    action = "reconcile" if reconcile else "answer"
+                    label = f"{action}, capabilities={answer_wake}/{reconcile_wake}, Deck wake={enabled}"
+                    ok, _ = flow.run_submit(dialog)
+                    with open(log) as fh:
+                        sends = fh.read().splitlines()
+                    expected = [f"intake:{action}"] if owns_wake else (["deck:demo-lane"] if enabled else [])
+                    check(ok and sends == expected, f"submit uses only the selected action's wake: {label}")
+                    if reconcile:
+                        ui = flow.UI()
+                        ui.dialog = dialog
+                        lines = [" " * 120 for _ in range(40)]
+                        ui.render_dialog(lines, 120, 40)
+                        rendered = ANSI.sub("", "\n".join(lines))
+                        check(("queues owner wake" in rendered) == owns_wake
+                              and ("steers demo-lane" in rendered) == (enabled and not owns_wake),
+                              f"rendered Reconcile footer matches the wake: {label}")
+
+        # Submit re-reads capabilities after the dialog opens, in both directions.
+        os.environ["FM_FLOW_WAKE"] = "1"
+        for before, after in ((False, True), (True, False)):
+            write_intake(False, before)
+            dialog = flow.DecisionDialog(flow.decision_card_content(card, [captain, mate], captain))
+            dialog.selected = next(i for i, option in enumerate(dialog.options) if option["value"] == "reconcile")
+            write_intake(False, after)
+            open(log, "w").close()
+            ok, _ = flow.run_submit(dialog)
+            with open(log) as fh:
+                sends = fh.read().splitlines()
+            check(ok and sends == (["intake:reconcile"] if after else ["deck:demo-lane"]),
+                  f"submit re-reads Reconcile capability after opening: {before} -> {after}")
+
+        # A source read failure must preserve the old caller's lane fallback.
+        write_intake(False, False)
+        original_open = open
+
+        def unreadable(path, *args, **kwargs):
+            if os.fspath(path) == intake:
+                raise PermissionError("fixture intake source unreadable")
+            return original_open(path, *args, **kwargs)
+
+        for reconcile in (False, True):
+            open(log, "w").close()
+            with mock.patch("builtins.open", side_effect=unreadable):
+                dialog = flow.DecisionDialog(flow.decision_card_content(card, [captain, mate], captain))
+                dialog.selected = next(i for i, option in enumerate(dialog.options)
+                                       if (option["value"] == "reconcile") == reconcile)
+                ok, _ = flow.run_submit(dialog)
+            with open(log) as fh:
+                sends = fh.read().splitlines()
+            check(ok and sends == ["deck:demo-lane"],
+                  f"unreadable intake preserves the lane fallback, reconcile={reconcile}")
+
+
 def main() -> int:
+    test_reconcile_intake_owns_wake()
+    test_submit_wake_compatibility()
     with tempfile.TemporaryDirectory() as root:
         main_home = make_home(root, "captain", label="captain")
         mate_home = make_home(root, "mate", label="2ndmate-demo-lane")

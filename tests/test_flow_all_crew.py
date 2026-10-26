@@ -60,7 +60,7 @@ def test_inject_all_crew_prepends_tab():
     assert out[0].kind == "all"
 
 
-def test_merge_skips_landed_and_sorts_by_crew():
+def test_merge_retains_bound_landed_and_sorts_active_by_crew():
     captain = Home("captain", "/captain", "captain")
     mate = Home("2ndmate-x", "/mate", "secondmate")
     cols_c = {"charted": [_card("a", "/captain", "charted")], "landed": [_card("old", "/captain", "landed")]}
@@ -70,7 +70,7 @@ def test_merge_skips_landed_and_sorts_by_crew():
     cols, totals = merge_fleet_columns(
         [(captain, cols_c, totals_c), (mate, cols_m, totals_m)]
     )
-    assert len(cols["landed"]) == 0
+    assert cols["landed"] == cols_c["landed"]
     assert [c.task for c in cols["charted"]] == ["a"]
     assert [c.task for c in cols["underway"]] == ["b"]
     assert totals["landed"] == 1

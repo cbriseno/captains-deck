@@ -5,16 +5,26 @@
 Captain's Deck is a read-only **[Firstmate flow](https://github.com/kunchenguid/firstmate)** kanban plugin for [Herdr](https://herdr.dev).
 It is the captain's view of agent orchestration: small surface area, like [Pi](https://pi.dev/)—one board that does one job well instead of another dashboard to babysit.
 
-![The Captain's Deck flow board in Herdr: crew tabs, five fixed columns, and ticket cards with live status badges](assets/captains-deck.png)
+The optional [private web view](web/README.md) brings the same four states to phones and desktop browsers, with retained delivery history and guarded Captain's Call answers.
+It runs locally with Python's standard library and can sit behind private Tailscale Serve.
 
-![The Captain's Call decision dialog open over the board, with options, the recommended choice, a freeform note row, and Queue answer](assets/captains-call-decision-dialog.png)
 
-## Quick start
+
+## Web quick start
+
+This customized fork includes the full terminal board and a responsive local web kanban.
+Run `python3 web/serve.py run` (`py -3 web/serve.py run` in Windows PowerShell), then open `http://127.0.0.1:8787/`.
+The empty UI needs only Python 3.11+; a live Firstmate backend requires POSIX, including WSL2 on Windows.
+See [web setup](web/README.md), [platform capabilities](docs/portability.md), and [safe public updates](docs/public-export.md).
+Private deployment configuration and receipts stay outside this checkout.
+Upstream attribution and the MIT license are preserved.
+
+## TUI quick start
 
 Install and enable the plugin, then open the board:
 
 ```bash
-herdr plugin install deimantasnork/captains-deck
+herdr plugin install cbriseno/captains-deck
 herdr plugin enable herdr-firstmate-flow
 herdr plugin action invoke open-captain-deck --plugin herdr-firstmate-flow
 ```
@@ -28,6 +38,20 @@ herdr plugin action invoke open-flow --plugin herdr-firstmate-flow
 ```
 
 Press `q` in the board pane to exit.
+
+Card ages refresh while the board stays open.
+When Firstmate exports optional per-row `card_time`, the Deck shows its validated column event (`Filed`/`Queued` or a current hold's `Asked` in Charted Next; `Asked`, `Updated`, `Ready`/`Done report`, or `Delivered` elsewhere) with the producer's exact source in details.
+Date and second precision must match the value; instants require an explicit timezone, and events for another column are rejected.
+Missing, null or invalid exports retain the following honest fallback; invalid exports also explain their rejection in details.
+Details retain the exported value and supplied attempt context; an unknown attempt boundary and a context-only current attempt do not become an event identity.
+Cards pair local date/time with relative age when an exact instant is available; the full timestamp, timezone and event provenance remain in details.
+Date-only records explicitly lack a recorded hour.
+Small windows show the selected column at full width; left/right changes columns.
+Compact `?` means unknown, `!` means unavailable, and `fut` marks a future clock value.
+`Filed` shows the recorded task filing date; `Updated` uses a meaningful task declaration, and `Done report` shows the worker's completion declaration while awaiting merge.
+These do not imply a delivery, a queue-entry time or a review request.
+`Asked` and `Delivered` stay unknown when their event time is not exported; opening a delivery can show its retained completion date.
+Press `d` for the timestamp's source and exact date/time, including the terminal's local UTC offset and UTC; date-only records never acquire an invented time.
 
 The plugin ID is `herdr-firstmate-flow`, not the repository name, because the
 project started under that name.
@@ -66,10 +90,13 @@ Use `scripts/kanban-view.sh --once --home <name>` with a label from `--homes` to
 check one home.
 
 Herdr's plugin marketplace indexes public GitHub repositories tagged with the
-`herdr-plugin` topic, and this repository is listed there:
-<https://herdr.dev/plugins/>. Installation is still `herdr plugin install`.
+`herdr-plugin` topic: <https://herdr.dev/plugins/>.
+The install command above selects this fork directly.
 
-Source: <https://github.com/deimantasnork/captains-deck>
+Source: <https://github.com/cbriseno/captains-deck>
+
+Upstream: [deimantasnork/captains-deck](https://github.com/deimantasnork/captains-deck).
+This fork retains the upstream authorship and [MIT license](LICENSE).
 
 ## Why Captain's Deck
 
@@ -141,7 +168,8 @@ With Firstmate handling the routine delivery loop, that could fall to roughly **
 ### Where Captain's Deck fits
 
 Automation still needs a captain for real decisions.
-When something is **blocked**, ambiguous, or genuinely requires human judgment, Firstmate exposes it as a **Captain's Call**.
+When work requires human judgment, Firstmate exposes it as a **Captain's Call**.
+Technical blockers and dependencies remain with their task owner and Firstmate; they do not create an approval question by themselves.
 Everything else should keep moving without interrupting your flow.
 
 Captain's Deck is that bridge: a kanban board where you can:
@@ -159,16 +187,22 @@ Submitting an answer records the durable decision; a current keyed-answer intake
 
 ## The board
 
-One board, every crew: an **All** tab (first in the row) merges every captain
-and secondmate home into one view — only work that is planned or still running
-(Charted Next, Underway, Captain's Call, and Awaiting Merge). Landed rows stay
-on each mate's own tab. After **All**, the captain home plus each secondmate
-home appear as crew tabs. Each tab projects that home's bearings snapshot into
-five fixed columns. Nothing is ever written back, with two deliberate exceptions: a
-Captain's Call answer (see below), where the captain's own decision goes to
-Firstmate's guarded keyed-answer intake and the owning home is notified so the
-answer is acted on; and a message the captain types with `m` (see Message
-Firstmate below).
+**Underway means unfinished work that has started, including blocked or paused work.**
+Its total is not a count of agents actively working.
+The `⛔` count beside a column total names the cards currently displaying a task or native-pane blocker.
+Dependency gates use `⏳ dependency`; Captain's Call contains the authoritative human questions.
+Press `d` on a selected card for a scrollable, read-only view of the reason, owning Firstmate home, worker, recorded dependency and next step.
+Arrow keys, Page Up/Page Down or the wheel scroll; `Esc` closes it.
+Blocker reasons preserve the full declaration available in the bounded task log, including coordination context that is unsuitable as a progress report.
+An absent dependency owner is shown as unrecorded rather than guessed; Firstmate must supply that routing.
+Keyed blocked/decision declarations remain visible until their exact key is resolved in the log; a later working declaration alone does not close them.
+
+One board, every crew: an **All** tab merges the discovered homes, retaining each delivery's owning identity.
+Each crew tab shows Charted Next, Underway, Captain's Call and Recent Landed.
+All also includes Other Agents.
+Completed workers stay Underway with a distinct integration phase until delivery, so no task disappears when Awaiting Merge is removed.
+Most actions read state; Captain's Call answers, explicit messages and explicit explanation requests use their respective Firstmate intakes.
+Opening a delivery also records a local read mark, without accepting or closing the task.
 
 The fleet board folds a task that more than one home lists - a captain home
 mirrors delegated work as `<mate>/<task>` while the mate's own home keeps
@@ -180,23 +214,76 @@ worktree) stay separate.
 | Column | Source |
 | --- | --- |
 | **Charted Next** | `gates` |
-| **Underway** | every `in_flight` row (badges carry `shipping` / `validating` / `parked` / `paused` / `failed`) |
+| **Underway** | all `in_flight` rows, including pending integration; phase, reason, dependency and next action distinguish the wait |
 | **Captain's Call** | `decisions_open` - click a ticket to decide it in place |
-| **Awaiting Merge** | `in_flight` rows whose Firstmate `state` is `done` (crew finished, waiting on merge/review) |
-| **Landed** | `landed` — Firstmate's "Recently Landed": merged PRs, completed scouts, local-only merges (hidden by default here; toggle with `L`) |
+| **Recent Landed** | `landed` — Firstmate's "Recently Landed": merged PRs, completed scouts, local-only merges (toggle visibility with `L`) |
 | **Other Agents** | All tab only: every Herdr agent that is not a Firstmate pane, from `herdr api snapshot` |
 
 Firstmate's own bearings has four sections (Underway, Charted Next, Captain's Call,
 Recently Landed) and deliberately keeps run status out of the section split.
-Awaiting Merge is the only added projection: Firstmate's own `state == "done"`
-rows, which are the ones waiting on a merge.
+The optional `flow` projection supplies phase, full reason, dependency names/owners, waiting condition and next action.
+Without it, Deck quotes retained declarations and labels missing ownership or confirmation explicitly.
+A supervisor declaration is shown with its original age and TTL; it is never proof that a model is currently executing.
 
 The board uses **Firstmate's own bounds** by default (`FM_BEARINGS_LANDED` = 6
 newest per home, gates/in-flight = 20). `FM_FLOW_ALL=1` requests every row.
+Completion dates can have only day precision: equal dates are ordered by task ID, not by inferred time or file modification date.
+Use **H history** to find retained deliveries outside that recent cap, including from All.
+
+## Reading deliveries
+
+On All or a crew tab, Enter or a click on **Recent Landed** opens a scrollable delivery sheet.
+`d` opens the same read-only sheet for a landed task; `o` remains the explicit action for an available live pane.
+Cards quote retained outcome prose; the initial sheet contains only the readable home-authored summary.
+Markdown presentation is removed, long recaps are explicitly abbreviated, and full retained content stays accessible.
+Press **r / Informe** for the full report or **d / Detalles** for original context, identity, canonical fields, receipts and provenance.
+Tab/Shift+Tab and Enter activate the same visible controls as a click; arrows, paging, Home/End and wheel scroll without skipping short viewports.
+The date and relative age refresh independently of backend polling; exact source precision is preserved.
+A closed study or subtask describes only its own delivery; Deck does not infer that the broader intent is finished.
+Missing dates, reports, recaps and unavailable sources are labelled explicitly.
+
+A home may optionally author `data/<task-id>/delivery.md` as UTF-8 Markdown.
+Begin with a short result and its scope, then `Scope`, `Why`, `Evidence` (or `Checks`) and `Remaining` (or `Pending`) sections; Spanish headings are also accepted.
+Include only established outcomes and link reports/receipts relative to that task directory.
+This is human-curated prose, with no required metadata or generated conclusions.
+Deck prefers a nonempty `delivery.md`, then `recap.md`, then existing `report.md` prose.
+The card quotes an explicit `Result` / `Resultado` section when present, otherwise the first substantive paragraph; it never derives completion from the request title.
+The reader retains the other summary, known application/package receipts, linked local text artifacts and canonical task fields.
+Markdown, HTML and URLs are displayed as plain text; URLs never open automatically.
+Artifact reads stay within that home's exact `data/<task-id>/` directory, reject traversal and symlinks, and accept only `.md`, `.txt` and `.json` files.
+Limits are explicit: 512 KiB per artifact, 2 MiB total and 32 artifact paths; a refused/oversize artifact is labelled rather than silently truncated.
+
+Press **H** or click **H history** for searchable **retained delivery history**, separate from the bounded recent column.
+Type search terms (case and accents ignored) to filter task ids, full titles, canonical notes, dates, artifacts and source; arrows select, Page Up/Down page, Enter or click opens, Ctrl+U or Clear resets the search, Tab/Info shows full source details, and Esc returns.
+The sheet supports arrows, Page Up/Down, Home/End, wheel and visible action controls, including small terminals such as 60×12.
+History reads both the current backlog and the configured Markdown archive in the local home's `.tasks.toml` (for example `data/backlog.md` and `data/done-archive.md`, with `done_keep = 10`).
+When available, `bin/fm-delivery-history.sh --json` supplies the public read-only history contract.
+Older homes use the installed **tasks-axi / Node** canonical `parseConfigToml` and `parseBacklog` readers; dated archive headings are adapted in memory to Done sections.
+No pruning, retention changes, new recent limits or backlog writes occur.
+Current rows take precedence over archived copies, including reopened work; answered captain questions and reportless scouts stay out of deliveries.
+This is the history still retained by the backend, not a promise of permanent storage.
+Each index file is bounded to 16 MiB; a missing/oversize/unreadable source is labelled incomplete.
+If the installed tasks-axi does not expose those readers, the history reports that dependency while recent sheets still show retained local reports.
+Remote homes and other backends need a read-only completed-record/archive export; their recent snapshot text remains consultable with an explicit artifact/history limitation.
+All combines retained history from discovered local homes and keeps each row's owning home through report reading and read marks.
+Equal task IDs in different homes stay separate.
+Unknown, remote or ambiguous ownership is explained without guessing a filesystem root.
+
+A small **new/read** marker records whether this home/task delivery has been explicitly opened.
+Only opening a sheet writes `deliveries-read.json` in the plugin's local state directory; painting, refreshing, hiding recent rows and searching do not mark deliveries read.
+The marker persists across Deck sessions and is independent for each canonical home path/task id.
+It is reading history, with no acceptance, approval or task-state effect.
+
+The visible **e Pedir explicación a Firstmate** action sends only the resolved home/task identity and a stable request ID to `bin/fm-delivery-explain.sh`.
+Opening the sheet checks status with `--status`, which never queues a request.
+Repeated clicks and reopened sheets reuse that identity; queued, acknowledged, answered and saved-without-confirmed-notice remain distinct.
+**s Estado** checks the receipt again, and Detalles exposes its identity and response.
+An enqueue receipt does not prove Firstmate is running, and the action never approves, closes or merges the task or executes report content.
+Older or remote homes show a clear unsupported-backend explanation.
 
 ## Other agents
 
-The **All** tab also lists every Herdr agent that is not a Firstmate pane, in an **Other Agents** column that takes the place of Landed (the fleet board never carries Landed rows).
+The **All** tab also lists every Herdr agent that is not a Firstmate pane in an **Other Agents** column, alongside deliveries from discovered homes.
 Blocked agents sort first, then done, working, and idle.
 Each card shows the workspace, the agent, its terminal title, the time in its current state, and its tab and pane; click it to open that tab.
 A pane counts as Firstmate's when a task's `state/<task>.meta` names it, when its working directory is a Firstmate home (the supervisor), or when it sits in a Firstmate task workspace (`└ <task> · p:<token>`).
@@ -235,12 +322,20 @@ A ticket with no account record keeps its harness label, and a pi worker shows i
 Remote-home cards keep the harness label because their account metadata is not available locally.
 
 Badges: `● shipping`, `◐ validating`, `⛔ blocked`, `⚑ decision` /
-`⚑ captain`, `◍ awaits merge`, `⏸ parked` / `⏸ paused`, `⛔ failed`,
+`⚑ pending`, `◍ awaits merge`, `⏸ parked` / `⏸ paused`, `⛔ failed`,
 `✓ done` / `✓ landed`, `· queued`.
 Live state comes from `herdr api snapshot`; activity and review state come from
 Firstmate's bearings snapshot and the home's `state/<task>.status` tail.
+When Firstmate cannot confirm runtime activity, the badge names available native evidence, such as `Herdr working`, or says `unknown`.
+This does not change Firstmate's unknown semantic verdict.
+Cards quote the complete available wait reason with an explicit full-context action when space requires an excerpt.
+Full context keeps Firstmate's semantic state, the native Herdr observation, account/model/thinking, run totals and event provenance separate.
+Unknown confirmation remains visible even if a native pane looks busy.
+Captain's Call retains its authored question and answer intake; technical blocks do not become human approval requests.
+A reported completion alone does not establish integration readiness; it remains Underway with its uncertainty visible.
+Use `--once` to inspect the original Firstmate state and diagnostic, Herdr observation and reported status separately.
 While an agent is **shipping**, **validating**, or **blocked**, the
-**doing/status** line carries total run time and total token use in the same
+**full task context** carries total run time and total token use in the same
 style as Herdr's agent sidebar (wall time since task spawn when available;
 tokens from detection or cumulative Pi session usage). A `doing` value that
 only repeats the badge (`validating`, `validating: …`) or the generic
@@ -256,7 +351,7 @@ The footer shows the frequent actions - `? help`, `L - Show/Hide Landed`, and
 `? help` or press `?`) lists every binding: `←→` / `h l` move between columns,
 `↑↓` / `j k` move between cards, `pgup`/`pgdn` or the wheel scroll a column,
 clicking a crew tab switches mate, `enter` or a click opens a Captain's Call
-ticket, `o` opens the selected agent pane, `m` opens the Message Firstmate box, `1-9` / `tab` switch crew
+ticket or a Landed delivery, `H` searches retained deliveries, `o` opens the selected agent pane, `m` opens the Message Firstmate box, `1-9` / `tab` switch crew
 (All = fleet), `L` shows or hides the Landed column, `r` refreshes the board,
 and `q` quits. `esc` or `?` closes the modal, and a click outside it closes it
 too.
@@ -278,10 +373,10 @@ cards rather than an error. Three guards keep that visible:
   minimal home. `tests/test_fixture_board.py` proves the recorded shape still
   projects into the same columns, and `tests/test_fm_contract_check.py` proves
   the checker itself catches a dropped field.
-- **Nightly drift alarm** - `.github/workflows/firstmate-contract.yml` clones
-  `kunchenguid/firstmate@main` every night, runs the contract check against it,
-  and opens or comments on an issue labelled `firstmate-drift` when a surface
-  changes.
+- **Manual fixture workflow** - `.github/workflows/firstmate-contract.yml` runs
+  the recorded producer contract check when manually dispatched.
+  It has read-only repository permissions.
+  Run the local contract check above to assess your installed Firstmate version.
 
 For field reports, `FM_FLOW_DEBUG=/tmp/fm_flow_debug.log` stamps the deck
 revision and each home's Firstmate revision on every collector pass, so a log
@@ -372,15 +467,16 @@ The board never redraws itself wholesale.
 | Mouse **wheel over a column** | Scroll that column smoothly (3 rows per notch) |
 | `Shift`+wheel | Scroll every column together |
 | `PgUp`/`PgDn`, `g`/`G` | Page / jump within the selected column |
-| `Enter` | Decide the selected Captain's Call ticket; any other ticket opens its agent pane |
+| `Enter` | Open a call, delivery or full task context; Other Agents opens its pane |
 | `o` | Open the selected ticket's agent pane, including a Captain's Call one |
+| `d` | Read the selected ticket's full available reason, owner, dependency and next step |
 | `m` | Open the Message Firstmate box; `Enter` sends, `Esc` closes |
 | `r` / `q` | Force a bearings refresh / quit |
 | `L` | Show/hide the Landed column |
 
 Input repaints immediately (no waiting for the next data tick), and a burst of
 wheel events is coalesced into a single repaint. Scrolling moves by terminal
-rows, so cards clip at the edges instead of jumping a whole 8-row card.
+rows, so cards clip at the edges instead of jumping a whole 12-row card.
 
 Ticket → pane mapping comes from the task's `state/<task>.meta`
 (`herdr_pane_id`, `herdr_tab_id`, `herdr_workspace_id`), with a fallback to
@@ -404,7 +500,7 @@ whatever palette the Herdr `[theme]` setting gives the panes.
 
 Homes are discovered in this order (first match wins per path):
 
-1. `FM_FLOW_HOMES` environment variable — `label=path label=path`
+1. `FM_FLOW_HOMES_JSON` JSON label/path object (supports spaces) and `FM_FLOW_HOMES` — `label=path label=path`
 2. `homes.conf` in the plugin config directory — one `label=path` per line
 3. `FM_HOME` or the legacy `fm_home` config file
 4. `~/firstmate` plus `~/.treehouse/*/*/firstmate` worktree homes
@@ -463,14 +559,14 @@ Environment knobs:
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, conventions, and how to run the checks.
 
-Report bugs, ask questions, or suggest features with a [new GitHub issue](https://github.com/deimantasnork/captains-deck/issues/new) (templates optional; blank issues are allowed).
+Report bugs, ask questions, or suggest features with a [new GitHub issue](https://github.com/cbriseno/captains-deck/issues/new) (templates optional; blank issues are allowed).
 
 ## Related projects
 
 - [Herdr](https://herdr.dev/) — terminal workspaces, panes, and the agent host
   this plugin extends.
 - [Herdr GPUI](https://github.com/penso/herdr-gpui) — native Rust/GPUI Herdr
-  client used for the screenshots above.
+  client for Herdr.
 - [Firstmate](https://github.com/kunchenguid/firstmate) — agent distro that runs
   the crew, closes worktrees into PRs (and optional yolo release), and owns the
   bearings snapshot and Captain's Call intake this board projects.

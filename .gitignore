@@ -2,3 +2,13 @@ __pycache__/
 *.py[cod]
 .DS_Store
 debug_log.log
+
+# Keep private deployment overlays and generated publication artifacts out of Git.
+.env
+.env.*
+*.local.json
+*.local.toml
+*.log
+.venv/
+.pytest_cache/
+.local/

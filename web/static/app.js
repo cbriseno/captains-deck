@@ -1,1055 +1,427 @@
-/* Captain's Deck PWA shell.
- *
- * Renders what /api/board returns and posts answers to /api/ticket/<key>/answer.
- * All card and ticket text is untrusted data: it reaches the DOM through
- * textContent, never through innerHTML.
- *
- * Columns keep their DOM across board updates, so a reader keeps the place
- * they scrolled to while the deck refreshes underneath.
- */
-
-const ACTIVE_COLUMNS = ["charted", "underway", "captains_call", "awaiting_merge", "landed"];
-const THEME_KEY = "deck.theme";
-const SHOW_ANSWERED_KEY = "deck.showAnswered";
-const THEME_MODES = ["auto", "dark", "light"];
-
-/** ANSI-16 colour codes the TUI uses, mapped to theme colours. */
-const BADGE_COLORS = {
-  31: "var(--bad)",
-  32: "var(--ok)",
-  33: "var(--warn)",
-  35: "var(--decide)",
-  36: "var(--review)",
-  90: "var(--dim)",
-};
-
-const state = {
-  board: null,
-  home: "",
-  socket: null,
-  retry: 0,
-  openKey: "",
-  ticket: null,
-  choice: "",
-  optionRows: [],
-  submitting: false,
-  sections: new Map(),
-  order: [],
-  page: 0,
-  raf: 0,
-  themeMode: "auto",
-  showAnswered: false,
-};
-
-const el = {
-  board: document.querySelector("#board"),
-  homes: document.querySelector("#homes"),
-  dots: document.querySelector("#dots"),
-  conn: document.querySelector("#conn"),
-  stamp: document.querySelector("#stamp"),
-  error: document.querySelector("#error"),
-  refresh: document.querySelector("#refresh"),
-  sheet: document.querySelector("#sheet"),
-  sheetTitle: document.querySelector("#sheet-title"),
-  sheetBadge: document.querySelector("#sheet-badge"),
-  sheetRepo: document.querySelector("#sheet-repo"),
-  sheetAbout: document.querySelector("#sheet-about"),
-  sheetDecide: document.querySelector("#sheet-decide"),
-  sheetDetailBox: document.querySelector("#sheet-detail-box"),
-  sheetDetail: document.querySelector("#sheet-detail"),
-  sheetOptions: document.querySelector("#sheet-options"),
-  sheetNote: document.querySelector("#sheet-note"),
-  sheetState: document.querySelector("#sheet-state"),
-  sheetSubmit: document.querySelector("#sheet-submit"),
-  sheetClose: document.querySelector("#sheet-close"),
-  debugButton: document.querySelector("#debug-button"),
-  settings: document.querySelector("#settings"),
-  settingsButton: document.querySelector("#settings-button"),
-  settingsClose: document.querySelector("#settings-close"),
-  pushState: document.querySelector("#push-state"),
-  pushOn: document.querySelector("#push-on"),
-  pushOff: document.querySelector("#push-off"),
-  pushTest: document.querySelector("#push-test"),
-  insetRow: document.querySelector("#inset-row"),
-  insetValue: document.querySelector("#inset-value"),
-  insetPlus: document.querySelector("#inset-plus"),
-  insetMinus: document.querySelector("#inset-minus"),
-  showAnsweredOn: document.querySelector("#show-answered-on"),
-  showAnsweredOff: document.querySelector("#show-answered-off"),
-};
-
-function node(tag, className, text) {
-  const n = document.createElement(tag);
-  if (className) n.className = className;
-  if (text !== undefined && text !== null && text !== "") n.textContent = text;
-  return n;
+/* User content is text only. Polling reads; only explicit buttons can POST. */
+'use strict';
+const $ = (id) => document.getElementById(id);
+const S = { board: null, home: '', column: 'underway', online: false, view: 'board', query: '',
+  busy: false, csrf: '', modal: null, opener: null, generation: 0, historyGeneration: 0,
+  lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false };
+const labels = { charted: 'Por comenzar', underway: 'En curso', captains_call: 'Tu decisión', landed: 'Entregado' };
+const notes = { charted: 'El siguiente paso', underway: 'Trabajo iniciado', captains_call: 'Necesitan tu respuesta', landed: 'Entregas recientes' };
+const phaseLabels = { human: 'Espera tu respuesta', dependency: 'Espera dependencia', integration: 'Integración pendiente', technical: 'Retención técnica', active: 'Actividad declarada', unknown: 'Estado sin confirmar', waiting: 'Espera declarada', reported: 'Trabajo informado' };
+const timeLabels = { Filed: 'Registrada', Queued: 'En cola', Asked: 'Pregunta', Updated: 'Actualización', Ready: 'Lista', 'Done report': 'Trabajo informado', Delivered: 'Entrega' };
+const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+$('timezone').textContent = 'Horas en ' + zone;
+const dateFmt = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' });
+const relativeFmt = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+function node(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+function append(parent, ...children) { parent.append(...children.filter(Boolean)); return parent; }
+function button(text, action, cls = '') { const b = node('button', cls, text); b.type = 'button'; b.addEventListener('click', action); return b; }
+function relative(epoch) { const seconds = epoch - Date.now() / 1000; for (const [size, unit] of [[86400, 'day'], [3600, 'hour'], [60, 'minute']]) { if (Math.abs(seconds) >= size) return relativeFmt.format(Math.round(seconds / size), unit); } return 'ahora'; }
+function eventTime(t) {
+  if (!t) return 'Hora no registrada';
+  const label = timeLabels[t.label] || t.label || 'Evento';
+  if (t.date) { const [y, m, d] = t.date.split('-'); return `${label} · ${d}/${m}/${y} · sin hora registrada`; }
+  if (typeof t.epoch === 'number') { return `${label} · ${dateFmt.format(new Date(t.epoch * 1000))} · ${t.epoch > Date.now() / 1000 + 5 ? 'fecha futura; revisa el reloj' : relative(t.epoch)}`; }
+  return `${label} · ${t.problem === 'not recorded' ? 'hora no registrada' : 'hora no disponible'}`;
 }
-
-function fmtElapsed(seconds) {
-  const s = Math.max(0, Math.round(seconds));
-  if (s < 60) return s + "s";
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + "m" + String(s % 60).padStart(2, "0") + "s";
-  const h = Math.floor(m / 60);
-  return h + "h" + String(m % 60).padStart(2, "0") + "m";
-}
-
-function setConn(name, title) {
-  el.conn.dataset.state = name;
-  el.conn.title = title || name;
-}
-
-// --------------------------------------------------------------------------
-// Theme
-// --------------------------------------------------------------------------
-
-function systemPrefersLight() {
-  return window.matchMedia("(prefers-color-scheme: light)").matches;
-}
-
-function resolvedTheme(mode) {
-  if (mode === "light" || mode === "dark") return mode;
-  return systemPrefersLight() ? "light" : "dark";
-}
-
-function storedTheme() {
-  try {
-    return localStorage.getItem(THEME_KEY) || "auto";
-  } catch {
-    return "auto"; // private mode: the deck still works, the choice just will not stick
+function prose(text) {
+  const root = node('div', 'prose');
+  const headings = new Set(['Resultado', 'Alcance', 'Por qué', 'Evidencia', 'Pendiente', 'Comprobaciones', 'Límites', 'Qué cambió', 'Siguiente paso']);
+  let lines = [];
+  const flush = () => { if (lines.join('\n').trim()) root.append(node('p', '', lines.join('\n').trim())); lines = []; };
+  for (const line of (text || 'No se conserva contenido para esta vista.').split('\n')) {
+    if (headings.has(line.trim())) { flush(); root.append(node('h3', '', line.trim())); }
+    else lines.push(line);
   }
+  flush(); return root;
 }
-
-function storeTheme(mode) {
+function contextRow(title, text) { return append(node('div', 'context-row'), node('h3', '', title), node('p', '', text || 'No registrado.')); }
+function notice(text, error = false) { $('notice').hidden = !text; $('notice').className = 'notice' + (error ? ' error' : ''); $('notice').textContent = text; }
+function syncSubmit() {
+  const submit = $('answer-submit'), call = S.modal?.ticket?.call;
+  if (!submit || !call) return;
+  const choice = document.querySelector('input[name="answer"]:checked')?.value;
+  const hasAnswer = !!choice || (call.freeform && !!$('answer-note')?.value.trim());
+  submit.disabled = S.busy || !S.online || !!call.error || !!S.receipt || !!S.modal.draftNeedsReview || !hasAnswer;
+}
+async function api(path, body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), body ? 100000 : 20000);
   try {
-    localStorage.setItem(THEME_KEY, mode);
-  } catch {
-    /* the choice is session-only when storage is unavailable */
+    const response = await fetch(path, { method: body ? 'POST' : 'GET', cache: 'no-store', credentials: 'same-origin',
+      headers: body ? { 'Content-Type': 'application/json', 'X-Deck-CSRF': S.csrf } : {},
+      body: body ? JSON.stringify(body) : undefined, signal: controller.signal });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `La consulta falló (${response.status}).`);
+    return data;
+  } finally { clearTimeout(timer); }
+}
+function sourceStatus() {
+  if (!S.board) return;
+  const sources = S.board.sources || [];
+  const latest = sources.map(x => x.received_at).filter(x => x > 0);
+  const at = latest.length ? Math.min(...latest) : 0;
+  const stale = at && Date.now() / 1000 - at > Math.max(60, S.board.source_ttl * 2);
+  const failed = S.board.error || sources.some(s => s.error);
+  const disconnected = !S.online || Date.now() - S.lastRead > 30000;
+  $('connection').textContent = disconnected ? 'Sin conexión' : failed ? 'Fuente con error' : stale ? 'Datos desactualizados' : S.board.loading ? 'Cargando fuentes' : 'Conectado al Deck';
+  $('connection').dataset.level = disconnected || failed ? 'error' : stale ? 'warning' : 'ok';
+  $('updated').textContent = at ? `Lectura de Firstmate: ${dateFmt.format(new Date(at * 1000))} · ${relative(at)}` : 'Primera lectura pendiente.';
+  if (disconnected) notice('Sin conexión con el Deck. Conservamos la última vista y tu borrador. Al volver, verifica la pregunta antes de enviar.');
+  else if (failed) notice('Una fuente no se pudo actualizar. Los datos conservados pueden estar desactualizados; consulta las fuentes abajo.');
+  else if (stale) notice('La lectura de Firstmate es antigua. El estado actual todavía no está confirmado.');
+  else notice('');
+  syncSubmit();
+}
+function selectColumn(column, scroll = false) {
+  S.column = column;
+  for (const section of $('board').children) section.dataset.selected = String(section.dataset.kind === column);
+  for (const b of $('columns-nav').children) b.setAttribute('aria-pressed', String(b.dataset.kind === column));
+  if (scroll && matchMedia('(max-width: 639px)').matches) $('columns-nav').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+function renderBoard() {
+  if (!S.board) return;
+  const columns = S.board.columns;
+  const counts = Object.fromEntries(columns.map(c => [c.id, c.cards.filter(x => !x.answered).length]));
+  const attention = `${counts.captains_call || 0} ${counts.captains_call === 1 ? 'decisión pendiente' : 'decisiones pendientes'}`;
+  const spaces = `${S.board.homes.length} ${S.board.homes.length === 1 ? 'espacio' : 'espacios'}`;
+  $('overview').textContent = matchMedia('(max-width: 639px)').matches ? attention + ' · ' + spaces : `${attention} · ${counts.underway || 0} tareas iniciadas · ${spaces}`;
+  const metrics = [], nav = [];
+  for (const id of ['captains_call', 'underway', 'charted', 'landed']) {
+    const b = button('', () => { setView('board'); selectColumn(id, true); }, 'metric'); b.dataset.kind = id;
+    append(b, node('span', 'metric-number', String(counts[id] || 0)), append(node('span', 'metric-label', labels[id]), node('span', 'metric-note', notes[id]))); metrics.push(b);
   }
-}
-
-function applyTheme(mode) {
-  state.themeMode = THEME_MODES.includes(mode) ? mode : "auto";
-  const resolved = resolvedTheme(state.themeMode);
-  document.documentElement.dataset.theme = resolved;
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", resolved === "light" ? "#f5f7fb" : "#0b1220");
-  for (const button of document.querySelectorAll("[data-theme-mode]")) {
-    button.dataset.selected = String(button.dataset.themeMode === state.themeMode);
+  for (const c of columns) {
+    const b = button('', () => selectColumn(c.id)); b.dataset.kind = c.id; b.setAttribute('aria-pressed', String(S.column === c.id));
+    append(b, node('span', '', String(counts[c.id] || 0)), document.createTextNode(c.title)); nav.push(b);
   }
+  $('metrics').replaceChildren(...metrics); $('columns-nav').replaceChildren(...nav);
+  const existing = new Map([...$('board').children].map(n => [n.dataset.kind, n]));
+  for (const c of columns) {
+    let section = existing.get(c.id);
+    if (!section) { section = node('section', 'column'); section.dataset.kind = c.id; $('board').append(section); }
+    const cards = c.cards.filter(card => (S.query === '' || [card.title, card.context.reason, card.owner, card.task,
+      ...card.dependencies.map(d => d.title || d.id)].join(' ').toLocaleLowerCase().includes(S.query)));
+    const heading = append(node('div', 'column-heading'), node('span', 'column-dot'), node('h2', '', c.title), node('span', 'column-count', String(cards.length)));
+    const list = node('div', 'cards');
+    for (const card of cards) list.append(renderCard(card));
+    if (!cards.length) list.append(node('p', 'empty', S.query ? 'No hay tareas que coincidan con la búsqueda.' : c.id === 'captains_call' ? 'Sin preguntas pendientes. Firstmate conserva el rumbo.' : c.id === 'landed' ? 'No hay entregas en esta vista reciente. Puedes buscar en el historial.' : 'No hay tareas en este estado.'));
+    // Preserve focus when a polling update replaces the selected card.
+    const focusedKey = section.contains(document.activeElement) ? document.activeElement.dataset.key : '';
+    section.replaceChildren(heading, list);
+    if (focusedKey) [...list.children].find(n => n.dataset.key === focusedKey)?.focus({ preventScroll: true });
+  }
+  for (const n of [...$('board').children]) if (!n.dataset.kind) n.remove();
+  selectColumn(S.column); renderSupervisors(); sourceStatus();
 }
-
-// --------------------------------------------------------------------------
-// Safe area
-// --------------------------------------------------------------------------
-
-function isStandalone() {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    window.navigator.standalone === true
-  );
+function renderCard(card) {
+  const b = button('', () => card.bucket === 'landed' && card.home ? openDelivery(card.home, card.task, b) : openTicket(card.key, b), 'task-card'); b.dataset.key = card.key;
+  const phase = node('span', 'phase', card.answered ? 'Respuesta registrada' : card.bucket === 'landed' ? 'Entrega retenida' : card.bucket === 'charted' && card.context.phase === 'unknown' ? 'En cola' : card.context.label || phaseLabels[card.context.phase]); phase.dataset.phase = card.context.phase;
+  const dependencyWait = card.context.waiting_for || (card.dependencies.length ? 'Pendiente de ' + card.dependencies.map(d => d.title || d.id).join('; ') : card.context.reason);
+  const waitNamesDependency = card.context.phase === 'dependency' && card.dependencies.some(d => dependencyWait.trim() === (d.title || d.id));
+  const dependencyOwner = waitNamesDependency ? ' · ' + card.dependencies.map(d => d.owner === '(main)' ? card.owner : d.owner || 'responsable sin registrar').join('; ') : '';
+  const reason = card.context.phase === 'dependency' ? 'Espera: ' + dependencyWait + dependencyOwner : card.context.phase === 'unknown' ? 'Último reporte: ' + card.context.reason : card.context.reason;
+  append(b, append(node('div', 'card-top'), node('span', 'owner', card.owner)), node('h3', '', card.title), phase,
+    node('p', 'card-reason', card.bucket === 'landed' ? card.summary || 'Abre la entrega para leer el resultado conservado.' : reason));
+  if (card.dependencies.length && !waitNamesDependency) b.append(node('p', 'dependency', '↳ ' + card.dependencies.map(d => (d.title || d.id) + ' · ' + (d.owner === '(main)' ? card.owner : d.owner || 'responsable sin registrar') + (d.unresolved === false ? ' · resuelta' : '')).join('; ')));
+  if (card.bucket === 'underway') {
+    if (card.context.waiting_for) b.append(node('p', 'dependency', 'Condición: ' + card.context.waiting_for));
+    b.append(node('p', 'dependency', 'Firstmate: ' + card.context.next_action));
+    b.append(node('p', 'dependency', card.context.native_status));
+    if (card.report?.state) b.append(node('p', 'dependency', 'Reporte: ' + eventTime(card.report.time)));
+  }
+  const time = node('span', '', eventTime(card.time)); time.title = card.time.detail;
+  append(b, append(node('div', 'card-time'), time, node('span', '', card.bucket === 'captains_call' ? 'Ver pregunta →' : card.bucket === 'landed' ? 'Leer entrega →' : 'Ver contexto →')));
+  return b;
 }
-
-function isIOS() {
-  // iPadOS calls itself a Mac, so the touch count tells the two apart.
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
-  );
+function supervisorText(s) {
+  if (!s || !s.observed_at) return 'Actividad actual desconocida. No hay una declaración del supervisor.';
+  const epoch = Date.parse(s.observed_at) / 1000;
+  const ttl = Number(s.ttl || s.ttl_seconds || 0);
+  const stale = s.freshness === 'stale' || (ttl > 0 && Date.now() / 1000 - epoch > ttl);
+  const state = { coordinating: 'coordinación', waiting: 'espera', idle: 'inactividad' }[s.state] || 'estado desconocido';
+  const unknown = !Number.isFinite(epoch) || ttl <= 0 || s.freshness === 'unknown' || epoch > Date.now() / 1000 + 5;
+  return `${stale ? 'Declaración vencida; actividad actual desconocida.' : unknown ? 'Vigencia sin confirmar; actividad actual desconocida.' : 'Declaró ' + state + '.'} ${s.summary || 'Sin propósito registrado.'} ${Number.isFinite(epoch) ? dateFmt.format(new Date(epoch * 1000)) + ' · ' + relative(epoch) + '.' : 'Hora no verificable.'} La actividad actual del modelo no se conoce.`;
 }
-
-function measuredInset(property) {
-  const probe = document.createElement("div");
-  probe.style.cssText =
-    "position:fixed;left:0;top:0;width:0;visibility:hidden;pointer-events:none;height:env(" +
-    property +
-    ", 0px)";
-  document.body.append(probe);
-  const height = probe.getBoundingClientRect().height;
-  probe.remove();
-  return height;
+function renderSupervisors() {
+  $('supervisors').replaceChildren(...(S.board.sources || []).map(source => {
+    const row = node('div', 'supervisor');
+    const title = append(node('div'), node('strong', '', source.label), node('small', '', source.error || (source.received_at ? 'Fuente leída ' + relative(source.received_at) : 'Sin lectura confirmada')));
+    if (source.generated && Number.isFinite(Date.parse(source.generated))) title.append(node('small', '', 'Export: ' + dateFmt.format(new Date(source.generated))));
+    append(row, title, node('p', '', supervisorText(source.supervisor))); return row;
+  }));
 }
-
-/* iOS 26 draws a glass bar over an installed web app and reports a zero top
-   inset while it does. A measured zero on an installed iOS app therefore
-   means "reserve the space here", not "there is no bar". The bar on the phone
-   that reported this was about 110 px tall; the settings sheet has a control
-   for the last few pixels. */
-const IOS_BAR_TOP = 118;
-const IOS_BAR_BOTTOM = 34;
-const INSET_KEY = "deck.topExtra";
-
-let topExtra = storedTopExtra();
-
-function storedTopExtra() {
+async function poll() {
+  if (document.hidden) return;
+  const selected = S.home;
   try {
-    const raw = Number(localStorage.getItem(INSET_KEY));
-    return Number.isFinite(raw) ? raw : 0;
-  } catch {
-    return 0;
-  }
+    const data = await api('api/board' + (selected ? '?home=' + encodeURIComponent(selected) : ''));
+    if (selected !== S.home) return;
+    S.online = true; S.lastRead = Date.now(); S.csrf = data.csrf;
+    // Failed collection must not erase an already useful board.
+    if (!(data.error && !data.columns.some(c => c.cards.length) && S.board)) S.board = data;
+    else { S.board.error = data.error; S.board.sources = data.sources; }
+    const identity = JSON.stringify(data.homes);
+    if ($('crew').dataset.homes !== identity) {
+      $('crew').dataset.homes = identity;
+      $('crew').replaceChildren(new Option('Todas', ''), ...data.homes.map(h => new Option(h.label, h.id)));
+      $('crew').value = S.home;
+    }
+    renderBoard();
+    loadReceipts();
+    if (!S.linkHandled && data.homes.length && !data.loading) {
+      S.linkHandled = true;
+      const params = new URLSearchParams(location.search);
+      if (params.has('task')) openStableLink(params);
+    }
+    if (S.modal?.type === 'call' && !S.busy && !S.receipt) checkCall();
+    if (S.modal?.type === 'delivery' && S.modal.explanation) refreshExplanation();
+  } catch (err) { S.online = false; sourceStatus(); if (!S.board) { $('board').replaceChildren(node('p', 'empty', 'No se pudo cargar el tablero. ' + err.message)); notice('No se ha confirmado ninguna lectura. Reintenta con Actualizar.', true); $('connection').textContent = 'No disponible'; } }
 }
-
-function storeTopExtra(value) {
+function setView(view) {
+  S.view = view; $('board-view-panel').hidden = view !== 'board'; $('history-panel').hidden = view !== 'history';
+  $('board-view').setAttribute('aria-pressed', String(view === 'board')); $('history-view').setAttribute('aria-pressed', String(view === 'history'));
+  if (view === 'history') loadHistory();
+}
+async function loadHistory() {
+  const generation = ++S.historyGeneration;
+  $('history-status').textContent = 'Buscando en los registros retenidos…';
   try {
-    localStorage.setItem(INSET_KEY, String(value));
-  } catch {
-    /* the nudge lasts this session only */
-  }
+    const query = new URLSearchParams({ home: S.home, q: $('history-search').value });
+    const data = await api('api/history?' + query);
+    if (generation !== S.historyGeneration) return;
+    $('history-status').textContent = `${data.records.length} entregas${data.omitted ? ' · ' + data.omitted + ' resultados adicionales; afina la búsqueda' : ''}. ${data.scope}`;
+    $('history-results').replaceChildren(...data.records.map(row => {
+      const b = button('', () => openDelivery(row.home, row.task, b), 'task-card');
+      append(b, node('p', 'card-top', row.owner), node('h3', '', row.title), node('p', 'card-time', eventTime(row.time)), node('span', 'herdr-link', 'Leer entrega →')); return b;
+    }));
+    if (!data.records.length) $('history-results').append(node('p', 'empty', 'No se encontraron entregas retenidas para esta búsqueda.'));
+    $('history-sources').replaceChildren(...data.details.map(d => contextRow(d.home, d.source)));
+  } catch (err) { if (generation === S.historyGeneration) $('history-status').textContent = 'No se pudo actualizar el historial. ' + err.message; }
 }
-
-function applySafeArea() {
-  const installedIOS = isStandalone() && isIOS();
-  const measuredTop = measuredInset("safe-area-inset-top");
-  const base = measuredTop || (installedIOS ? IOS_BAR_TOP : 0);
-  const top = Math.max(0, base + (installedIOS ? topExtra : 0));
-  const bottom =
-    measuredInset("safe-area-inset-bottom") || (installedIOS ? IOS_BAR_BOTTOM : 0);
-  document.documentElement.style.setProperty("--safe-top", top + "px");
-  document.documentElement.style.setProperty("--safe-bottom", bottom + "px");
-  if (el.insetRow) el.insetRow.hidden = !installedIOS;
-  if (el.insetValue) el.insetValue.textContent = Math.round(top) + " px";
+function showDetail(title, meta, kicker, opener) {
+  S.opener = opener || document.activeElement; S.receipt = null;
+  S.openerKey = S.opener?.dataset?.key;
+  $('detail-title').textContent = title; $('detail-meta').textContent = meta; $('detail-kicker').textContent = kicker;
+  $('detail-content').replaceChildren(node('p', 'muted', 'Cargando el contexto…'));
+  if (!$('detail').open) $('detail').showModal();
+  $('detail-title').focus();
 }
-
-function nudgeInset(step) {
-  topExtra += step;
-  storeTopExtra(topExtra);
-  applySafeArea();
+function readDraft(key) { try { return JSON.parse(sessionStorage.getItem('deck-draft-' + key)) || {}; } catch { return S.drafts.get(key) || {}; } }
+function saveDraft(event) {
+  if (S.modal?.type !== 'call' || !$('answer-note') || S.receipt?.saved) return;
+  if (event && ['input', 'change'].includes(event.type)) S.modal.draftNeedsReview = false;
+  const draft = { note: $('answer-note').value, value: document.querySelector('input[name="answer"]:checked')?.value || '', request: S.modal.request || crypto.randomUUID().replaceAll('-', ''), occurrence: S.modal.draftNeedsReview ? S.modal.previousOccurrence : S.modal.ticket.call.occurrence };
+  S.modal.request = draft.request; S.drafts.set(S.modal.key, draft);
+  try { sessionStorage.setItem('deck-draft-' + S.modal.key, JSON.stringify(draft)); } catch { /* In-memory draft remains available. */ }
+  syncSubmit();
 }
-
-// --------------------------------------------------------------------------
-// Debug readout (?debug)
-// --------------------------------------------------------------------------
-
-function debugEnabled() {
-  return location.search.includes("debug");
-}
-
-async function pushLog() {
-  if (!("caches" in window)) return null;
+async function openTicket(key, opener) {
+  const gen = ++S.generation;
+  showDetail('Contexto de la tarea', '', 'ESTADO DECLARADO', opener);
+  S.modal = { type: 'loading', key };
   try {
-    const cache = await caches.open("deck-push-log");
-    const hit = await cache.match("/log");
-    if (!hit) return null;
-    const data = await hit.json();
-    return data && typeof data === "object" ? data : null;
-  } catch {
-    return null;
-  }
+    const ticket = await api('api/ticket/' + encodeURIComponent(key));
+    if (gen !== S.generation || !$('detail').open) return;
+    $('detail-title').textContent = ticket.title; $('detail-meta').textContent = ticket.owner + ' · ' + eventTime(ticket.time);
+    if (ticket.call) renderCall(ticket);
+    else {
+      S.modal = { type: 'task', key, ticket };
+      const c = ticket.context;
+      const reasonLabel = c.phase === 'dependency' || c.phase === 'unknown' ? 'Último reporte registrado' : c.label;
+      $('detail-content').replaceChildren(contextRow(reasonLabel, c.reason), contextRow('Condición para retomar', c.waiting_for || (ticket.dependencies.length ? 'Pendiente de ' + ticket.dependencies.map(d => d.title || d.id).join('; ') : 'No hay una condición adicional registrada.')), contextRow('Siguiente paso', c.next_action), contextRow('Responsable', ticket.owner));
+      if (ticket.report?.state) $('detail-content').append(contextRow('Reporte durable · ' + ticket.report.state, ticket.report.text), contextRow('Fecha del reporte', eventTime(ticket.report.time)), contextRow('Procedencia del reporte', ticket.report.time.detail));
+      $('detail-content').append(contextRow('Estado nativo', c.native_status), contextRow('Observación original de Firstmate', ticket.native?.detail));
+      for (const d of ticket.dependencies) $('detail-content').append(contextRow('Dependencia · ' + (d.title || d.id), `Responsable: ${d.owner === '(main)' ? ticket.owner : d.owner || 'no registrado'}. Estado: ${d.state || 'desconocido'}.${d.unresolved === false ? ' Resuelta.' : ''}${d.reconciliation_required ? ' El vínculo necesita conciliación de Firstmate.' : ''}`));
+      $('detail-content').append(contextRow('Declaración de Firstmate', supervisorText(ticket.supervisor)), contextRow('Agente registrado', ticket.agent || 'No registrado.'));
+      addTimeDetails(ticket.time); addHerdr(ticket);
+      if (ticket.original_title !== ticket.title) $('detail-content').append(append(node('details', 'source-details'), node('summary', '', 'Título original conservado'), prose(ticket.original_title)));
+    }
+  } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
-
-async function debugReport() {
-  const root = getComputedStyle(document.documentElement);
-  const lines = [
-    "standalone: " + isStandalone(),
-    "ios: " + isIOS(),
-    "env top: " + measuredInset("safe-area-inset-top") + "px",
-    "env bottom: " + measuredInset("safe-area-inset-bottom") + "px",
-    "safe-top: " + root.getPropertyValue("--safe-top").trim(),
-    "safe-bottom: " + root.getPropertyValue("--safe-bottom").trim(),
-    "innerHeight: " + window.innerHeight,
-    "visualViewport: " +
-      (window.visualViewport ? Math.round(window.visualViewport.height) : "-"),
-    "body: " + document.body.clientHeight,
-    "screen: " + window.screen.width + "x" + window.screen.height,
-    "dpr: " + window.devicePixelRatio,
-    "theme: " + document.documentElement.dataset.theme,
-    "permission: " + (window.Notification ? Notification.permission : "none"),
-  ];
+function addTimeDetails(time) { const details = node('details', 'source-details'); append(details, node('summary', '', 'Fecha exacta y procedencia'), prose(time?.detail || 'Hora no registrada.')); $('detail-content').append(details); }
+function addHerdr(ticket) { if (!ticket.herdr_url) return; const a = node('a', 'herdr-link', 'Abrir este agente en Herdr Web ↗'); a.href = ticket.herdr_url; a.target = '_blank'; a.rel = 'noopener noreferrer'; $('detail-content').append(a); }
+function addStableLink(home, task, view) {
+  if (!home) return;
+  const url = new URL(location.href); url.search = new URLSearchParams({ home, task, view }).toString(); url.hash = '';
+  const a = node('a', 'herdr-link', 'Enlace permanente a esta tarea ↗'); a.href = url.href;
+  $('detail-content').append(a);
+}
+async function openStableLink(params) {
+  const home = params.get('home') || '', task = params.get('task') || '', view = params.get('view') || '';
+  showDetail('Abriendo la tarea', '', 'ENLACE DE FIRSTMATE');
+  const gen = ++S.generation;
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    lines.push(
-      "push endpoint: " + (subscription ? "…" + subscription.endpoint.slice(-12) : "none")
-    );
+    const result = await api('api/resolve?' + new URLSearchParams({ home, task, view, item: params.get('item') || '' }));
+    if (gen !== S.generation || !$('detail').open) return;
+    if (result.view === 'call') { await openTicket(result.key, S.opener); return; }
+    if (result.view === 'delivery') { await openDelivery(home, task, S.opener); if (S.modal?.type === 'delivery' && result.notice) { S.modal.linkNotice = result.notice; renderDelivery(); } return; }
+    S.modal = { type: 'task' };
+    $('detail-title').textContent = 'La pregunta de este aviso'; $('detail-meta').textContent = result.owner + ' · ' + result.task;
+    $('detail-content').replaceChildren(prose(result.message));
+    for (const receipt of result.receipts || []) $('detail-content').append(receiptView(receipt));
+    if (result.current_key) $('detail-content').append(button('Ver la pregunta actual', async () => { await openTicket(result.current_key, S.opener); $('detail-kicker').textContent = 'PREGUNTA ACTUAL'; }));
+    $('detail-content').append(button('Buscar esta tarea en el historial', () => { $('history-search').value = task; $('detail').close(); setView('history'); }));
+  } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
+}
+function renderCall(ticket, draftOverride) {
+  const key = ticket.key, c = ticket.call, draft = draftOverride || readDraft(key);
+  const staleDraft = !!draft.occurrence && draft.occurrence !== c.occurrence && !!(draft.note || draft.value);
+  S.modal = { type: 'call', key, ticket, request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence };
+  $('detail-kicker').textContent = 'CAPTAIN’S CALL'; $('detail-title').textContent = c.title || ticket.title;
+  const content = $('detail-content'); content.replaceChildren();
+  const error = node('p', 'notice', c.error || (staleDraft ? 'Este borrador pertenece a una pregunta anterior. Se conserva aquí: selecciona una opción actual o edita tu respuesta para habilitar el envío.' : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
+  if (c.about) content.append(prose(c.about));
+  content.append(node('p', 'question', c.decide));
+  // Canonical human hold reason remains explicit even with a composed card.
+  if (ticket.context.reason && ticket.context.reason !== c.about) content.append(contextRow('Motivo de la espera', ticket.context.reason));
+  if (c.detail) { const d = node('details', 'source-details'); append(d, node('summary', '', 'Contexto completo de la pregunta'), prose(c.detail)); content.append(d); }
+  const form = node('fieldset', 'option-list'); form.append(node('legend', '', 'Elige una opción o responde con tus palabras'));
+  for (const option of c.options) {
+    const choice = node('label', 'choice'), input = node('input'); input.type = 'radio'; input.name = 'answer'; input.value = option.value; input.checked = !staleDraft && draft.value === option.value;
+    const text = append(node('span'), node('strong', '', option.label));
+    if (option.value === c.recommend) text.append(node('span', 'recommended', 'Sugerida'));
+    if (option.hint) text.append(node('small', '', option.hint));
+    input.addEventListener('change', saveDraft); append(choice, input, text); form.append(choice);
+  }
+  if (c.freeform) {
+    const choice = node('label', 'choice'), input = node('input'); input.type = 'radio'; input.name = 'answer'; input.value = ''; input.checked = !staleDraft && !draft.value;
+    input.addEventListener('change', saveDraft); append(choice, input, append(node('span'), node('strong', '', 'Responder con mis palabras'), node('small', '', c.freeform_hint))); form.append(choice);
+  }
+  content.append(form);
+  const noteLabel = node('label', 'answer-label', c.freeform ? 'Tu respuesta o contexto adicional' : 'Contexto adicional (opcional)');
+  const note = node('textarea'); note.id = 'answer-note'; note.rows = 3; note.value = draft.note || ''; note.placeholder = 'Escribe aquí…'; note.addEventListener('input', saveDraft); noteLabel.append(note); content.append(noteLabel);
+  content.append(node('p', 'answer-help', 'Máximo 512 bytes, una línea. Elegir una opción o escribir conserva el borrador; sólo Enviar lo comunica.'));
+  const state = node('div'); state.id = 'answer-status'; state.setAttribute('role', 'status'); content.append(state);
+  const actions = node('div', 'action-bar');
+  append(actions, node('p', '', c.close === 'release' ? 'Firstmate guardará tu respuesta y liberará esta retención. Esto no confirma que el agente se haya reanudado.' : 'Firstmate registrará tu selección mediante el intake de esta tarea. Reconciliar pide revisión; no resuelve la llamada.'), button('Enviar respuesta', submitAnswer, 'primary'));
+  actions.lastChild.id = 'answer-submit'; actions.lastChild.disabled = !!c.error || !S.online;
+  content.append(actions); addTimeDetails(ticket.time); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); syncSubmit();
+}
+async function checkCall() {
+  const modal = S.modal;
+  if (!modal || modal.checking) return;
+  modal.checking = true;
+  try {
+    const latest = await api('api/ticket/' + encodeURIComponent(modal.key));
+    if (S.modal !== modal || S.busy) return;
+    if (!latest.call || latest.call.occurrence !== modal.ticket.call.occurrence || latest.call.error) {
+      const warning = $('call-change'); if (!warning) return;
+      warning.hidden = false; warning.replaceChildren(document.createTextNode(latest.call?.error || 'La pregunta cambió. Tu borrador sigue aquí.'));
+      $('answer-submit').disabled = true;
+      if (latest.call) warning.append(button('Revisar pregunta actual', () => { saveDraft(); renderCall(latest); }));
+      modal.ticket.call.error = 'Revisa la pregunta actual antes de enviar.';
+    }
+  } catch (err) { if (S.modal === modal && $('call-change')) { $('call-change').hidden = false; $('call-change').textContent = 'No se pudo verificar la pregunta. Tu borrador se conserva.'; $('answer-submit').disabled = true; } }
+  finally { modal.checking = false; }
+}
+function receiptView(receipt) {
+  const box = node('div', 'receipt'); box.setAttribute('role', 'status');
+  append(box, node('h3', '', receipt.saved ? 'Respuesta registrada' : receipt.saved === false ? 'Respuesta sin enviar' : 'Envío por verificar'), node('p', '', receipt.message));
+  const dl = node('dl');
+  for (const [label, text] of [['Guardado', receipt.saved === true ? 'Confirmado por intake' : 'Sin confirmar'], ['Aviso al responsable', receipt.notice === 'queued' ? 'En cola' : 'Sin confirmar'], ['ACK del responsable', receipt.ack === 'acknowledged' ? 'Recibido' : 'Sin confirmar'], ['Consumo de la respuesta', receipt.consumed === 'consumed' ? 'Confirmado' : 'Sin confirmar']]) append(dl, node('dt', '', label), node('dd', '', text));
+  append(box, dl, node('p', '', 'Guardado y ACK son hechos distintos. Este recibo no confirma una reanudación del agente.'));
+  if (receipt.detail) append(box, append(node('details', 'source-details'), node('summary', '', 'Detalle del recibo'), prose(receipt.detail)));
+  return box;
+}
+async function loadReceipts() {
+  try {
+    const data = await api('api/receipts');
+    $('receipts-panel').hidden = !data.receipts.length;
+    $('receipts').replaceChildren(...data.receipts.map(r => {
+      const detail = node('details', 'source-details');
+      append(detail, node('summary', '', (r.title || r.task) + ' · ' + dateFmt.format(new Date(r.at * 1000))), receiptView(r));
+      return detail;
+    }));
+  } catch { /* The board remains usable; each submit also returns its receipt. */ }
+}
+async function submitAnswer() {
+  if (S.busy || !S.online || S.receipt || S.modal?.type !== 'call') return;
+  saveDraft(); const modal = S.modal, draft = readDraft(modal.key);
+  S.busy = true; $('answer-submit').disabled = true; $('answer-submit').textContent = 'Enviando…';
+  try {
+    const receipt = await api('api/ticket/' + encodeURIComponent(modal.key) + '/answer', { value: draft.value || '', note: draft.note || '', occurrence: modal.ticket.call.occurrence, request_id: modal.request });
+    if (S.modal !== modal) return;
+    S.receipt = receipt; $('answer-status').replaceChildren(receiptView(receipt));
+    $('answer-submit').textContent = receipt.saved ? 'Registrada' : receipt.saved === false ? 'Sin enviar' : 'Sin confirmar';
+    $('answer-status').append(button('Consultar recibos', async () => {
+      await loadReceipts(); $('receipts-panel').open = true; $('detail').close();
+      $('receipts-panel').scrollIntoView({ block: 'start' });
+    }));
+    if (receipt.state === 'conflict') $('answer-status').append(button('Revisar pregunta actual', () => openTicket(modal.key, S.opener)));
+    if (receipt.saved) { S.drafts.delete(modal.key); try { sessionStorage.removeItem('deck-draft-' + modal.key); } catch {} }
   } catch (err) {
-    lines.push("push endpoint: " + String(err.message || err));
-  }
-  const log = await pushLog();
-  lines.push(
-    "pushes received: " +
-      (log ? log.count + " (last " + new Date(log.at).toLocaleTimeString() + ")" : "none")
-  );
-  if (log && log.last) lines.push("last payload: " + JSON.stringify(log.last));
-  return lines.join("\n");
+    if (S.modal !== modal) return;
+    $('answer-status').replaceChildren(node('p', 'notice error', err.message + ' Tu borrador se conserva.'));
+    $('answer-submit').textContent = 'Reintentar el mismo envío';
+  } finally { S.busy = false; syncSubmit(); }
 }
-
-let debugTimer = 0;
-
-async function toggleDebug() {
-  const shown = document.querySelector(".debug");
-  if (shown) {
-    shown.remove();
-    clearInterval(debugTimer);
-    return;
-  }
-  const box = node("pre", "debug", await debugReport());
-  document.body.append(box);
-  clearInterval(debugTimer);
-  debugTimer = setInterval(async () => {
-    const live = document.querySelector(".debug");
-    if (live) live.textContent = await debugReport();
-  }, 2000);
-}
-
-// --------------------------------------------------------------------------
-// Rendering
-// --------------------------------------------------------------------------
-
-function render() {
-  const board = state.board;
-  if (!board) return;
-  el.stamp.textContent = board.loading ? "loading…" : stampText(board);
-  renderError(board);
-  renderHomes(board);
-  renderColumns(board);
-}
-
-function stampText(board) {
-  const age = Math.max(0, Math.round(Date.now() / 1000 - board.collected_at));
-  return age <= 1 ? "now" : age + "s ago";
-}
-
-function renderError(board) {
-  el.error.hidden = !board.error;
-  el.error.textContent = board.error || "";
-}
-
-function renderHomes(board) {
-  el.homes.replaceChildren();
-  const active = board.active_home || state.home;
-  for (const home of board.homes) {
-    const tab = node("button", "home");
-    tab.type = "button";
-    tab.dataset.active = String(home.label === active);
-    tab.append(node("span", "home-label", home.label));
-    if (home.count) tab.append(node("span", "home-count", String(home.count)));
-    if (home.activity === "working") tab.append(node("span", "dot working", "●"));
-    else if (home.activity === "blocked") tab.append(node("span", "dot blocked", "●"));
-    else if (home.offline_since) tab.append(node("span", "dot offline", "●"));
-    tab.addEventListener("click", () => selectHome(home.label));
-    el.homes.append(tab);
-  }
-}
-
-function selectHome(label) {
-  state.home = label;
-  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-    state.socket.send(JSON.stringify({ type: "home", label }));
-  } else {
-    load();
-  }
-}
-
-function cardSignature(card) {
-  return [
-    card.id,
-    card.title,
-    card.badge,
-    card.badge_color,
-    card.doing,
-    card.owner,
-    card.agent_line,
-    card.run_elapsed,
-    card.run_tokens,
-    card.status_text,
-    card.live_status,
-  ].join("\u0001");
-}
-
-function ensureSection(column) {
-  const known = state.sections.get(column.id);
-  if (known) return known;
-  const section = node("section", "column");
-  section.dataset.column = column.id;
-  const head = node("button", "column-head");
-  head.type = "button";
-  const note = node("span", "column-note");
-  note.hidden = true;
-  const count = node("span", "column-count", "0");
-  head.append(node("span", "column-title", column.title), note, count);
-  const list = node("div", "cards");
-  const entry = {
-    id: column.id,
-    title: column.title,
-    section,
-    head,
-    note,
-    count,
-    list,
-    sig: "",
-    collapsed: column.id === "landed",
-  };
-  if (entry.collapsed) section.classList.add("collapsed");
-  head.addEventListener("click", () => {
-    entry.collapsed = !entry.collapsed;
-    section.classList.toggle("collapsed", entry.collapsed);
-  });
-  section.append(head, list);
-  state.sections.set(column.id, entry);
-  return entry;
-}
-
-function updateColumn(entry, column) {
-  entry.title = column.title;
-  const cards = visibleCards(column);
-  const hidden = (column.cards || []).length - cards.length;
-  entry.count.textContent = String(cards.length);
-  entry.note.textContent = hidden ? hidden + " answered" : "";
-  entry.note.hidden = !hidden;
-  // The switch changes what the column holds, so it belongs in the signature.
-  const signature =
-    String(state.showAnswered) +
-    "\u0002" +
-    column.title +
-    "\u0002" +
-    cards.map(cardSignature).join("\u0001");
-  if (signature === entry.sig) return;
-  // Rebuilding a column must not move the reader: the page scroll is restored.
-  const keepTop = entry.section.scrollTop;
-  entry.list.replaceChildren();
-  if (!cards.length) entry.list.append(node("p", "column-empty", "nothing here"));
-  for (const card of cards) entry.list.append(cardNode(card, column.id));
-  entry.sig = signature;
-  if (keepTop) entry.section.scrollTop = keepTop;
-}
-
-/* An answered call stays in the data: the phone decides whether to show it,
-   the same way the TUI's A key does. */
-function visibleCards(column) {
-  const cards = column.cards || [];
-  if (state.showAnswered) return cards;
-  return cards.filter((card) => !card.answered_hidden);
-}
-
-function storedShowAnswered() {
+async function openDelivery(home, task, opener) {
+  const gen = ++S.generation;
+  showDetail('Entrega de la tripulación', '', 'ENTREGA RETENIDA', opener);
+  S.modal = { type: 'loading' };
   try {
-    return localStorage.getItem(SHOW_ANSWERED_KEY) === "1";
-  } catch {
-    return false;
-  }
+    const data = await api('api/delivery/' + encodeURIComponent(home) + '/' + encodeURIComponent(task));
+    if (gen !== S.generation || !$('detail').open) return;
+    S.modal = { type: 'delivery', home, task, data, tab: 'summary' };
+    $('detail-title').textContent = data.title; $('detail-meta').textContent = data.owner + ' · ' + eventTime(data.time);
+    renderDelivery(); refreshExplanation();
+  } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
-
-function applyShowAnswered(value) {
-  state.showAnswered = Boolean(value);
-  try {
-    localStorage.setItem(SHOW_ANSWERED_KEY, state.showAnswered ? "1" : "0");
-  } catch {
-    /* the choice lasts this session only */
-  }
-  if (el.showAnsweredOn) el.showAnsweredOn.dataset.selected = String(state.showAnswered);
-  if (el.showAnsweredOff) {
-    el.showAnsweredOff.dataset.selected = String(!state.showAnswered);
-  }
-  // Every column keeps its signature, so the switch has to force a rebuild.
-  for (const entry of state.sections.values()) entry.sig = "";
-  render();
+function renderDelivery() {
+  const modal = S.modal, data = modal.data, content = $('detail-content'); content.replaceChildren();
+  if (modal.linkNotice) content.append(node('p', 'notice', modal.linkNotice));
+  const tabs = node('nav', 'detail-tabs'); tabs.setAttribute('aria-label', 'Contenido de la entrega');
+  for (const [id, label] of [['summary', 'Resumen'], ['report', 'Informe'], ['details', 'Detalles']]) { const b = button(label, () => { modal.tab = id; renderDelivery(); }); b.setAttribute('aria-pressed', String(modal.tab === id)); tabs.append(b); }
+  append(content, tabs, prose(data[modal.tab]));
+  if (modal.tab === 'details') { content.append(contextRow('Fuentes del historial', data.sources)); addTimeDetails(data.time); }
+  const actions = node('div', 'explain-actions');
+  const ask = button('Pedir explicación a Firstmate', requestExplanation); ask.id = 'explain-request';
+  const status = button('Consultar estado', refreshExplanation);
+  const text = node('p', 'explain-status', 'Consultar no envía una solicitud.'); text.id = 'explain-status'; text.setAttribute('role', 'status');
+  append(actions, ask, status, text); content.append(actions);
+  if (modal.explanation) explanationView(modal.explanation);
+  addStableLink(modal.home, modal.task, 'delivery');
 }
-
-function renderColumns(board) {
-  const wanted = [];
-  for (const column of board.columns) {
-    if (ACTIVE_COLUMNS.includes(column.id)) wanted.push(column);
-  }
-  const others = board.others || [];
-  if (others.length) wanted.push({ id: "others", title: "Other Agents", cards: others });
-
-  if (!wanted.length) return;
-  if (!state.sections.size) el.board.replaceChildren();
-
-  for (const column of wanted) updateColumn(ensureSection(column), column);
-
-  for (const [id, entry] of [...state.sections]) {
-    if (!wanted.some((column) => column.id === id)) {
-      entry.section.remove();
-      state.sections.delete(id);
-    }
-  }
-
-  state.order = wanted.map((column) => column.id);
-  state.order.forEach((id, index) => {
-    const entry = state.sections.get(id);
-    if (el.board.children[index] !== entry.section) {
-      el.board.insertBefore(entry.section, el.board.children[index] || null);
-    }
-  });
-
-  renderDots();
-  updateActivePage();
+function explanationView(data) {
+  if (!$('explain-status')) return;
+  const meanings = { absent: 'Todavía no se ha solicitado una explicación.', queued: 'Petición guardada y aviso en cola. Firstmate aún no confirmó la recepción.', saved_unannounced: 'Petición guardada; no se confirmó el aviso a Firstmate.', acknowledged: 'Firstmate confirmó la recepción (ACK). Eso no confirma que esté preparando una respuesta.', answered: 'Firstmate dejó una respuesta.', unsupported: 'Este home aún no ofrece el intake de explicación.', error: 'No se pudo verificar el estado de la petición.' };
+  const reply = data.receipt?.reply;
+  $('explain-status').textContent = (meanings[data.state] || 'Estado no confirmado.') + (data.message ? '\n' + data.message : '') + (reply?.body ? '\n\nRespuesta de Firstmate:\n' + reply.body + (reply.at ? '\n' + dateFmt.format(new Date(reply.at)) : '') : '');
+  $('explain-request').disabled = S.busy || !S.online || ['queued', 'acknowledged', 'answered', 'unsupported'].includes(data.state);
 }
-
-// --------------------------------------------------------------------------
-// Phone pager: one column per screen
-// --------------------------------------------------------------------------
-
-function renderDots() {
-  if (el.dots.children.length !== state.order.length) {
-    el.dots.replaceChildren();
-    for (let index = 0; index < state.order.length; index += 1) {
-      const dot = node("button", "page-dot");
-      dot.type = "button";
-      dot.addEventListener("click", () => scrollToPage(index));
-      el.dots.append(dot);
-    }
-  }
-  [...el.dots.children].forEach((dot, index) => {
-    const entry = state.sections.get(state.order[index]);
-    const title = entry ? entry.title : "";
-    dot.dataset.active = String(index === state.page);
-    dot.title = title;
-    dot.setAttribute("aria-label", "Show " + (title || "column " + (index + 1)));
-  });
+async function refreshExplanation() {
+  const modal = S.modal; if (modal?.type !== 'delivery' || modal.readingExplanation) return;
+  modal.readingExplanation = true;
+  try { const data = await api(`api/delivery/${encodeURIComponent(modal.home)}/${encodeURIComponent(modal.task)}/explanation`); if (S.modal === modal) { modal.explanation = data; explanationView(data); } }
+  catch (err) { if (S.modal === modal && $('explain-status')) $('explain-status').textContent = err.message; }
+  finally { modal.readingExplanation = false; }
 }
-
-function updateActivePage() {
-  const width = el.board.clientWidth;
-  if (!width || !state.order.length) return;
-  const index = Math.max(
-    0,
-    Math.min(state.order.length - 1, Math.round(el.board.scrollLeft / width))
-  );
-  if (index === state.page && el.dots.children.length === state.order.length) return;
-  state.page = index;
-  renderDots();
+async function requestExplanation() {
+  const modal = S.modal; if (modal?.type !== 'delivery' || S.busy || !S.online) return;
+  S.busy = true; $('explain-request').disabled = true;
+  try { const data = await api(`api/delivery/${encodeURIComponent(modal.home)}/${encodeURIComponent(modal.task)}/explanation`, {}); if (S.modal === modal) { modal.explanation = data; explanationView(data); } }
+  catch (err) { if (S.modal === modal && $('explain-status')) $('explain-status').textContent = err.message; }
+  finally { S.busy = false; if (S.modal === modal && modal.explanation) explanationView(modal.explanation); }
 }
-
-function scrollToPage(index) {
-  const entry = state.sections.get(state.order[index]);
-  if (!entry) return;
-  entry.section.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
-  state.page = index;
-  renderDots();
-}
-
-function cardNode(card, columnId) {
-  const answerable = columnId === "captains_call";
-  const item = document.createElement(answerable ? "button" : "div");
-  item.className = "card";
-  if (answerable) {
-    item.type = "button";
-    item.classList.add("answerable");
-  }
-
-  const top = node("div", "card-top");
-  top.append(node("span", "card-title", card.title || card.task));
-  if (card.badge) {
-    const badge = node("span", "badge", card.badge);
-    const color = BADGE_COLORS[Number(card.badge_color)];
-    if (color) badge.style.color = color;
-    top.append(badge);
-  }
-  item.append(top);
-
-  if (card.answered_hidden) {
-    item.append(node("p", "card-answered", "✓ answered, waiting for its owner"));
-  }
-
-  // A card whose status repeats its doing line must not show the paragraph
-  // twice. The doing text is truncated with an ellipsis, so the comparison
-  // uses the head of it.
-  function repeatsDoing(text) {
-    if (!card.doing || !text) return false;
-    const head = card.doing.replace(/\u2026$/, "").trim();
-    return head.length > 12 && (text.startsWith(head) || card.doing.startsWith(text));
-  }
-
-  const statusRepeats = repeatsDoing(card.status_text);
-  const doingText =
-    statusRepeats && card.status_text.length > card.doing.length ? card.status_text : card.doing;
-  if (doingText) item.append(node("p", "card-doing", doingText));
-
-  const meta = [];
-  if (card.owner && card.owner !== "(main)") meta.push(card.owner);
-  if (card.agent_line) meta.push(card.agent_line);
-  if (card.run_elapsed) {
-    meta.push(
-      typeof card.run_elapsed === "number" ? fmtElapsed(card.run_elapsed) : card.run_elapsed
-    );
-  }
-  if (card.run_tokens) meta.push(card.run_tokens);
-  if (card.status_text && !statusRepeats) meta.push(card.status_text);
-  if (meta.length) item.append(node("p", "card-meta", meta.join(" · ")));
-
-  if (answerable) {
-    item.append(node("span", "card-cta", "answer →"));
-    item.addEventListener("click", () => openTicket(card.task));
-  }
-  return item;
-}
-
-// --------------------------------------------------------------------------
-// Ticket sheet
-// --------------------------------------------------------------------------
-
-async function openTicket(key) {
-  state.openKey = key;
-  state.choice = "";
-  state.ticket = null;
-  el.sheetState.textContent = "";
-  el.sheetState.dataset.tone = "";
-  el.sheet.hidden = false;
-  el.sheet.classList.remove("closing");
-  el.sheetTitle.textContent = "Loading…";
-  el.sheetBadge.textContent = "";
-  el.sheetRepo.textContent = "";
-  el.sheetAbout.textContent = "";
-  el.sheetDecide.textContent = "";
-  el.sheetDetailBox.hidden = true;
-  el.sheetOptions.replaceChildren();
-  state.optionRows = [];
-  el.sheetNote.value = "";
-  el.sheetSubmit.disabled = true;
-  try {
-    const response = await fetch("/api/ticket/" + encodeURIComponent(key));
-    if (!response.ok) throw new Error("ticket " + response.status);
-    state.ticket = await response.json();
-    drawTicket(state.ticket);
-  } catch (err) {
-    el.sheetTitle.textContent = "Cannot open this ticket";
-    el.sheetState.textContent = String(err.message || err);
-  }
-}
-
-function drawTicket(ticket) {
-  el.sheetTitle.textContent = ticket.title || ticket.key;
-  el.sheetBadge.textContent = ticket.type ? ticket.type.toUpperCase() : "";
-  el.sheetRepo.textContent = ticket.repo || "";
-  el.sheetAbout.textContent = ticket.about || "";
-  el.sheetDecide.textContent = ticket.decide || "";
-  if (ticket.detail) {
-    el.sheetDetail.textContent = ticket.detail;
-    el.sheetDetailBox.hidden = false;
-  }
-  el.sheetOptions.replaceChildren();
-  state.optionRows = [];
-  for (const option of ticket.options || []) {
-    const row = node("button", "option");
-    row.type = "button";
-    row.dataset.value = option.value;
-    row.dataset.recommended = String(option.value === ticket.recommend);
-    row.append(node("span", "option-label", option.label));
-    if (option.value === ticket.recommend) row.append(node("span", "rec", "recommended"));
-    if (option.hint) row.append(node("span", "option-hint", option.hint));
-    row.addEventListener("click", () => chooseOption(option.value));
-    el.sheetOptions.append(row);
-    state.optionRows.push(row);
-  }
-  el.sheetNote.placeholder = ticket.freeform_hint || "or answer in your own words…";
-  el.sheetNote.disabled = ticket.freeform === false;
-  if (ticket.recommend) chooseOption(ticket.recommend);
-}
-
-function chooseOption(value) {
-  state.choice = state.choice === value ? "" : value;
-  for (const row of state.optionRows) {
-    row.dataset.selected = String(row.dataset.value === state.choice);
-  }
-  updateSubmit();
-}
-
-function updateSubmit() {
-  if (!state.ticket) return;
-  const note = el.sheetNote.value.trim();
-  el.sheetSubmit.disabled = state.submitting || (!state.choice && !note);
-}
-
-async function submit() {
-  const ticket = state.ticket;
-  if (!ticket || state.submitting) return;
-  state.submitting = true;
-  el.sheetSubmit.disabled = true;
-  // A running circle in the button reads as "in progress" better than a word.
-  el.sheetSubmit.dataset.busy = "true";
-  el.sheetState.dataset.tone = "";
-  el.sheetState.textContent = "";
-  try {
-    const response = await fetch("/api/ticket/" + encodeURIComponent(ticket.key) + "/answer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: state.choice, note: el.sheetNote.value }),
-    });
-    const result = await response.json();
-    if (result.ok) {
-      el.sheetState.textContent = "Recorded: " + (result.answer || "");
-      el.sheetState.dataset.tone = "ok";
-      // The sheet closes on its own, and the button stays busy until it does,
-      // so a second tap cannot record a second answer.
-      setTimeout(closeTicket, 1100);
-      return;
-    }
-    el.sheetState.textContent = result.detail || result.error || "Refused";
-    el.sheetState.dataset.tone = "bad";
-  } catch (err) {
-    el.sheetState.textContent = String(err.message || err);
-    el.sheetState.dataset.tone = "bad";
-  }
-  state.submitting = false;
-  el.sheetSubmit.dataset.busy = "false";
-  updateSubmit();
-}
-
-function closeTicket() {
-  // Dropping focus closes the keyboard, and with it any zoom iOS applied to
-  // the field.
-  if (el.sheetNote && document.activeElement === el.sheetNote) el.sheetNote.blur();
-  state.openKey = "";
-  state.ticket = null;
-  state.submitting = false;
-  el.sheetSubmit.dataset.busy = "false";
-  // The panel leaves the way it arrived, and the sheet stops taking taps only
-  // once it is out of sight.
-  if (el.sheet.hidden) return;
-  el.sheet.classList.add("closing");
-  setTimeout(() => {
-    el.sheet.hidden = true;
-    el.sheet.classList.remove("closing");
-    updateSubmit();
-  }, 190);
-}
-
-// --------------------------------------------------------------------------
-// Settings sheet
-// --------------------------------------------------------------------------
-
-function openSettings() {
-  applyTheme(state.themeMode);
-  refreshPushState();
-  el.settings.hidden = false;
-}
-
-function closeSettings() {
-  el.settings.hidden = true;
-}
-
-// --------------------------------------------------------------------------
-// Notifications (Web Push)
-// --------------------------------------------------------------------------
-
-const PUSH = {
-  supported: false,
-  enabled: false,
-  permission: "default",
-  devices: 0,
-  busy: false,
-};
-
-function pushSupported() {
-  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-}
-
-function urlBase64ToUint8Array(base64) {
-  const padded = (base64 + "=".repeat((4 - (base64.length % 4)) % 4))
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-  const raw = atob(padded);
-  const bytes = new Uint8Array(raw.length);
-  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
-  return bytes;
-}
-
-function deviceLabel() {
-  const match = navigator.userAgent.match(/\(([^)]+)\)/);
-  return (match ? match[1] : "device").slice(0, 60);
-}
-
-function showButton(button, visible) {
-  if (button) button.hidden = !visible;
-}
-
-function renderPush(message) {
-  if (!el.pushState) return;
-  const standalone = isStandalone();
-  const usable = PUSH.supported && (standalone || !isIOS());
-  if (message) {
-    el.pushState.dataset.tone = message.tone || "";
-    el.pushState.textContent = message.text;
-  } else if (!PUSH.supported) {
-    el.pushState.dataset.tone = "";
-    el.pushState.textContent = "This browser cannot show notifications.";
-  } else if (!standalone && isIOS()) {
-    el.pushState.dataset.tone = "";
-    el.pushState.textContent =
-      "Add the deck to the Home Screen first. iOS sends notifications only to an installed web app.";
-  } else if (PUSH.permission === "denied") {
-    el.pushState.dataset.tone = "bad";
-    el.pushState.textContent = "Notifications are blocked for this app in iOS Settings.";
-  } else if (PUSH.enabled) {
-    el.pushState.dataset.tone = "ok";
-    el.pushState.textContent =
-      PUSH.devices > 1
-        ? "On, this device and " + (PUSH.devices - 1) + " more."
-        : "On for this device.";
-  } else {
-    el.pushState.dataset.tone = "";
-    el.pushState.textContent = "Off.";
-  }
-  // The two states carry the same mark the theme options use.
-  if (el.pushOn) {
-    el.pushOn.dataset.selected = String(PUSH.enabled);
-    el.pushOn.disabled = !usable || PUSH.enabled || PUSH.permission === "denied";
-  }
-  if (el.pushOff) {
-    el.pushOff.dataset.selected = String(!PUSH.enabled);
-    el.pushOff.disabled = !usable || !PUSH.enabled;
-  }
-  showButton(el.pushTest, PUSH.enabled);
-}
-
-async function refreshPushState() {
-  PUSH.supported = pushSupported();
-  if (!PUSH.supported) {
-    renderPush();
-    return;
-  }
-  PUSH.permission = Notification.permission;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    PUSH.enabled = Boolean(subscription);
-    const response = await fetch("/api/push/status");
-    const status = await response.json();
-    PUSH.devices = status.devices || 0;
-  } catch {
-    PUSH.enabled = false;
-  }
-  renderPush();
-}
-
-/* The bridge has to hold the endpoint the app actually has. When the app is
-   removed from the Home Screen and added again, iOS issues a new endpoint, and
-   the old entry stays in the store answering 201 while the phone shows
-   nothing. Registering on every load keeps the store honest and asks the
-   captain for nothing. */
-async function registerSubscription(silent) {
-  if (!pushSupported() || Notification.permission !== "granted") return false;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    if (!subscription) return false;
-    const response = await fetch("/api/push/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subscription: subscription.toJSON(), device: deviceLabel() }),
-    });
-    if (!response.ok) throw new Error("the bridge refused the subscription");
-    const result = await response.json();
-    PUSH.enabled = true;
-    PUSH.devices = result.devices || 1;
-    return true;
-  } catch (err) {
-    if (!silent) renderPush({ text: String(err.message || err), tone: "bad" });
-    return false;
-  }
-}
-
-async function enablePush() {
-  if (PUSH.busy || !el.pushOn) return;
-  PUSH.busy = true;
-  renderPush({ text: "Asking iOS…" });
-  try {
-    // The prompt must answer the tap, so it is the first thing this handler awaits.
-    const permission = await Notification.requestPermission();
-    PUSH.permission = permission;
-    if (permission !== "granted") {
-      renderPush();
-      return;
-    }
-    const registration = await navigator.serviceWorker.ready;
-    if (!(await registration.pushManager.getSubscription())) {
-      const keyResponse = await fetch("/api/push/key");
-      const key = await keyResponse.json();
-      await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(key.public_key),
-      });
-    }
-    if (!(await registerSubscription(false))) {
-      throw new Error("the bridge did not accept the subscription");
-    }
-    renderPush();
-  } catch (err) {
-    renderPush({ text: String(err.message || err), tone: "bad" });
-  } finally {
-    PUSH.busy = false;
-  }
-}
-
-async function disablePush() {
-  if (PUSH.busy) return;
-  PUSH.busy = true;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    if (subscription) {
-      await fetch("/api/push/unsubscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: subscription.endpoint }),
-      });
-      await subscription.unsubscribe();
-    }
-    PUSH.enabled = false;
-  } catch (err) {
-    renderPush({ text: String(err.message || err), tone: "bad" });
-  } finally {
-    PUSH.busy = false;
-  }
-  await refreshPushState();
-}
-
-async function testPush() {
-  renderPush({ text: "Sending…" });
-  try {
-    const response = await fetch("/api/push/test", { method: "POST" });
-    const result = await response.json();
-    renderPush(
-      result.sent
-        ? { text: "Sent to " + result.sent + " device(s).", tone: "ok" }
-        : { text: "The bridge has no device to send to.", tone: "bad" }
-    );
-  } catch (err) {
-    renderPush({ text: String(err.message || err), tone: "bad" });
-  }
-}
-
-function queryParam(name) {
-  const match = location.search.match(new RegExp("[?&]" + name + "=([^&]*)"));
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-// --------------------------------------------------------------------------
-// Data
-// --------------------------------------------------------------------------
-
-async function load() {
-  try {
-    const query = state.home ? "?home=" + encodeURIComponent(state.home) : "";
-    const response = await fetch("/api/board" + query);
-    state.board = await response.json();
-    render();
-  } catch {
-    setConn("down", "Cannot reach the bridge");
-  }
-}
-
-function connect() {
-  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(scheme + "//" + location.host + "/ws");
-  state.socket = socket;
-  setConn("idle", "Connecting…");
-
-  socket.addEventListener("open", () => {
-    state.retry = 0;
-    setConn("live", "Live");
-    if (state.home) socket.send(JSON.stringify({ type: "home", label: state.home }));
-  });
-  socket.addEventListener("message", (event) => {
-    let data;
-    try {
-      data = JSON.parse(event.data);
-    } catch {
-      return; // a frame the bridge did not write: ignoring it beats crashing the board
-    }
-    if (data.type === "board") {
-      state.board = data.board;
-      render();
-    } else if (data.type === "ticket" && data.key === state.openKey && data.ticket) {
-      state.ticket = data.ticket;
-      drawTicket(data.ticket);
-    }
-  });
-  socket.addEventListener("close", () => {
-    setConn("down", "Disconnected, retrying");
-    const wait = Math.min(15000, 1000 * 2 ** state.retry++);
-    setTimeout(connect, wait);
-  });
-  socket.addEventListener("error", () => setConn("down", "Connection error"));
-}
-
-el.refresh.addEventListener("click", () => {
-  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-    state.socket.send(JSON.stringify({ type: "refresh" }));
-    el.stamp.textContent = "refreshing…";
-  } else {
-    load();
-  }
+$('detail-close').addEventListener('click', () => { saveDraft(); $('detail').close(); });
+$('detail').addEventListener('cancel', saveDraft);
+$('detail').addEventListener('close', () => {
+  saveDraft(); S.modal = null; S.generation++;
+  const current = S.opener?.isConnected && S.opener.tagName !== 'BODY' ? S.opener : [...document.querySelectorAll('.task-card')].find(n => n.dataset.key === S.openerKey) || $('board-view');
+  current.focus({ preventScroll: true });
 });
-el.board.addEventListener(
-  "scroll",
-  () => {
-    if (state.raf) return;
-    state.raf = requestAnimationFrame(() => {
-      state.raf = 0;
-      updateActivePage();
-    });
-  },
-  { passive: true }
-);
-window.addEventListener("resize", updateActivePage);
-window.addEventListener("resize", applySafeArea);
-window.addEventListener("orientationchange", applySafeArea);
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) applySafeArea();
-});
-el.sheetClose.addEventListener("click", closeTicket);
-el.sheet.addEventListener("click", (event) => {
-  if (event.target === el.sheet) closeTicket();
-});
-el.settingsButton.addEventListener("click", openSettings);
-el.settingsClose.addEventListener("click", closeSettings);
-el.settings.addEventListener("click", (event) => {
-  if (event.target === el.settings) closeSettings();
-});
-if (el.debugButton) el.debugButton.addEventListener("click", toggleDebug);
-if (el.pushOn) el.pushOn.addEventListener("click", enablePush);
-if (el.pushTest) el.pushTest.addEventListener("click", testPush);
-if (el.pushOff) el.pushOff.addEventListener("click", disablePush);
-if (el.insetPlus) el.insetPlus.addEventListener("click", () => nudgeInset(6));
-if (el.insetMinus) el.insetMinus.addEventListener("click", () => nudgeInset(-6));
-if (el.showAnsweredOn) {
-  el.showAnsweredOn.addEventListener("click", () => applyShowAnswered(true));
-}
-if (el.showAnsweredOff) {
-  el.showAnsweredOff.addEventListener("click", () => applyShowAnswered(false));
-}
-for (const button of document.querySelectorAll("[data-theme-mode]")) {
-  button.addEventListener("click", () => {
-    storeTheme(button.dataset.themeMode);
-    applyTheme(button.dataset.themeMode);
-  });
-}
-el.sheetNote.addEventListener("input", updateSubmit);
-el.sheetSubmit.addEventListener("click", submit);
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  if (!el.sheet.hidden) closeTicket();
-  else if (!el.settings.hidden) closeSettings();
-});
-
-window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
-  if (state.themeMode === "auto") applyTheme("auto");
-});
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((err) => {
-      console.error("service worker not registered:", err);
-    });
-  });
-}
-
-applyTheme(storedTheme());
-applyShowAnswered(storedShowAnswered());
-applySafeArea();
-// iOS can report the insets only after the first frames settle.
-setTimeout(applySafeArea, 400);
-setTimeout(applySafeArea, 1600);
-if (debugEnabled()) toggleDebug();
-load().then(connect);
-// Silent: a device that already agreed keeps the bridge pointed at itself.
-registerSubscription(true);
-const deepTicket = queryParam("ticket");
-if (deepTicket) openTicket(deepTicket);
-setInterval(() => {
-  if (state.board) el.stamp.textContent = state.board.loading ? "loading…" : stampText(state.board);
-}, 5000);
+$('crew').addEventListener('change', () => { S.home = $('crew').value; S.board = null; $('board').replaceChildren(node('p', 'placeholder', 'Cargando esta tripulación…')); poll(); if (S.view === 'history') loadHistory(); });
+$('board-view').addEventListener('click', () => setView('board'));
+$('history-view').addEventListener('click', () => setView('history'));
+$('refresh').addEventListener('click', () => { poll(); if (S.view === 'history') loadHistory(); });
+$('board-search').addEventListener('input', () => { S.query = $('board-search').value.trim().toLocaleLowerCase(); renderBoard(); });
+$('history-search').addEventListener('input', () => { clearTimeout(S.historyTimer); S.historyTimer = setTimeout(loadHistory, 250); });
+window.addEventListener('offline', () => { S.online = false; sourceStatus(); });
+window.addEventListener('online', poll);
+matchMedia('(max-width: 639px)').addEventListener('change', renderBoard);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+setInterval(poll, 4000); setInterval(() => { sourceStatus(); if (S.board) renderSupervisors(); }, 1000);
+// Retire an old Deck push/offline worker. It must never intercept actions or
+// show stale API success; offline honesty is handled by the visible live view.
+if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then(regs => { for (const reg of regs) if (reg.scope === new URL('./', location.href).href) reg.unregister(); }).catch(() => {});
+poll();

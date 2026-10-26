@@ -1,0 +1,404 @@
+{
+  "excluded": {
+    "PUBLIC-MANIFEST.json": "Regenerated export manifest; never reuse the prior generated manifest as source",
+    "assets/captains-call-decision-dialog.png": "Screenshot omitted from redistributable source",
+    "assets/captains-deck.png": "Screenshot omitted from redistributable source",
+    "web/assets/board-desktop.png": "Legacy screenshot omitted from redistributable source",
+    "web/assets/board-phone.png": "Legacy screenshot omitted from redistributable source",
+    "web/push.py": "Retired push sender; not part of the current server",
+    "web/static/icons/apple-touch-icon.png": "Unused PWA asset",
+    "web/static/icons/icon-512.png": "Unused PWA asset",
+    "web/static/icons/icon-maskable-512.png": "Unused PWA asset",
+    "web/static/manifest.webmanifest": "Retired installable PWA manifest",
+    "web/tools/make_icons.py": "Unused icon-generation dependency",
+    "web/tools/push_selftest.py": "Retired push sender test utility"
+  },
+  "files": [
+    {
+      "mode": "100644",
+      "path": ".github/ISSUE_TEMPLATE/bug_report.yml",
+      "sha256": "934d258285c23d5132dad16d12964b0f7026c1a12aa866db1af61315a0f376a9"
+    },
+    {
+      "mode": "100644",
+      "path": ".github/ISSUE_TEMPLATE/config.yml",
+      "sha256": "db3ea449eb16817649f3294ebc973ee22296d77b0ae230839dd7a6f58e956625"
+    },
+    {
+      "mode": "100644",
+      "path": ".github/ISSUE_TEMPLATE/feature_request.yml",
+      "sha256": "953d684831fa583388b0f6998af58919bd4751cf7726694917c2141ae32a9d65"
+    },
+    {
+      "mode": "100644",
+      "path": ".github/ISSUE_TEMPLATE/question.yml",
+      "sha256": "09b6209b211989325f8ca136697fa3657226a94a5b39775719a0c32b7176fab1"
+    },
+    {
+      "mode": "100644",
+      "path": ".github/workflows/firstmate-contract.yml",
+      "sha256": "9427b413dc74065bee18356d98c1dc6330ef251cdd2a5ab5c2fb73971c543d27"
+    },
+    {
+      "mode": "100644",
+      "path": ".github/workflows/test.yml",
+      "sha256": "dc1262dd0417fd480d084ca2e0ba2c661698ed96a04cda904df30298463a14bb"
+    },
+    {
+      "mode": "100644",
+      "path": ".gitignore",
+      "sha256": "9e668753503d54f9464e37d191c67667b803472085feebdf2e05b016ee0d61da"
+    },
+    {
+      "mode": "100644",
+      "path": "CONTRIBUTING.md",
+      "sha256": "8b51402bd9d6a97c680d96169d3360ab4629ebe2c09ddcde690ad388774de4ef"
+    },
+    {
+      "mode": "100644",
+      "path": "LICENSE",
+      "sha256": "86921b6f41061e63356432c98ee043558bf6a0a9557766a1e0eda3d6d95ea1f4"
+    },
+    {
+      "mode": "100644",
+      "path": "README.md",
+      "sha256": "a64db2347c22e99eea4a8e0673381a82daf1740c92ab896e9be1f555baadcfd5"
+    },
+    {
+      "mode": "100644",
+      "path": "docs/portability.md",
+      "sha256": "9b7ba0230b21eb6f5f4cce29e64b37d2b192d34a5b30aa745e2149831432db75"
+    },
+    {
+      "mode": "100644",
+      "path": "docs/public-export.md",
+      "sha256": "293182b503ee86935b0495123f5c5acdef1c57c4707dadc7acc072fd03cb92d9"
+    },
+    {
+      "mode": "100644",
+      "path": "fm_home.example",
+      "sha256": "44bae4ae95183252240943f3de127c54960fb31d33fa142336c8504b3d70666e"
+    },
+    {
+      "mode": "100644",
+      "path": "herdr-plugin.toml",
+      "sha256": "7cef4ba7ecff6d7dea5fcc496fccef5560f48416566a76bb1b10ae96df5675c2"
+    },
+    {
+      "mode": "100644",
+      "path": "public-export.json",
+      "sha256": "a1b368830aad9eda7fc7c91cd713d99690be8b11c9248b8c1c1d9c0fd9db3481"
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/deck_platform.py",
+      "sha256": "52350036e859cc3395f3af09434a16e7b10af4b76102563762816518a7086034"
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/export_public.py",
+      "sha256": "db0697c48d41326775453f0bb1388c57ef41e5d8b9737b04c559f9f8c1b96437"
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/flow_tui.py",
+      "sha256": "cad0734bb0ff29140b389810e95a58165359a4d8c5f985c96a4eddf970c2e7a7"
+    },
+    {
+      "mode": "100755",
+      "path": "scripts/fm-contract-check.sh",
+      "sha256": "60ac771617cfb90ef0aa261f28cb415cc5bab0e9d87c9f14bd94e0592971908c"
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/fm-pane-record.sh",
+      "sha256": "01538439fb8bfdb72eea904fd5c6fafb6cc81c65178058b5b009998927318eb4"
+    },
+    {
+      "mode": "100755",
+      "path": "scripts/fm_contract_check.py",
+      "sha256": "c5dbaaaa61bca27dc8d9d4b04ba3b4ae15441f2e8fc50c2bb3550995e42d7708"
+    },
+    {
+      "mode": "100755",
+      "path": "scripts/kanban-view.sh",
+      "sha256": "858e1a1b856b688cd01f05b9eeea5c4a999d099d849cd974d870e6de2deca718"
+    },
+    {
+      "mode": "100755",
+      "path": "scripts/open-captain-deck.sh",
+      "sha256": "7449dd59bec65598ccbbd9f3a029b8351ba61f3b28a955259e775a469cfb754a"
+    },
+    {
+      "mode": "100755",
+      "path": "scripts/open-flow.sh",
+      "sha256": "eb5047b772b48f89ee08da516adf5e4d5868255316a9e0f1ee4231a1dbac1f96"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/bearings_snapshot.json",
+      "sha256": "fd67f497a931f575963e27d310e988ea03125ea5a1e7858f67184337be4434c7"
+    },
+    {
+      "mode": "100755",
+      "path": "tests/fixtures/home/bin/fm-bearings-snapshot.sh",
+      "sha256": "e3241fe9b45c1ab6809656a4563f4765b44219327ca9d435155c763a4fc5abbe"
+    },
+    {
+      "mode": "100755",
+      "path": "tests/fixtures/home/bin/fm-captain-hold.sh",
+      "sha256": "1b12bda4cf177f76c709827f7d496790267017ffbe635c2d0a01c9d1307182ff"
+    },
+    {
+      "mode": "100755",
+      "path": "tests/fixtures/home/bin/fm-send.sh",
+      "sha256": "c630fd1b2b54e49e1f00556437c514c5a2ed73a1e0a4b37dee5d7b7beee8fbf4"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/home/config/crew-accounts.json",
+      "sha256": "ca785167ca4c8c6d8ea02911b11824e88a49398088c4b1c70786f0e84cae000a"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/home/state/decision-cards/decision-1.json",
+      "sha256": "d8f7f868ba33a4f9af98f0753863915b56fab4317220e1a03b4ec302b23f5e76"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/home/state/done-2.meta",
+      "sha256": "fd56b5b835d7b60ccea234bdc3cf9e1c089236e4939b7fca6277ca74a34af34a"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/home/state/done-2.status",
+      "sha256": "eaf0b4b02b0818ea01d8993f0d66ed43ad8d5111b86d381ec8c470a03ce41b41"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/home/state/work-1.meta",
+      "sha256": "17a5408f3a5525067a453571126b086d6d41c7964d7bf5de2bb265ba84ad6bb7"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/home/state/work-1.status",
+      "sha256": "b9fb0458c4917eadb8e5435ce6a2b440f8f8eef0ca1e8a3c3563c36c79a1d334"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_delivery_pty.py",
+      "sha256": "0017621092012dfffe41dc58b3aeee2b8e1a9da6a464667cb9c118fedc4259b5"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_fixture_board.py",
+      "sha256": "93b369140e37bf8d21ca0dd44edc70ca60687fbdfbc830ff8116cdda2be98d81"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_activity_provenance.py",
+      "sha256": "755a80b77566712dffc160f993dba00b9c609ea9c6be7bcb4207501e3ff58300"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_all_crew.py",
+      "sha256": "66890d42483ff908d410c4e934a31db6880b1b760d0bfcc87849a119d0e6d9bd"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_answered_calls.py",
+      "sha256": "b76297ce551b1badf6c33d9174e1d7bdffdb8e985ac35c6c6b7d76aea6ffafe2"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_blocked_details.py",
+      "sha256": "f0608b2188bc25dacd6ac4428a0d8673447cfdd4d68f8a4ff7240805f87852cb"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_card_account.py",
+      "sha256": "1bf7e028d3a3704c67e7565b6f70da861799325e355eea7b26ab039197cac00f"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_card_time.py",
+      "sha256": "4b5484fd65c6519039560ed1ac8c7ff733311884d59480797769d85098f94aa0"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_clarity.py",
+      "sha256": "baacd35667e144d938fc12d67ffab04f56f2404ed35e62c4bf14f4f15f47f8f7"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_decision_dialog.py",
+      "sha256": "a385390f8ab76f4846431ce674df1311a1978c9fdfa593b3898a3c7882fd3443"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_deliveries.py",
+      "sha256": "f557b848a198021015f9924cdae106ef095fbdd4548f08bc93202f08fd747b8e"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_durable_reports.py",
+      "sha256": "dc159148103a730cae877ce71c3e6f58b08810e57335c3817f07efdf3bb1ecb3"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_help.py",
+      "sha256": "f9af29c4eef02a63e2c51b9eb809b4e579f0b7d42cb147052b95e8ac7ac90fce"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_homes.py",
+      "sha256": "354813cb42a3bf272a86cc9a8757df44a4f485fd74eebb9763b8e190ab45ff1c"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_landed_outcomes.py",
+      "sha256": "a71c2e442d44dc7236d2ba7a1eb3a3f274c072921da52f08a85def7aec079cb9"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_message_firstmate.py",
+      "sha256": "c20d201cc341084e4fa83e9ff87fc638027fecb25de05a79392fbf1f930a19c6"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_other_agents.py",
+      "sha256": "c419a5a07f1fb49ab9b8584d775ae898bbf02852198fcd8904299b2b2557a07e"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_remote_homes.py",
+      "sha256": "d4e81ca0b4fe2ea74a9a728a376327c055f5e314b4ad5ee85d9163c29c5c921e"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_run_stats.py",
+      "sha256": "1c5b074d62c5531bdc620df830b818e7e8eae91500a79a2ff7725db4289f3445"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_flow_status_followup.py",
+      "sha256": "9367b286a979f306e00453b9a0dc1b5851a2afbe4dd40e6aef556d932786c888"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_fm_contract_check.py",
+      "sha256": "45b4f1c11a01bd93ff90f0d89b3c95d30e7fe95df5d973a855d51755492c5da2"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_landed_outcomes_pty.py",
+      "sha256": "ad96f5aad575fe5ff2d72ca733d3b835e8a654edf5782f1eb3d2055ad5787269"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_open_scripts.py",
+      "sha256": "aebf98c8bd1bdc9de7480114e7c780c7274081bdd7f16cfcb76aa3c67a83d00b"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_plugin_manifest.py",
+      "sha256": "2bcd0ca5911091d25ce4cdfab713499f3f5cc683bc63c22b1210110a1b96e09d"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_public_export.py",
+      "sha256": "94de9ddcda878707d8cb64c69dd4bfd20c56e2dbc972ee7bc52ad08124d16be6"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_py_compat.py",
+      "sha256": "bbf3d69665256e2e02398ce5c125e4b24e1e401b43240709c39d1fdb5dcfd188"
+    },
+    {
+      "mode": "100644",
+      "path": "web/README.md",
+      "sha256": "13d9dd106bae6e861a76d2f0307bee26f31e4fcdfc83cb51bff226f5eb3951c7"
+    },
+    {
+      "mode": "100644",
+      "path": "web/bridge.py",
+      "sha256": "34a020614256780887e2f4fbae6d45f223c5c40663ba6adb61b74fa9b1aa1f64"
+    },
+    {
+      "mode": "100644",
+      "path": "web/pyrightconfig.json",
+      "sha256": "437487d63003f2db82afd3b149b6d78249e3a56cc4a9349a4c0b47b80c92d9ed"
+    },
+    {
+      "mode": "100755",
+      "path": "web/run-managed.sh",
+      "sha256": "7a7df3ebbe9154723557f4cc5f2a328daf1624088c0df14600e7274c6ae1f47e"
+    },
+    {
+      "mode": "100755",
+      "path": "web/run.sh",
+      "sha256": "a4b83b848f5858f119b5dc0813d4f29c0a8e655be6222df44ea28b5cfcfec422"
+    },
+    {
+      "mode": "100644",
+      "path": "web/serve.py",
+      "sha256": "44260e2c336f813d12a327fd38c425106835ec0c2a95c266fcafe1d8be64e4f6"
+    },
+    {
+      "mode": "100644",
+      "path": "web/static/app.js",
+      "sha256": "146c6555f17fa620c4aa8ae6446ab788944fc056ce8da76ccb4c9cf025fa0c73"
+    },
+    {
+      "mode": "100644",
+      "path": "web/static/icons/icon-192.png",
+      "sha256": "df5a1184b07ceb33060ab3984c137873aee2c240f543f6113df882825a9e4489"
+    },
+    {
+      "mode": "100644",
+      "path": "web/static/index.html",
+      "sha256": "258da2410bec7bab5ebdaae1316c6d2ecb2eb29f8d7e13c0941e8b50bb2530bd"
+    },
+    {
+      "mode": "100644",
+      "path": "web/static/styles.css",
+      "sha256": "7c0f2e7fbb6b6099ed4e8a678aac80a0c783eb5b614910b9c248ed4a49528582"
+    },
+    {
+      "mode": "100644",
+      "path": "web/static/sw.js",
+      "sha256": "9f6f6918dfdc6bc58ffdcb5bf1030d7a229effe27cc51f46fa7b1b03f16c5e89"
+    },
+    {
+      "mode": "100644",
+      "path": "web/tests/fixtures.py",
+      "sha256": "5ae11b193d59e4b7c2cdb5be427fec77cc19bf4200912387a206649421a8d998"
+    },
+    {
+      "mode": "100644",
+      "path": "web/tests/preview.py",
+      "sha256": "5435bfdb913161d0afabb2b2a52b7ff7de0a85875446a7c2cf7e64f284a402cc"
+    },
+    {
+      "mode": "100644",
+      "path": "web/tests/test_bridge.py",
+      "sha256": "8aa58b13ca083c7fc7aa32980c1d6738f2074a0ae32df450a2dc58d121912d6a"
+    },
+    {
+      "mode": "100644",
+      "path": "web/tests/test_portable.py",
+      "sha256": "e50bf019ae22dd50efd765260050d3357418ad16038deddf03e06d4f2cc02983"
+    },
+    {
+      "mode": "100644",
+      "path": "web/tests/test_startup.py",
+      "sha256": "45e5b90dea665c3babf0a00c70c84eff14d55659123af4831f76276ed0bf2dc0"
+    }
+  ],
+  "schema": "captains-deck.public-tree.v1",
+  "upstream": {
+    "base_commit": "3628cda7f75e2ddf2a65d91a360045c27067ed4b",
+    "license": "MIT; LICENSE retained unchanged",
+    "url": "https://github.com/deimantasnork/captains-deck"
+  }
+}

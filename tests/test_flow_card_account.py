@@ -200,7 +200,7 @@ def test_fixture_home_labels_each_ticket_with_its_account():
     snap = json.loads((FIXTURES / "bearings_snapshot.json").read_text())
     cols, _ = flow.make_cards(home, snap, flow.build_meta_index([home]), {}, {}, [home])
     work = {c.task: c for c in cols["underway"]}["work-1"]
-    done = {c.task: c for c in cols["awaiting_merge"]}["done-2"]
+    done = {c.task: c for c in cols["underway"]}["done-2"]
     assert flow.UI.card_agent_line(work) == "claude-a\u00b7opus\u00b7xhigh"
     assert flow.UI.card_agent_line(done) == "deepseek\u00b7sonnet\u00b7medium"
 

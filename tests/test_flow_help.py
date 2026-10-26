@@ -66,6 +66,8 @@ def test_footer_shows_the_quick_actions():
     labels = [label for label, _ in flow._FOOTER_HINTS]
     assert labels == [
         "? help",
+        "d details",
+        "H history",
         "L - Show/Hide Landed",
         "A - Show/Hide answered",
         "r - Refresh board",

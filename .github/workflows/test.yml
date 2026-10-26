@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   python-checks:
     runs-on: ubuntu-latest
@@ -17,7 +20,21 @@ jobs:
         run: pip install pytest
       - name: Unit tests
         run: python3 -m pytest tests/ -q
+      - name: Web boundary and producer fixtures
+        run: python3 -m unittest discover -s web/tests -p 'test_*.py'
       - name: Decision dialog checks
         run: python3 tests/test_flow_decision_dialog.py
       - name: Firstmate contract (fixture home)
         run: python3 scripts/fm_contract_check.py --home tests/fixtures/home
+  native-web-launcher:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Native launcher and capability boundaries
+        run: python -m unittest discover -s web/tests -p 'test_portable.py'

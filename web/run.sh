@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the Captain's Deck bridge in the foreground.
+# No shell-command arguments: only the bridge's validated bind/port flags.
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
-exec python3 bridge.py
+DECK_WEB_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec python3 "$DECK_WEB_DIR/bridge.py" "$@"

@@ -126,7 +126,7 @@ def test_once_all_merges_the_fleet_instead_of_an_empty_all(tmp_path: Path) -> No
         home = _make_home(tmp_path, "crew-one")
         mp.setenv("FM_FLOW_HOMES", f"crew-one={home}")
         mp.setenv("FM_FLOW_HOMES_ONLY", "1")
-        mp.setattr(flow, "herdr_agents", lambda: ({}, {}))
+        mp.setattr(flow, "herdr_state", lambda: {"agents": {}, "panes": {}, "workspaces": {}, "tabs": {}})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = flow.once(all_homes=True)
@@ -145,7 +145,7 @@ def test_once_home_all_is_the_merged_fleet(tmp_path: Path) -> None:
         home = _make_home(tmp_path, "crew-one")
         mp.setenv("FM_FLOW_HOMES", f"crew-one={home}")
         mp.setenv("FM_FLOW_HOMES_ONLY", "1")
-        mp.setattr(flow, "herdr_agents", lambda: ({}, {}))
+        mp.setattr(flow, "herdr_state", lambda: {"agents": {}, "panes": {}, "workspaces": {}, "tabs": {}})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = flow.once(active_label=flow.ALL_CREW_LABEL)

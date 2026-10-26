@@ -35,8 +35,8 @@ def _cards():
 def test_fixture_snapshot_projects_into_columns():
     cols, totals = _cards()
     assert [c.task for c in cols["charted"]] == ["demo-queued-1", "demo-blocked-2"]
-    assert [c.task for c in cols["underway"]] == ["work-1"]
-    assert [c.task for c in cols["awaiting_merge"]] == ["done-2"]
+    assert [c.task for c in cols["underway"]] == ["work-1", "done-2"]
+    assert not cols["awaiting_merge"]
     assert [c.task for c in cols["captains_call"]] == ["decision-1"]
     assert [c.task for c in cols["landed"]] == ["landed-1"]
     assert totals["charted"] == 2
@@ -47,7 +47,7 @@ def test_fixture_badges_and_meta():
     cols, _ = _cards()
     gates = {c.task: c for c in cols["charted"]}
     assert gates["demo-queued-1"].badge == "\u00b7 queued"
-    assert gates["demo-blocked-2"].badge == "\u26d4 blocked"
+    assert gates["demo-blocked-2"].badge == "\u23f3 dependency"
     assert gates["demo-blocked-2"].blocked_by == "schema-migrate-3"
     work = cols["underway"][0]
     assert work.badge == "\u25cf shipping"
@@ -55,7 +55,7 @@ def test_fixture_badges_and_meta():
     assert work.spawn_epoch > 0
     assert work.worktree == "/tmp/treehouse/demo/1/demo-work-1"
     assert work.doing == "harness busy (claude-hook)"
-    assert cols["awaiting_merge"][0].badge == "\u25cd awaits merge"
+    assert cols["underway"][1].badge == "\u2713 done"
     assert cols["landed"][0].badge == "\u2713 landed"
     assert cols["landed"][0].artifact == "pull/412-feat-oauth-retry"
 

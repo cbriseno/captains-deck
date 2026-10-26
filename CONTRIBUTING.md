@@ -10,7 +10,7 @@ You do not need maintainer access to participate.
 
 ## Report a problem or suggest a change
 
-Open a [new issue](https://github.com/deimantasnork/captains-deck/issues/new) on GitHub.
+Use the Issues tab of the fork you are running on GitHub.
 Use the templates when they fit, or choose **Open a blank issue** if none match.
 
 Please include:
@@ -22,7 +22,7 @@ Please include:
 
 ## Pull request workflow
 
-1. Fork [deimantasnork/captains-deck](https://github.com/deimantasnork/captains-deck) on GitHub.
+1. Fork [cbriseno/captains-deck](https://github.com/cbriseno/captains-deck) on GitHub.
 2. Clone your fork (or add it as a remote) and create a branch for your change.
 3. Install the plugin locally for manual testing:
 
@@ -59,4 +59,12 @@ Smaller, focused changes are easier to land than large rewrites.
 
 ## Questions
 
-Open a [GitHub issue](https://github.com/deimantasnork/captains-deck/issues/new) with the **Question** template, or a blank issue if you prefer.
+Use your fork’s Issues tab with the **Question** template, or a blank issue if you prefer.
+
+## Public fork updates
+
+Keep private runtime configuration outside the checkout.
+Use the [reviewed export workflow](docs/public-export.md) when transferring changes from an operational repository to a public fork.
+Never publish its local branches or history wholesale.
+The web needs no dependency installation: `python3 web/serve.py run`.
+Run `python3 -m unittest discover -s web/tests` for the HTTP security, producer and native launcher checks.

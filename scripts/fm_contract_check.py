@@ -31,6 +31,9 @@ import stat
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from deck_platform import endpoint_path
+
 SNAPSHOT_SCRIPT = os.path.join("bin", "fm-bearings-snapshot.sh")
 HOLD_SCRIPT = os.path.join("bin", "fm-captain-hold.sh")
 SEND_SCRIPT = os.path.join("bin", "fm-send.sh")
@@ -146,7 +149,7 @@ def check_home(home: str) -> Report:
 def _check_scripts(home: str, report: Report) -> None:
     missing = []
     for rel in REQUIRED_SCRIPTS:
-        path = os.path.join(home, rel)
+        path = endpoint_path(home, os.path.basename(rel))
         try:
             mode = os.stat(path).st_mode
         except OSError:
@@ -164,7 +167,7 @@ def _check_scripts(home: str, report: Report) -> None:
 
 
 def _run_snapshot(home: str, report: Report) -> dict | None:
-    script = os.path.join(home, SNAPSHOT_SCRIPT)
+    script = endpoint_path(home, os.path.basename(SNAPSHOT_SCRIPT))
     if not os.path.isfile(script):
         return None
     try:

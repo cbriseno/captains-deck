@@ -223,10 +223,14 @@ def test_collector_publishes_other_agents_on_the_all_tab_only():
 
 def _render(snap) -> list[str]:
     ui = flow.UI()
+    ui.width = 200
     ui.show_landed = True  # independent of the machine's show_landed config
     frame = io.StringIO()
     with contextlib.redirect_stdout(frame):
-        ui.render(snap)
+        from unittest.mock import patch
+        import os
+        with patch.object(flow.shutil, 'get_terminal_size', return_value=os.terminal_size((200, 40))):
+            ui.render(snap)
     return [ANSI.sub("", line) for line in ui.last_frame or []]
 
 
@@ -241,15 +245,15 @@ def _snap(home: Home, others: list) -> object:
     return snap
 
 
-def test_all_tab_shows_an_other_agents_column_in_place_of_landed():
+def test_all_tab_shows_other_agents_alongside_landed():
     state = _state([_agent("w4:p1", "idle"), _agent("w5:p2", "blocked")])
     others = flow.other_agent_cards(state, [], set(), {}, 100.0)
     lines = _render(_snap(_all_home(), others))
     assert "Other Agents (2)" in lines[2]
-    assert "Landed" not in lines[2]
+    assert "Landed" in lines[2]
 
 
-def test_a_crew_tab_keeps_its_five_columns():
+def test_a_crew_tab_keeps_its_four_columns():
     lines = _render(_snap(Home("captain", "/fm", "captain"), []))
     assert "Other Agents" not in lines[2]
     assert "Landed" in lines[2]
