@@ -30,8 +30,10 @@ STOCK_REASONS = {'Motivo no registrado', 'No specific reason was recorded.',
 TECHNICAL = re.compile(
     r'harness state unavailable|\b[0-9a-f]{24,}\b|\b[0-9A-HJKMNP-TV-Z]{26}\b|\brun:\s*\S+|'
     r'\b(?:spawn_gen|endpoint_task_id)\b|(?-i:\bHEAD\b)|'
-    r'\b(?:schema|head)\b["\']?\s*[:=]\s*["\']?[^\s"\',}]+["\']?(?:\s*(?:[,}]|$)|\s+[\w-]+["\']?\s*[:=])|'
     r'(?:/home/|/tmp/)\S+', re.I)
+RECORD = re.compile(
+    r'(?=.*?\b(?:schema|head)"?\s*:)\{?\s*"?[\w.-]+"?\s*:\s*[^\s,{}]+'
+    r'(?:(?:,\s*|\s+)"?[\w.-]+"?\s*:\s*[^\s,{}]+)*\s*\}?', re.I)
 FILE_ONLY = re.compile(r'\S+\.(?:md|json|jsonl)[.,;:!?)]*(?:\s+\S+\.(?:md|json|jsonl)[.,;:!?)]*)*', re.I)
 
 
@@ -42,7 +44,7 @@ def excerpt(value, limit=280):
         return ''
     text = re.sub(r'^#{1,6}\s+', '', text.split('\n\n')[0])
     text = re.sub(r'\s+', ' ', text).strip()
-    if FILE_ONLY.fullmatch(text):
+    if FILE_ONLY.fullmatch(text) or RECORD.fullmatch(text):
         return ''
     if TECHNICAL.search(text):
         text = re.split(r'(?<=[.!?])\s+', text)[0]

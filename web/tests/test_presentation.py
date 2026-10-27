@@ -140,7 +140,10 @@ class PresentationTests(unittest.TestCase):
                          'Schema: new users table added.',
                          'The new head: Ana leads the release.',
                          'Actualicé el schema: agregué una tabla de usuarios.',
-                         'Nuevo head: Ana coordina la entrega.'):
+                         'Nuevo head: Ana coordina la entrega.',
+                         'Updated the schema: users, teams and roles.',
+                         'Revisé el schema: usuarios, equipos y roles.',
+                         'The new head: Ana, leads the release.'):
             card.flow.update(reason=sentence, waiting_for=sentence, next_action=sentence)
             p = self.read(card)['presentation']
             self.assertEqual((p['summary'], p['waiting_for'], p['next_action']), (sentence,) * 3)
