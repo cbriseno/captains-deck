@@ -87,7 +87,7 @@
     {
       "mode": "100644",
       "path": "public-export.json",
-      "sha256": "5831e5636ca8eea9af636f847e7df375a928e9bbaac2db40738ed2816f49cc70"
+      "sha256": "615846da6b0e9f8bb07e26d27de308f3ea7fde0a0915d54d351f7171a5879663"
     },
     {
       "mode": "100644",
@@ -377,7 +377,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "1472fc6dc5f0ff2f65eddc66733f95a4c4f445ee2423c9f820e2bbe307cb2477"
+      "sha256": "27ce960220a6a76a3fb9b020aad150b467c31c41829041f8200a025d84de89ef"
     },
     {
       "mode": "100644",
@@ -408,6 +408,11 @@
       "mode": "100644",
       "path": "web/static/theme.js",
       "sha256": "5db555eebecf926cb1be7a53747317011db754ca7171be723e4b81ffeba07f65"
+    },
+    {
+      "mode": "100644",
+      "path": "web/tests/board_dom.test.cjs",
+      "sha256": "29e0eff057038cb808cbef79a4e621dcfe329910b53629b51d75dc42803fbf90"
     },
     {
       "mode": "100644",
