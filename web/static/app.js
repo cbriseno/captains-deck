@@ -222,7 +222,8 @@ function renderSupervisors() {
     append(row, title, append(node('div'), node('p', '', status), disclosure(t('Source details'), prose(supervisorText(s)), timeView({label: 'Snapshot generated', epoch: Date.parse(source.generated) / 1000}))));
     if (old) {
       const focusedIndex = old.contains(document.activeElement) ? [...old.querySelectorAll('summary')].indexOf(document.activeElement) : -1;
-      row.querySelector('.source-details').open = old.querySelector('.source-details').open;
+      const openStates = [...old.querySelectorAll('details')].map(d => d.open);
+      [...row.querySelectorAll('details')].forEach((d, i) => { d.open = !!openStates[i]; });
       old.replaceWith(row);
       if (focusedIndex >= 0) row.querySelectorAll('summary')[focusedIndex]?.focus({preventScroll: true});
     } else $('supervisors').append(row);
