@@ -33,6 +33,7 @@ Point the deck at your Firstmate home:
 printf '%s\n' /absolute/path/to/firstmate > "$(herdr plugin config-dir herdr-firstmate-flow)/fm_home"
 ```
 
+The `fm_home` reader skips blank lines and `#` comments and uses the first remaining line as the home path.
 For several homes, write one `label=/absolute/path` line per home to `homes.conf` in that same directory instead.
 
 Open the board with the plugin's **Open captain's deck** (full workspace) or **Open flow board** (overlay) action.
