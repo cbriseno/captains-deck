@@ -209,10 +209,10 @@ def test_a_remote_captains_call_is_read_only():
     assert "read-only" in ui.flash
 
 
-def test_readme_documents_remote_secondmates():
-    readme = (ROOT / "README.md").read_text()
-    assert "Remote second mates" in readme
-    assert "fm-on.sh" in readme
+def test_platform_docs_document_remote_secondmates():
+    docs = (ROOT / "docs" / "portability.md").read_text()
+    assert "Remote second mates" in docs
+    assert "fm-on.sh" in docs
 
 
 if __name__ == "__main__":
