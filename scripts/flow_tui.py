@@ -2661,16 +2661,13 @@ def make_cards(
         card.state_source, card.hold_bucket, card.hold_until, card.wait_until = (
             entry.get(key) if isinstance(entry.get(key), str) else ""
             for key in ("state_source", "hold_bucket", "hold_until", "wait_until"))
-        execution = entry.get("execution") if isinstance(entry.get("execution"), dict) else {}
 
         p = paths.get(raw_id) or paths.get(card.task) or {}
         card.worktree = p.get("worktree") or ""
 
         meta_path = (meta_index.get(owner_path) or {}).get(card.task, "")
         meta = read_meta(meta_path) if meta_path else {}
-        # The row's registered execution is the same task.meta fact, for homes
-        # whose meta files this process cannot read (remote, secondmate child).
-        card.agent = meta.get("harness", "") or (execution.get("harness") if isinstance(execution.get("harness"), str) else "")
+        card.agent = meta.get("harness", "")
         card.account = account_label(meta, account_names.get(owner_path) or {})
         card.model = meta.get("model", "")
         card.effort = meta.get("effort", "")
@@ -4120,9 +4117,12 @@ def card_activity(card: Card) -> dict[str, str]:
     """What is happening to a card right now, from structured fields only.
 
     Firstmate's current state is the fm-crew-state verdict. Its source tells an
-    agent's own busy pane from a validation run reported as working for it.
+    agent's own busy pane from a validation run reported as working for it;
+    any other source (status log, remote endpoint, none) is not live evidence.
     Endpoint presence is Firstmate's backend probe. Hold and pause dates are
-    used only as exported fields; reason prose is never parsed for them.
+    used only as exported fields; reason prose is never parsed for them. A
+    hold day is compared with the local calendar day; a pause time without an
+    offset is UTC. A date that has passed is never shown as the end.
 
     kind: working|validating|validation_gate|blocked|decision|paused|deferred|
           held|finished|integration|technical|stopped|ready|queued|unknown.
@@ -4145,16 +4145,18 @@ def card_activity(card: Card) -> dict[str, str]:
     deps = [d for d in getattr(card, "dependencies", []) or [] if d.get("unresolved") is not False]
     blocked = bool(deps) or card.blocked_by not in ("", "-") or flow.get("phase") == "dependency"
     hold_bucket = getattr(card, "hold_bucket", "") or ""
-    hold_until = getattr(card, "hold_until", "") or ""
-    today = datetime.now(timezone.utc).date().isoformat()
-    deferred = bool(hold_until) and (hold_bucket == "dated" or (not hold_bucket and hold_until > today))
-    exported_wait = getattr(card, "wait_until", "") or ""
-    wait_until = exported_wait
+    now = datetime.now(timezone.utc)
+    today = now.astimezone().date()
     try:
-        if wait_until and datetime.fromisoformat(wait_until.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
-            wait_until = ""
-    except ValueError:
-        wait_until = ""
+        hold_day = date.fromisoformat(getattr(card, "hold_until", "") or "")
+    except (TypeError, ValueError):
+        hold_day = None
+    deferred = hold_day is not None and hold_day > today and hold_bucket in ("dated", "")
+    try:
+        wait_at = datetime.fromisoformat((getattr(card, "wait_until", "") or "").replace("Z", "+00:00"))
+        wait_at = wait_at if wait_at.tzinfo else wait_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        wait_at = None
     report_state = durable_report(card)[0]
     exists = getattr(card, "endpoint_exists", None)
     result = {"kind": "unknown", "agent": "", "until": "", "gap": ""}
@@ -4162,8 +4164,8 @@ def card_activity(card: Card) -> dict[str, str]:
         if hold_bucket == "blocked" or blocked:
             result["kind"] = "blocked"
         elif deferred:
-            result.update(kind="deferred", until=hold_until)
-        elif hold_bucket == "aged" or flow.get("phase") == "human" or flow.get("state") == "held":
+            result.update(kind="deferred", until=hold_day.isoformat())
+        elif hold_bucket in ("dated", "aged") or flow.get("phase") == "human" or flow.get("state") == "held":
             # A captain hold outside Your decision is not asking the person now.
             result.update(kind="held", gap="" if hold_bucket else "hold_until")
         else:
@@ -4172,7 +4174,7 @@ def card_activity(card: Card) -> dict[str, str]:
     if card.bucket != "underway":
         result["kind"] = "decision" if card.bucket == "captains_call" else "delivered"
         return result
-    if state == "working" and confirmed:
+    if state == "working" and confirmed and (source == "pane" or validation):
         result["kind"] = "validating" if validation else "working"
     elif state == "parked" and validation:
         result["kind"] = "validation_gate"
@@ -4180,16 +4182,18 @@ def card_activity(card: Card) -> dict[str, str]:
         result["kind"] = "blocked"
     elif flow.get("phase") == "human":
         result["kind"] = "decision"
-    elif wait_until:
-        result.update(kind="paused", until=wait_until)
+    elif wait_at is not None:
+        result.update(kind="paused", until=wait_at.isoformat() if wait_at > now else "")
     elif deferred:
-        result.update(kind="deferred", until=hold_until)
+        result.update(kind="deferred", until=hold_day.isoformat())
+    elif hold_bucket == "dated":
+        result["kind"] = "held"
     elif state == "done" and confirmed:
         result["kind"] = "integration"
     elif report_state == "done":
         result["kind"] = "finished"
     elif state in ("paused", "parked") or report_state in ("paused", "parked"):
-        result.update(kind="paused", gap="" if exported_wait else "wait_until")
+        result.update(kind="paused", gap="wait_until")
     elif state in ("blocked", "failed") or report_state in ("blocked", "failed"):
         result["kind"] = "technical"
     elif exists is False:

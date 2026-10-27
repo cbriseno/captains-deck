@@ -13,7 +13,7 @@ Cards lead with a human summary, the registered executor, dependencies and any c
 The source home coordinates work; it is not the executor.
 Absent summaries, resume conditions and next actions remain explicit information gaps for Firstmate to fill.
 Each card states what is happening now: an agent working, a validation run, or what it waits for (another task, a decision, an approval, a date).
-The header and the Underway heading count only agents Firstmate's crew state reports working now; Underway still lists every open task.
+The header and the Underway heading count only agents whose own pane Firstmate reports busy; a working verdict from a status log or any other source is not counted, and Underway still lists every open task.
 Up next separates work ready to start from work blocked by another task, held, or deferred to a date.
 Validation job progress does not establish live native worker activity.
 Agent presence comes from Firstmate's endpoint probe; hold and pause end dates appear only when Firstmate exports them as fields, never from reason text.
