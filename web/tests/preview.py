@@ -12,7 +12,7 @@ mode=sys.argv[2] if len(sys.argv)>2 else ''
 identity=root/'home/identity'
 existing=(identity.read_text(),(root/'home/open').exists()) if identity.exists() else None
 if mode in ('activity','activity-firstmate'):
-    # The synthetic busy-looking fleet; activity-firstmate adds the companion Firstmate fork's fields.
+    # The synthetic busy-looking fleet; activity-firstmate adds the fields a companion Firstmate change will export.
     board,home=activity_fleet.fleet(root,firstmate_fields=mode=='activity-firstmate',language=os.environ.get('CD_WEB_LANGUAGE','en'))
 else:
     board,home=fixture(root)

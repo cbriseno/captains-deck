@@ -1447,7 +1447,7 @@ article.task-card { padding:0; text-align:left; overflow-wrap:anywhere; }
 .activity-note[data-agent="working"] { color:var(--teal); }
 .activity-note[data-agent="working"]::before { background:var(--teal); border-color:var(--teal); }
 .activity-note[data-agent="validation"]::before { background:var(--blue); border-color:var(--blue); }
-.activity-note[data-agent="present"]::before { background:var(--muted); }
+.activity-note[data-agent="present"]::before,.activity-note[data-agent="open"]::before { background:var(--muted); }
 .column-sub { font-size:11px; color:var(--muted); white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .column[data-kind="underway"] .column-sub { color:var(--teal); }
 .card-link { display:block; font-size:12px; color:var(--card-link); margin-top:12px; min-height:32px; }

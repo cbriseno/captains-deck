@@ -2573,15 +2573,17 @@ class Card:
         "supervisor",
         # Structured liveness and wait inputs for card_activity(). hold_bucket
         # and hold_until (gate, in-flight and secondmate rows), wait_until and
-        # state_source (in-flight rows) are the companion Firstmate fork's
-        # bearings export. Absent producer fields stay empty/None; they are
-        # never read from prose.
+        # state_source (in-flight rows) come from a companion Firstmate change
+        # and stay absent until it lands. Absent producer fields stay
+        # empty/None; they are never read from prose.
         "run_step",
         "endpoint_exists",
         "state_source",
         "hold_bucket",
         "hold_until",
         "wait_until",
+        # Receipt time of a snapshot kept after its refresh failed; 0 if fresh.
+        "retained_at",
     )
 
 
@@ -2599,6 +2601,7 @@ def make_cards(
     panes: dict[str, dict],
     homes: list[Home] | None = None,
     reveal_answered: bool = False,
+    retained_at: float = 0.0,
 ) -> tuple[dict[str, list[Card]], dict[str, int]]:
     """Bucket snapshot entries into the workflow columns.
 
@@ -2661,6 +2664,7 @@ def make_cards(
         card.owner_label = next((h.label for h in home_list if h.path == owner_path), home.label)
         card.run_step = entry.get("run_step") if isinstance(entry.get("run_step"), dict) else {}
         card.endpoint_exists = endpoints.get(raw_id)
+        card.retained_at = retained_at
         card.state_source, card.hold_bucket, card.hold_until, card.wait_until = (
             entry.get(key) if isinstance(entry.get(key), str) else ""
             for key in ("state_source", "hold_bucket", "hold_until", "wait_until"))
@@ -2792,6 +2796,7 @@ def make_cards(
                 "blocked": ("\u26d4 Herdr blocked", C_BAD),
                 "idle": ("\u25cb Herdr idle", C_DIM),
             }
+            kind = card_activity(card)["kind"]
             if card.blockers:
                 blocked = any(b["state"] == "blocked" for b in card.blockers)
                 card.badge, card.badge_color = task_badges["blocked" if blocked else "needs-decision"]
@@ -2812,9 +2817,9 @@ def make_cards(
                 card.badge, card.badge_color = "\u26d4 Herdr blocked", C_BAD
             elif st_state == "needs-decision":
                 card.badge, card.badge_color = "\u2691 decision", C_DECIDE
-            elif "validating" in doing:
+            elif "validating" in doing or kind == "validating":
                 card.badge, card.badge_color = "\u25d0 validating", C_WARN
-            elif card_activity(card)["kind"] == "working":
+            elif kind == "working":
                 card.badge, card.badge_color = "\u25cf shipping", C_OK
             else:
                 card.badge, card.badge_color = native_badges.get(
@@ -3703,6 +3708,7 @@ class Collector(threading.Thread):
         raw, ts, raw_path = self._raw.get(home.label, ({}, 0.0, ""))
         stale = self._bearings_stale(home, now)
         loading = False
+        retained_at = 0.0
         if stale:
             if not raw:
                 loading = True
@@ -3712,17 +3718,20 @@ class Collector(threading.Thread):
                 self._raw[home.label] = (raw, ts, raw_path)
                 loading = False
                 self._remote_offline.pop(home.label, None)
-            elif home.route:
-                # Keep the last good snapshot; the board shows its age
-                # instead of blanking the tab while the host is unreachable.
-                self._remote_offline[home.label] = time.time()
+            else:
+                retained_at = ts
+                if home.route:
+                    # Keep the last good snapshot; the board shows its age
+                    # instead of blanking the tab while the host is unreachable.
+                    self._remote_offline[home.label] = time.time()
         if not raw:
             # A remote home with no cached snapshot yet is offline, not an
             # error: the tab carries the offline marker itself.
             err = "" if home.route else f"bearings snapshot failed for {home.path}"
             return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
         cols, totals = make_cards(
-            home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered
+            home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered,
+            retained_at=retained_at,
         )
         enrich_cards_run_stats(cols, agents)
         return raw, cols, totals, loading, ""
@@ -4118,7 +4127,7 @@ def flow_context(card: Card, *, translate=None) -> dict[str, str]:
 VALIDATION_RE = re.compile(r"validating \((?:running|fixing)\)")
 
 
-def card_activity(card: Card) -> dict[str, str]:
+def card_activity(card: Card) -> dict[str, object]:
     """What is happening to a card right now, from structured fields only.
 
     Firstmate's current state is the fm-crew-state verdict. Its source tells an
@@ -4128,18 +4137,24 @@ def card_activity(card: Card) -> dict[str, str]:
     not that an agent runs in it. Hold and pause dates are used only as
     exported fields; reason prose is never parsed for them. A hold day is
     compared with the local calendar day; a pause time without an offset is
-    UTC. A date that has passed is never shown as the end.
+    UTC. A date that has passed is never shown as the end. A snapshot kept
+    after its refresh failed never claims work now.
 
-    kind: working|validating|validation_gate|blocked|decision|paused|deferred|
-          held|finished|integration|technical|stopped|ready|queued|unknown.
-    agent: working|validation|present (pane open, not reported working)|none|
+    kind: working|validating|last_seen_working|validation_gate|blocked|decision|
+          paused|deferred|held|finished|integration|technical|stopped|ready|
+          queued|unknown.
+    agent: working|validation|open (pane open; working reported without a
+           live source)|present (pane open, not reported working)|none|
            unknown (Underway only).
     until: the exported date for paused/deferred. gap: the missing producer
-    field that would have made the card more specific.
+    field that would have made the card more specific. seen_at: receipt time
+    of the retained snapshot for last_seen_working.
     """
     flow = getattr(card, "flow", {}) or {}
     state = getattr(card, "snapshot_state", "") or ""
     confirmed = not getattr(card, "activity_unconfirmed", True)
+    working_verdict = state == "working" and confirmed
+    retained_at = getattr(card, "retained_at", 0.0) or 0.0
     source = getattr(card, "state_source", "") or ""
     flow_source = flow.get("source") if isinstance(flow.get("source"), str) else ""
     if not source and flow_source.startswith("current_state."):
@@ -4166,7 +4181,7 @@ def card_activity(card: Card) -> dict[str, str]:
         wait_at = None
     report_state = durable_report(card)[0]
     exists = getattr(card, "endpoint_exists", None)
-    result = {"kind": "unknown", "agent": "", "until": "", "gap": ""}
+    result = {"kind": "unknown", "agent": "", "until": "", "gap": "", "seen_at": 0.0}
     if card.bucket == "charted":
         if hold_bucket == "blocked" or blocked:
             result["kind"] = "blocked"
@@ -4181,8 +4196,11 @@ def card_activity(card: Card) -> dict[str, str]:
     if card.bucket != "underway":
         result["kind"] = "decision" if card.bucket == "captains_call" else "delivered"
         return result
-    if state == "working" and confirmed and (source == "pane" or validation):
-        result["kind"] = "validating" if validation else "working"
+    if working_verdict and (source == "pane" or validation):
+        if retained_at:
+            result.update(kind="last_seen_working", seen_at=retained_at)
+        else:
+            result["kind"] = "validating" if validation else "working"
     elif state == "parked" and validation:
         result["kind"] = "validation_gate"
     elif blocked:
@@ -4210,7 +4228,8 @@ def card_activity(card: Card) -> dict[str, str]:
     elif result["kind"] == "validating":
         result["agent"] = "validation"
     else:
-        result["agent"] = {True: "present", False: "none"}.get(exists, "unknown")
+        claimed = working_verdict and source in ("", "pane", "run-step")
+        result["agent"] = {True: "open" if claimed else "present", False: "none"}.get(exists, "unknown")
     return result
 
 

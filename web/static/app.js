@@ -11,7 +11,7 @@ const notes = { captains_call: t("Your answer is needed"), landed: t("Recent del
 const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waiting for a dependency"), integration: t("Integration pending"), technical: t("Technical hold"), active: t("Declared activity"), unknown: t("Unconfirmed state"), waiting: t("Declared wait"), reported: t("Work reported") };
 const runLabels = { running: t('Validation running'), fixing: t('Validation fixes in progress'), passed: t('Validation passed'), failed: t('Validation failed') };
 // Firstmate's crew state and endpoint probe, as projected by the bridge.
-const agentLines = { working: t('Agent working now'), validation: t('Validation run active for this task'), present: t('Agent pane open, not reported working'), none: t('No live agent'), unknown: t('Agent presence not reported') };
+const agentLines = { working: t('Agent working now'), validation: t('Validation run active for this task'), open: t('Agent pane open'), present: t('Agent pane open, not reported working'), none: t('No live agent'), unknown: t('Agent presence not reported') };
 const gapLines = { hold_until: t('Firstmate does not export when this hold ends.'), wait_until: t('Firstmate does not export when this pause ends.') };
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 $('timezone').textContent = t("Times in ") + zone;
@@ -60,6 +60,7 @@ function activityText(card) {
   if (a.kind === 'paused') return until ? t('Paused until {date}', {date: until}) : t('Paused');
   if (a.kind === 'deferred') return until ? t('Deferred until {date}', {date: until}) : t('Deferred');
   if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting for a decision') : '';
+  if (a.kind === 'last_seen_working') return t('Working when last seen') + (a.seen_at ? ' · ' + relative(a.seen_at) : '');
   return { working: t('Working now'), validating: t('Validation running'), validation_gate: t('Validation awaiting approval'), blocked: t('Waiting on another task'),
     held: t('On hold'), finished: t('Reported done · still open'), stopped: t('Stopped'), ready: t('Ready to start'), queued: t('Queued') }[a.kind] || '';
 }

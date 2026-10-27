@@ -91,6 +91,14 @@ class ActivityProvenanceTests(unittest.TestCase):
                 assert card.badge == "● shipping"
                 assert not card.activity_unconfirmed
 
+    def test_a_ci_validation_run_keeps_the_validating_badge(self):
+        for native in (None, "working", "idle"):
+            with self.subTest(native=native):
+                card, _ = self.card(state="working", doing="ci running", native=native,
+                                    harness="claude", source="current_state.run-step")
+                assert flow.card_activity(card)["kind"] == "validating"
+                assert card.badge == "◐ validating"
+
     def test_a_working_verdict_without_a_busy_pane_is_not_shipping(self):
         for source in (None, "current_state.status-log", "current_state.remote-endpoint", "current_state.none"):
             for native in (None, "working", "idle"):

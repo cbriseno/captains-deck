@@ -4,8 +4,9 @@ Mirrors a reported board: many cards under Underway and Up next, while only
 three agents were working. The rest wait on their own validation, another
 task, the person or a date, or have no live agent. Rows use the fields
 fm-bearings.v1 exports with ``--fields paths,endpoints``. ``firstmate_fields``
-adds the companion Firstmate fork's hold_bucket/hold_until, wait_until and
-state_source fields, so both the present and the degraded paths stay testable.
+adds the hold_bucket/hold_until, wait_until and state_source fields that a
+companion Firstmate change adds; they stay absent until it lands, so both the
+present and the degraded paths stay testable.
 """
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -83,6 +84,11 @@ def payload(now=None, firstmate_fields=False):
              state='working', blocked_by='-', doing='working: retry backoff added',
              flow=_flow('active', 'executing', 'current_state.status-log', 'working: retry backoff added', 'working',
                         'Backoff is added; the agent ended its turn.')),
+        # A held row replaces the crew-state source with the hold reason.
+        dict(_registration('claude'), id='theme-tokens', name='Extract the theme tokens', kind='ship',
+             state='working', blocked_by='-', doing='harness busy (claude-hook)',
+             flow=_flow('active', 'executing', 'backlog.hold_reason', 'Held: the person reviews the palette first.', 'working',
+                        'The tokens are extracted; the palette waits for the person.')),
     ]
     gate = lambda id, title, filed, flow, blocked='-', reason='-': dict(
         _registration('claude' if id == 'pilot-rollout' else None), id=id, title=title, filed=filed, owner='(main)',
@@ -112,13 +118,14 @@ def payload(now=None, firstmate_fields=False):
                       title='Choose the beta scope', summary='Choose the beta scope: two options are ready',
                       flow=_flow('human', 'held', 'backlog.hold_reason', 'Choose which features enter the beta.'))]
     live = {'api-pagination', 'search-index', 'docs-refresh', 'release-notes', 'billing-export', 'notes-sync', 'mobile-publish',
-            'queue-retry'}
+            'queue-retry', 'theme-tokens'}
     endpoints = [{'id': row['id'], 'backend': 'herdr', 'target': 'synthetic', 'exists': row['id'] in live, 'agent': 'not_checked'}
                  for row in in_flight + [gates[4]]]
     if firstmate_fields:
         sources = {'api-pagination': 'pane', 'search-index': 'pane', 'docs-refresh': 'pane', 'release-notes': 'run-step',
                    'billing-export': 'run-step', 'cache-migration': 'status-log', 'log-rotation': 'none',
-                   'notes-sync': 'pane', 'mobile-publish': 'status-log', 'queue-retry': 'status-log'}
+                   'notes-sync': 'pane', 'mobile-publish': 'status-log', 'queue-retry': 'status-log',
+                   'theme-tokens': 'pane'}
         for row in in_flight:
             row['state_source'] = sources[row['id']]
         until = stamp.replace(hour=15, minute=0, second=0) + timedelta(days=7)
