@@ -58,13 +58,14 @@ function board(underway) {
   return { homes: [{ id: '/home/example/space', label: 'example' }], columns, sources: [], source_ttl: 60, error: null, loading: false, csrf: 'synthetic' };
 }
 
-async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12)) {
+async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = {}) {
   const doc = makeDom(), timers = [];
   class FixedDate extends Date { constructor(...args) { args.length ? super(...args) : super(clock); } static now() { return clock; } }
   let current = initial;
   const fetch = async (url) => {
     if (url.startsWith('api/locale')) return { ok: true, json: async () => ({ locale: 'en', messages: {} }) };
     if (url.startsWith('api/board')) return { ok: true, json: async () => JSON.parse(JSON.stringify(current)) };
+    if (url.startsWith('api/ticket/')) return { ok: true, json: async () => JSON.parse(JSON.stringify(tickets[decodeURIComponent(url.slice('api/ticket/'.length))])) };
     return { ok: true, json: async () => ({ receipts: [] }) };
   };
   const context = vm.createContext({ document: doc, fetch, navigator: {}, location: { href: 'http://localhost/', search: '' },
@@ -251,4 +252,22 @@ test('unchanged-shape polls keep independent disclosure states and focus', async
   assert.equal(disclosure(row, 'source').open, false);
   assert.equal(disclosure(row, 'snapshot').open, true);
   assert.equal(view.doc.activeElement, disclosure(row, 'snapshot').querySelector('summary'));
+});
+
+test('drawer shows the full recorded report and the registered executor without the raw evidence bundle', async () => {
+  const report = 'Informe completo\n\n' + 'Detalle de evidencia sintética. '.repeat(40) + 'FIN_DEL_INFORME';
+  const ticket = {key: 'web', task: 'web', title: 'Synthetic task web', bucket: 'underway', owner: 'Example home', home: '/home/example/space',
+    context: {phase: 'active', reason: '', firstmate_action: null}, presentation: {summary: 'Short synthetic summary.', waiting_for: '', next_action: 'Next step', executor: {harness: 'codex'}},
+    dependencies: [], time: null, report: {state: 'durable', text: report, time: null}, native: {state: 'working', detail: 'Synthetic', herdr: 'working'},
+    agent: 'Codex', supervisor: null, original_title: 'Synthetic task web', herdr_url: ''};
+  const view = await mountBoard({...board([card('web', 'Short synthetic summary.')])}, undefined, {web: ticket});
+  view.doc.getElementById('detail').showModal = function () { this.open = true; };
+  underwayList(view.doc).querySelector('.card-open').listeners.click[0]();
+  await view.flush();
+  const content = view.doc.getElementById('detail-content');
+  const all = (n) => [n, ...n.children.flatMap(all)];
+  assert.ok(all(content).some(e => e.tagName === 'P' && e.textContent === report));
+  assert.ok(all(content).some(e => e.tagName === 'P' && e.textContent === 'Registered executor: Codex'));
+  const evidence = JSON.parse(all(content).find(e => e.className === 'technical-evidence').textContent);
+  assert.deepEqual(Object.keys(evidence).sort(), ['context', 'native', 'task']);
 });
