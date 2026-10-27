@@ -876,7 +876,8 @@ def discover_homes(verbose: bool = False) -> list[Home]:
             fm_home_file = os.path.join(_plugin_config_dir(), "fm_home")
             try:
                 with open(fm_home_file) as fh:
-                    single = fh.read().strip()
+                    lines = (line.strip() for line in fh)
+                    single = next((line for line in lines if line and not line.startswith("#")), "")
             except OSError:
                 single = ""
         if single:

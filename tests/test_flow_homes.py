@@ -137,6 +137,22 @@ def test_outside_herdr_the_fm_home_file_follows_herdrs_xdg_roots(tmp_path: Path)
     assert state == str(tmp_path / "xdg-state" / "herdr" / "plugins" / "herdr-firstmate-flow")
 
 
+def test_a_commented_fm_home_file_resolves_to_its_path_line(tmp_path: Path) -> None:
+    with _patches() as mp:
+        _isolate(mp, tmp_path)
+        home = _make_home(tmp_path, "configured-home")
+        cfg = tmp_path / "cfg"
+        cfg.mkdir()
+        (cfg / "fm_home").write_text(
+            "# Copy to fm_home in the directory `herdr plugin config-dir herdr-firstmate-flow` prints\n"
+            "# (one line, absolute path to your Firstmate operational home)\n"
+            "\n"
+            f"  {home}  \n"
+        )
+        paths = _paths(flow.discover_homes())
+    assert os.path.realpath(home) in paths
+
+
 def test_once_all_merges_the_fleet_instead_of_an_empty_all(tmp_path: Path) -> None:
     with _patches() as mp:
         _isolate(mp, tmp_path)
