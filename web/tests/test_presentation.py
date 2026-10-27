@@ -121,6 +121,28 @@ class PresentationTests(unittest.TestCase):
         card.flow.update(declared_state='working', reason=report)
         self.assertEqual(self.board.card_json(card)['report']['text'], report)
 
+    def test_readable_sentences_keep_their_filenames(self):
+        card = self.task()
+        card.flow['reason'] = 'Actualicé README.md con el flujo nuevo.\n\nDetalle.'
+        self.assertEqual(self.read(card)['presentation']['summary'], 'Actualicé README.md con el flujo nuevo.')
+        card.flow['reason'] = 'Se actualizó la guía en docs/guide.md. Todo verde.'
+        self.assertEqual(self.read(card)['presentation']['summary'], 'Se actualizó la guía en docs/guide.md. Todo verde.')
+        card.flow['next_action'] = 'Revisa docs/guide.md antes de integrar.'
+        self.assertEqual(self.read(card)['presentation']['next_action'], 'Revisa docs/guide.md antes de integrar.')
+
+    def test_purely_technical_filenames_fall_back_to_usable_text(self):
+        card = self.task()
+        card.flow['reason'] = 'report.json'
+        card.flow['next_action'] = 'run: SANITIZED_RUN'
+        p = self.read(card)['presentation']
+        self.assertEqual(p['summary'], '')
+        self.assertEqual(p['next_action'], '')
+
+    def test_landed_card_summary_keeps_a_filename_sentence(self):
+        landed = next(c for c in self.board.collector.snap.cols['landed'] if c.task == 'demo-research')
+        landed.delivery_summary = 'Actualicé README.md con el flujo nuevo.\n\nDetalle.'
+        self.assertEqual(self.board.card_json(landed)['summary'], 'Actualicé README.md con el flujo nuevo.')
+
     def test_malformed_optional_presentation_fields_do_not_break_board_reads(self):
         card = self.task()
         card.flow['presentation'] = {'summary': [], 'next_action': {}, 'waiting_for': 123}
