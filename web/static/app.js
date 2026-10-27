@@ -146,6 +146,7 @@ function renderBoard() {
     let list = section.querySelector('.cards');
     if (!list) { list = node('div', 'cards'); section.append(heading, list); }
     else section.firstChild.replaceWith(heading);
+    list.querySelector(':scope > .empty')?.remove();
     const retained = new Map([...list.children].map(n => [n.dataset.key, n]));
     for (const [index, card] of cards.entries()) {
       // Source freshness is independent of card progress. Retain unchanged
