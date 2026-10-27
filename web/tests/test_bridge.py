@@ -192,6 +192,13 @@ class WebTests(unittest.TestCase):
         for path in ['/api/delivery/../demo-research','/%2e%2e/README.md','/icons/../../LICENSE','/api/delivery/'+row['home']+'/%2e%2e']:
             self.assertIn(self.req(path)[0],[400,404])
 
+    def test_long_original_delivery_and_report_stay_complete_through_existing_routes(self):
+        Path(self.home.path,'data/demo-research/delivery.md').write_text('# Demo research\n\n## Resultado\n'+'Opción de viaje con horario y evidencia. '*30+'FIN_DEL_RESULTADO\n\n## Pendiente\nLa compra corresponde a la persona.\n')
+        self.init();_,data=self.req('/api/history?q=DEMO');row=data['records'][0]
+        status,delivery=self.req('/api/delivery/'+row['home']+'/demo-research');self.assertEqual(status,200)
+        self.assertIn('FIN_DEL_RESULTADO',json.dumps(delivery))
+        self.assertIn('FIN_DEL_INFORME',delivery['report'])
+
     def test_explanation_reads_are_inert_and_post_has_stable_owner_receipt(self):
         self.init();identity=bridge.home_id(self.home);route=f'/api/delivery/{identity}/demo-research/explanation'
         _,data=self.req(route);self.assertEqual(data['state'],'absent')
