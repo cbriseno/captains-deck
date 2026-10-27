@@ -29,10 +29,9 @@ const DeckI18n = {
     const relativeFmt = new Intl.RelativeTimeFormat(locale, {numeric: 'auto'});
     const relative = (epoch, now = Date.now() / 1000) => {
       const seconds = epoch - now;
-      for (const [size, unit] of [[86400, 'day'], [3600, 'hour'], [60, 'minute']]) {
-        if (Math.abs(seconds) >= size) return relativeFmt.format(Math.round(seconds / size), unit);
-      }
-      return t('now');
+      if (Math.abs(seconds) < 60) return t('now');
+      const [size, unit] = [[86400, 'day'], [3600, 'hour'], [60, 'minute']].find(([size]) => Math.abs(seconds) > size / 2);
+      return relativeFmt.format(Math.round(seconds / size), unit);
     };
     const eventTime = (event, now = Date.now() / 1000) => {
       if (!event) return t('Time not recorded');

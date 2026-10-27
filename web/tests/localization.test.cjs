@@ -50,6 +50,11 @@ function theme(saved, systemDark, storageFails = false) {
   const now = Date.UTC(2026, 9, 26, 12) / 1000;
   assert.match(en.api.relative(now - 3600, now), /1 hour ago/);
   assert.match(es.api.relative(now - 3600, now), /hace 1 hora/);
+  assert.equal(en.api.relative(now - 3599, now), '1 hour ago');
+  assert.equal(en.api.relative(now - 86399, now), 'yesterday');
+  assert.equal(en.api.relative(now - 1500, now), '25 minutes ago');
+  assert.equal(en.api.relative(now - 59, now), 'now');
+  assert.equal(en.api.relative(now + 3599, now), 'in 1 hour');
   for (const {api} of [en, es]) {
     const event = {label: 'Delivered', date: '2026-10-24', epoch: null};
     const before = JSON.stringify(event);

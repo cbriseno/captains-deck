@@ -121,7 +121,7 @@ function renderCard(card) {
   if (card.dependencies.length && !waitNamesDependency) b.append(node('p', 'dependency', '↳ ' + card.dependencies.map(d => (d.title || d.id) + ' · ' + (d.owner === '(main)' ? card.owner : d.owner || t("owner not recorded")) + (d.unresolved === false ? t(" · resolved") : '')).join('; ')));
   if (card.bucket === 'underway') {
     if (card.context.waiting_for) b.append(node('p', 'dependency', t("Condition: ") + card.context.waiting_for));
-    b.append(node('p', 'dependency', 'Firstmate: ' + card.context.next_action));
+    b.append(node('p', 'dependency', t('Firstmate: {action}', {action: card.context.next_action})));
     b.append(node('p', 'dependency', card.context.native_status));
     if (card.report?.state) b.append(node('p', 'dependency', t("Report: ") + eventTime(card.report.time)));
   }
@@ -263,7 +263,7 @@ function renderCall(ticket, draftOverride) {
   const key = ticket.key, c = ticket.call, draft = draftOverride || readDraft(key);
   const staleDraft = !!draft.occurrence && draft.occurrence !== c.occurrence && !!(draft.note || draft.value);
   S.modal = { type: 'call', key, ticket, request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence };
-  $('detail-kicker').textContent = 'CAPTAIN’S CALL'; $('detail-title').textContent = c.title || ticket.title;
+  $('detail-kicker').textContent = t('CAPTAIN’S CALL'); $('detail-title').textContent = c.title || ticket.title;
   const content = $('detail-content'); content.replaceChildren();
   const error = node('p', 'notice', c.error || (staleDraft ? t("This draft belongs to an earlier question. It is preserved here: select a current option or edit your answer to enable sending.") : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
   if (c.presentation?.about || c.about) content.append(prose(c.presentation?.about || c.about));

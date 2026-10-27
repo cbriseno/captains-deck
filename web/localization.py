@@ -25,6 +25,7 @@ class Localization:
         self.locale = normalize_language(language)
         self.language = self.locale.split('-')[0]
         self.messages = json.loads((CATALOGS / 'en.json').read_text(encoding='utf-8'))
+        self.spanish = json.loads((CATALOGS / 'es.json').read_text(encoding='utf-8'))
         if self.language != 'en':
             self.messages.update(json.loads((CATALOGS / (self.language + '.json')).read_text(encoding='utf-8')))
 
@@ -42,8 +43,7 @@ class Localization:
             'Could not confirm submission. Your draft is preserved.',
         )
         # Compatibility is restricted to known receipt chrome, never task prose.
-        spanish = json.loads((CATALOGS / 'es.json').read_text(encoding='utf-8'))
-        key = next((k for k in keys if spanish.get(k) == message), message)
+        key = next((k for k in keys if self.spanish.get(k) == message), message)
         return self.t(key)
 
     def client(self):
