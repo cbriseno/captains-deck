@@ -1393,6 +1393,53 @@ dialog::backdrop {
 }
 .theme-label { display:flex; align-items:center; gap:8px; margin-left:12px; }
 .theme-label select { min-width:100px; }
+
+/* Card actions and exact-date disclosure are independent keyboard/touch controls. */
+article.task-card { padding:0; text-align:left; overflow-wrap:anywhere; }
+.card-open {
+  display:block;
+  width:100%;
+  text-align:left;
+  background:transparent;
+  border:0;
+  border-radius:13px;
+  padding:20px 20px 8px;
+  font-weight:400;
+}
+.card-open:focus-visible { outline-offset:-3px; }
+.card-open .card-top { font-size:11px; color:var(--muted); margin-bottom:10px; }
+.card-open h3 { line-height:1.5; }
+.card-open .card-reason { font-size:13px; line-height:1.7; }
+.card-open .phase[data-phase="waiting"],.phase[data-phase="unknown"],.phase[data-phase="reported"] {
+  color:var(--wait-ink); background:var(--wait-surface);
+}
+.phase[data-phase="active"] { color:var(--integration-ink); background:var(--integration-surface); }
+.phase[data-phase="delivered"] { color:var(--active-ink); background:var(--active-surface); }
+.card-open .dependency,.card-next { font-size:12px; line-height:1.65; margin-top:10px; }
+.card-next { color:var(--ink); }
+.activity-note { font-size:12px; line-height:1.65; color:var(--muted); margin:12px 0; }
+.card-open .activity-note { font-size:11px; margin-bottom:0; }
+.card-link { display:block; font-size:12px; color:var(--card-link); margin-top:12px; min-height:32px; }
+.event-time { font-size:12px; color:var(--muted); }
+.event-time summary { min-height:44px; color:var(--muted); font-weight:400; line-height:1.6; }
+.event-time summary::before { font-size:12px; }
+.event-time .exact-time { padding:0 0 12px 20px; line-height:1.7; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.task-card>.event-time { border-top:1px solid var(--card-line); margin:0 20px; }
+#detail-meta { display:flex; flex-wrap:wrap; align-items:center; gap:0 18px; }
+#detail-meta .event-time { flex-basis:100%; }
+#detail-content>.prose:first-child { font-size:16px; line-height:1.75; margin:18px 0 24px; }
+#detail-content>.context-row h3 { font-size:12px; }
+#detail-content>.context-row p { font-size:14px; }
+.technical-evidence { white-space:pre-wrap; font-size:11px; line-height:1.7; overflow-wrap:anywhere; }
+.prose ul,.prose ol { padding-left:22px; }
+.prose li { margin-bottom:8px; }
+.source-details .context-row p { font-size:12px; }
+@media(max-width:639px) {
+  .card-open { padding:18px 18px 6px; }
+  .task-card>.event-time { margin:0 18px; }
+  #detail-content>.prose:first-child { font-size:15px; }
+}
 @media(max-width:639px) {
   .theme-label { gap:4px; font-size:10px; }
   .theme-label select { min-width:0; width:94px; padding:8px; font-size:11px; }

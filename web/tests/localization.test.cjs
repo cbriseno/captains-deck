@@ -77,11 +77,20 @@ function theme(saved, systemDark, storageFails = false) {
     assert.ok(api.eventTime(event, now).includes(api.t('no time recorded')));
     assert.equal(JSON.stringify(event), before);
     const exact = api.eventTime({label: 'Updated', epoch: now - 3600}, now);
-    assert.ok(exact.includes(api.dateFmt.format(new Date((now - 3600) * 1000))));
+    assert.ok(!exact.includes(api.dateFmt.format(new Date((now - 3600) * 1000))));
     assert.ok(exact.includes(api.relative(now - 3600, now)));
+    assert.equal(api.exactTime({epoch: now - 3600}), api.dateFmt.format(new Date((now - 3600) * 1000)));
+    assert.ok(api.exactTime(event).includes(expected));
+    assert.ok(api.exactTime(event).includes(api.t('no time recorded')));
+    assert.notEqual(api.eventTime({label: 'Updated', epoch: now - 59}, now), api.eventTime({label: 'Updated', epoch: now - 59}, now + 61));
+    assert.ok(!api.eventTime({epoch: NaN}, now).includes('NaN'));
     assert.ok(api.eventTime({label: 'Updated', epoch: now + 60}, now).includes(api.t('future date; check the clock')));
     assert.equal(api.eventTime(null), api.t('Time not recorded'));
   }
+  assert.equal(en.api.relative(now - 14 * 86400, now), '2 weeks ago');
+  assert.equal(es.api.relative(now - 14 * 86400, now), 'hace 2 semanas');
+  assert.equal(en.api.relative(now - 90 * 86400, now), '3 months ago');
+  assert.equal(en.api.relative(now - 730 * 86400, now), '2 years ago');
   const a = theme(null, true), b = theme('light', true);
   assert.equal(a.document.documentElement.dataset.theme, 'dark');
   assert.equal(b.document.documentElement.dataset.theme, 'light');

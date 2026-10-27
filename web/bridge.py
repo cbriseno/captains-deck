@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
 from localization import Localization
+from presentation import excerpt, flow_evidence, project
 import flow_tui as fm  # noqa: E402
 from deck_platform import endpoint_path, private_directory, safe_file_reads, shell_command
 
@@ -55,7 +56,7 @@ def home_id(home):
 def event_json(event, translate=None):
     if not isinstance(event, fm.CardTime):
         event = fm.CardTime('Updated')
-    return {'label': event.label, 'epoch': event.epoch,
+    return {'label': 'Last report' if event.label == 'Updated' else event.label, 'epoch': event.epoch,
             'date': event.day.isoformat() if event.day else None,
             'source': event.source, 'problem': event.problem,
             'detail': fm.card_time_detail(event, translate=translate)}
@@ -169,6 +170,12 @@ class Board:
                 'original_title': card.title,
                 'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unconfirmed owner'),
                 'home': home_id(owner) if owner else '', 'context': context,
+                'presentation': project(card, context, owner.label if owner else ''),
+                'evidence': {'flow': flow_evidence(getattr(card, 'flow', {}) or {}),
+                             'delivery_summary': getattr(card, 'delivery_summary', '') or '',
+                             'registration': {'harness': getattr(card, 'agent', '') or '',
+                                              'crew': card.task,
+                                              'pane': getattr(card, 'pane_id', '') or ''}},
                 'report': {'state': report_state, 'text': report_text, 'time': self.event_json(report_time)},
                 'native': {'state': getattr(card, 'snapshot_state', '') or 'unknown',
                            'detail': getattr(card, 'doing', '') or self.t('No observation recorded.'),
@@ -176,7 +183,7 @@ class Board:
                 'dependencies': getattr(card, 'dependencies', []) or [],
                 'supervisor': getattr(card, 'supervisor', {}) or {},
                 'time': self.event_json(getattr(card, 'event_time', None)),
-                'summary': getattr(card, 'delivery_summary', '') or '',
+                'summary': excerpt(getattr(card, 'delivery_summary', '') or ''),
                 'answered': bool(getattr(card, 'answered_hidden', False)),
                 'agent': fm.UI.card_agent_line(card), 'herdr_url': link}
 
