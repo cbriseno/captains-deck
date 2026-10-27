@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "ccc2e33cc1b03725249cf5e587f57f33f42a4c11f247240c5a3d8f95fc991dcf"
+      "sha256": "0cea18549c14d985c8746b75402a4acb6492a9fbe4a2bee53ae25e4c418898d3"
     },
     {
       "mode": "100755",
@@ -327,7 +327,7 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "7b3efc8f6ffe06de81bcc4c4736127fff0525f56465828adc8a0ccf604637348"
+      "sha256": "4e77bcb7aeb50065a71d2ef679cb7c083036baea409591f8dbf99dfe3ac9a697"
     },
     {
       "mode": "100644",
@@ -412,7 +412,7 @@
     {
       "mode": "100644",
       "path": "web/tests/activity_fleet.py",
-      "sha256": "d5b7c7fb1b546765603daac082be349e8e41240d5082dff88b77ce0c2fcfea99"
+      "sha256": "caff52a01cf8edcd3eb4d29db83744fcfaa7d03cdbb7ec125429618ce02fd195"
     },
     {
       "mode": "100644",
@@ -437,7 +437,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_activity.py",
-      "sha256": "6a51ef14e3d6b6c92ba8c12db6d9a8e04ffe9ad7db643485991720069c79fd8b"
+      "sha256": "497add4e30b4070a41cf50a22f85f786db3f24f0ee2724f5255ad85dbd9001f9"
     },
     {
       "mode": "100644",
