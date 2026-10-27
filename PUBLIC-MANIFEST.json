@@ -42,7 +42,7 @@
     {
       "mode": "100644",
       "path": ".github/workflows/test.yml",
-      "sha256": "5462339e4af9516e8f7566e85c9a0048d0dc8b00c8ffdbfbd9f5e0f5d5cf9add"
+      "sha256": "f27bd1355d54de8417b5a22e690cf40cdea44bb800114b6acc6a1693b743fcfb"
     },
     {
       "mode": "100644",
@@ -327,7 +327,7 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "d076a5946d6dde4840fcffe89498133030c5abf33de82d39ba4904186cfea824"
+      "sha256": "27e3b001f4786cc645499bccab91b32af7565b7ca45b7abe30715b3366cbf559"
     },
     {
       "mode": "100644",
