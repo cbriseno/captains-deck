@@ -326,7 +326,7 @@ async function openTicket(key, opener) {
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
 function addTechnical(ticket, ...extra) {
-  const evidence = node('pre', 'technical-evidence', JSON.stringify({task: ticket.task, ...ticket.evidence, native: ticket.native, context: ticket.context}, null, 2));
+  const evidence = node('pre', 'technical-evidence', JSON.stringify({task: ticket.task, native: ticket.native, context: ticket.context}, null, 2));
   const report = ticket.report?.text ? contextRow(t('Full recorded report'), ticket.report.text) : null;
   const details = disclosure(t('Technical details and original report'), report,
     contextRow(t('Recorded agent'), ticket.agent || t('Not recorded.')),

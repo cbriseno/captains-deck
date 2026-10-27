@@ -36,7 +36,7 @@ class PresentationTests(unittest.TestCase):
         p = result['presentation']
         self.assertEqual(result['owner'], self.home.label)
         self.assertEqual(p['executor'], {'harness': 'codex'})
-        self.assertEqual(result['evidence']['registration']['crew'], 'web')
+        self.assertNotIn('evidence', result)
         self.assertNotEqual(result['owner'], p['executor']['harness'])
         self.assertEqual(result['native']['herdr'], 'done')
 
@@ -58,9 +58,6 @@ class PresentationTests(unittest.TestCase):
         result = self.read(card)
         for key in ('summary', 'waiting_for', 'next_action'):
             self.assertEqual(result['presentation'][key], '')
-        self.assertEqual(result['evidence']['flow'], {'reason': card.flow['reason'],
-                                                      'waiting_for': card.flow['waiting_for'],
-                                                      'next_action': card.flow['next_action']})
         self.assertEqual(result['presentation']['executor']['harness'], '')
 
     def test_stock_authored_phrases_fall_back_to_concrete_recorded_facts(self):
@@ -74,17 +71,6 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(p['summary'], 'Acceptance is pending.')
         self.assertEqual(p['waiting_for'], 'Reviewer sign-off.')
         self.assertEqual(p['next_action'], 'Enviar el PR #12')
-
-    def test_ticket_evidence_exposes_only_projected_flow_fields(self):
-        card = self.task()
-        card.flow.update(firstmate_action='SANITIZED_INTERNAL', source='SANITIZED_SOURCE')
-        card.flow['presentation'] = {'summary': 'Ready.', 'internal_note': 'SANITIZED_INTERNAL'}
-        flow = self.read(card)['evidence']['flow']
-        self.assertNotIn('firstmate_action', flow)
-        self.assertNotIn('source', flow)
-        self.assertNotIn('internal_note', flow['presentation'])
-        self.assertEqual(flow['presentation'], {'summary': 'Ready.'})
-        self.assertEqual(flow['reason'], card.flow['reason'])
 
     def test_unusable_authored_text_falls_back_to_recorded_facts(self):
         card = self.task()
@@ -122,14 +108,12 @@ class PresentationTests(unittest.TestCase):
         card.flow['reason'] = 'The interface is ready. ' + 'Acceptance remains open. ' * 40
         result = self.read(card)
         self.assertEqual(result['presentation']['summary'], 'The interface is ready.')
-        self.assertEqual(result['evidence']['flow']['reason'], card.flow['reason'])
 
     def test_human_opening_survives_later_technical_evidence(self):
         card = self.task()
         card.flow['reason'] = 'The change was applied. Evidence is in report.json and run: SANITIZED.'
         result = self.read(card)
         self.assertEqual(result['presentation']['summary'], 'The change was applied.')
-        self.assertIn('report.json', result['evidence']['flow']['reason'])
 
     def test_malformed_optional_presentation_fields_do_not_break_board_reads(self):
         card = self.task()

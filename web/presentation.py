@@ -52,16 +52,6 @@ def excerpt(value, limit=280):
     return text[:limit - 1].rsplit(' ', 1)[0] + '…'
 
 
-def flow_evidence(flow):
-    flow = flow if isinstance(flow, dict) else {}
-    evidence = {key: flow[key] for key in ('reason', 'waiting_for', 'next_action') if key in flow}
-    presentation = flow.get('presentation')
-    if isinstance(presentation, dict):
-        evidence['presentation'] = {key: presentation[key] for key in ('summary', 'waiting_for', 'next_action')
-                                    if key in presentation}
-    return evidence
-
-
 def project(card, context):
     flow = getattr(card, 'flow', {}) or {}
     # Optional producer-authored presentation is distinct from a raw run report.

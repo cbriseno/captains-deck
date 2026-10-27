@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
 from localization import Localization
-from presentation import excerpt, flow_evidence, project
+from presentation import excerpt, project
 import flow_tui as fm  # noqa: E402
 from deck_platform import endpoint_path, private_directory, safe_file_reads, shell_command
 
@@ -171,11 +171,6 @@ class Board:
                 'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unconfirmed owner'),
                 'home': home_id(owner) if owner else '', 'context': context,
                 'presentation': project(card, context),
-                'evidence': {'flow': flow_evidence(getattr(card, 'flow', {}) or {}),
-                             'delivery_summary': getattr(card, 'delivery_summary', '') or '',
-                             'registration': {'harness': getattr(card, 'agent', '') or '',
-                                              'crew': card.task,
-                                              'pane': getattr(card, 'pane_id', '') or ''}},
                 'report': {'state': report_state, 'text': report_text, 'time': self.event_json(report_time)},
                 'native': {'state': getattr(card, 'snapshot_state', '') or 'unknown',
                            'detail': getattr(card, 'doing', '') or self.t('No observation recorded.'),
