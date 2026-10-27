@@ -62,12 +62,12 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "c4ae9f288f3de26d926bb7c360c7272d6d919c95ad4c9acd1d15fbeb03e0c8fe"
+      "sha256": "9f0ff15136fbe0fde69cb123c7ae034571971eeeaa91f5775efc4a44d089ac1b"
     },
     {
       "mode": "100644",
       "path": "docs/portability.md",
-      "sha256": "9b7ba0230b21eb6f5f4cce29e64b37d2b192d34a5b30aa745e2149831432db75"
+      "sha256": "1bd8af6cc60ba48832f6660b1ad83d68cf390969c124bc6e65cedbaed23de97a"
     },
     {
       "mode": "100644",
@@ -272,7 +272,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_message_firstmate.py",
-      "sha256": "c20d201cc341084e4fa83e9ff87fc638027fecb25de05a79392fbf1f930a19c6"
+      "sha256": "e3e91815b6e4bb1098e855fa1213e104edf6a283e4e3dcb6943c2cbdfdffa2af"
     },
     {
       "mode": "100644",
@@ -282,7 +282,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_remote_homes.py",
-      "sha256": "d4e81ca0b4fe2ea74a9a728a376327c055f5e314b4ad5ee85d9163c29c5c921e"
+      "sha256": "4323ddb115b7fb96b9161e0ca50b45e31994faf833a0603d5d8c9edcfc26cc97"
     },
     {
       "mode": "100644",
