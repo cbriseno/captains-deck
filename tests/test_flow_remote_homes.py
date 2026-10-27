@@ -120,7 +120,7 @@ def test_remote_snapshot_uses_fm_on_from_the_captain_home():
         snap = flow.remote_bearings_snapshot(remote)
         argv = argv_file.read_text().splitlines()
     assert snap == {"in_flight": []}
-    assert argv == ["vps", "fm-bearings-snapshot.sh", "--json", "--fields", "paths"]
+    assert argv == ["vps", "fm-bearings-snapshot.sh", "--json", "--fields", "paths,endpoints"]
 
 
 def test_remote_snapshot_without_the_transport_is_empty():

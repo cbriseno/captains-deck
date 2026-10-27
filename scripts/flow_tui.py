@@ -1533,8 +1533,9 @@ def bearings_flags() -> list[str]:
     """Follow Firstmate's own bounds (in_flight/gates 20, landed 6).
     Landed ties are ordered by task ID, not inferred intra-day recency.
     FM_FLOW_ALL=1 asks for every row instead; H reads retained history.
+    endpoints is Firstmate's own backend presence probe, not model activity.
     """
-    flags = ["--json", "--fields", "paths"]
+    flags = ["--json", "--fields", "paths,endpoints"]
     if _on("FM_FLOW_ALL"):
         flags += ["--all-in-flight", "--all-queued", "--all-landed"]
     return flags
@@ -2570,6 +2571,14 @@ class Card:
         "dependencies",
         "wait_reason",
         "supervisor",
+        # Structured liveness and wait inputs for card_activity(). Absent
+        # producer fields stay empty/None; they are never read from prose.
+        "run_step",
+        "endpoint_exists",
+        "state_source",
+        "hold_bucket",
+        "hold_until",
+        "wait_until",
     )
 
 
@@ -2607,6 +2616,11 @@ def make_cards(
         if isinstance(p, dict) and p.get("id"):
             paths[p["id"]] = p
             paths.setdefault(_strip_owner(p["id"]), p)
+    # Exact row ids only: a secondmate child must not borrow a main task's probe.
+    endpoints: dict[str, bool] = {
+        e["id"]: e["exists"] for e in snap.get("endpoints") or []
+        if isinstance(e, dict) and isinstance(e.get("id"), str) and isinstance(e.get("exists"), bool)
+    }
 
     def populate(card: Card, entry: dict) -> None:
         card.run_elapsed = ""
@@ -2642,13 +2656,21 @@ def make_cards(
         card.dependencies = []
         card.wait_reason = ""
         card.owner_label = next((h.label for h in home_list if h.path == owner_path), home.label)
+        card.run_step = entry.get("run_step") if isinstance(entry.get("run_step"), dict) else {}
+        card.endpoint_exists = endpoints.get(raw_id)
+        card.state_source, card.hold_bucket, card.hold_until, card.wait_until = (
+            entry.get(key) if isinstance(entry.get(key), str) else ""
+            for key in ("state_source", "hold_bucket", "hold_until", "wait_until"))
+        execution = entry.get("execution") if isinstance(entry.get("execution"), dict) else {}
 
         p = paths.get(raw_id) or paths.get(card.task) or {}
         card.worktree = p.get("worktree") or ""
 
         meta_path = (meta_index.get(owner_path) or {}).get(card.task, "")
         meta = read_meta(meta_path) if meta_path else {}
-        card.agent = meta.get("harness", "")
+        # The row's registered execution is the same task.meta fact, for homes
+        # whose meta files this process cannot read (remote, secondmate child).
+        card.agent = meta.get("harness", "") or (execution.get("harness") if isinstance(execution.get("harness"), str) else "")
         card.account = account_label(meta, account_names.get(owner_path) or {})
         card.model = meta.get("model", "")
         card.effort = meta.get("effort", "")
@@ -4091,6 +4113,105 @@ def flow_context(card: Card, *, translate=None) -> dict[str, str]:
                               else tr('Firstmate state: ', 'Estado de Firstmate: ') + (state or tr('unknown', 'desconocido')))}
 
 
+VALIDATION_RE = re.compile(r"validating \((?:running|fixing)\)")
+
+
+def card_activity(card: Card) -> dict[str, str]:
+    """What is happening to a card right now, from structured fields only.
+
+    Firstmate's current state is the fm-crew-state verdict. Its source tells an
+    agent's own busy pane from a validation run reported as working for it.
+    Endpoint presence is Firstmate's backend probe. Hold and pause dates are
+    used only as exported fields; reason prose is never parsed for them.
+
+    kind: working|validating|validation_gate|blocked|decision|paused|deferred|
+          held|finished|integration|technical|stopped|ready|queued|unknown.
+    agent: working|validation|present|none|unknown (Underway only).
+    until: the exported date for paused/deferred. gap: the missing producer
+    field that would have made the card more specific.
+    """
+    flow = getattr(card, "flow", {}) or {}
+    state = getattr(card, "snapshot_state", "") or ""
+    confirmed = not getattr(card, "activity_unconfirmed", True)
+    source = getattr(card, "state_source", "") or ""
+    flow_source = flow.get("source") if isinstance(flow.get("source"), str) else ""
+    if not source and flow_source.startswith("current_state."):
+        source = flow_source.split(".", 1)[1]
+    run = getattr(card, "run_step", {}) or {}
+    run_live = (run.get("phase") in ("validation", "ci") and run.get("freshness", "fresh") == "fresh"
+                and run.get("state") in ("running", "fixing", "pending", "ci"))
+    reason = flow.get("reason") if isinstance(flow.get("reason"), str) else ""
+    validation = source == "run-step" or (not source and (run_live or bool(VALIDATION_RE.match(reason or card.doing or ""))))
+    deps = [d for d in getattr(card, "dependencies", []) or [] if d.get("unresolved") is not False]
+    blocked = bool(deps) or card.blocked_by not in ("", "-") or flow.get("phase") == "dependency"
+    hold_bucket = getattr(card, "hold_bucket", "") or ""
+    hold_until = getattr(card, "hold_until", "") or ""
+    today = datetime.now(timezone.utc).date().isoformat()
+    deferred = bool(hold_until) and (hold_bucket == "dated" or (not hold_bucket and hold_until > today))
+    exported_wait = getattr(card, "wait_until", "") or ""
+    wait_until = exported_wait
+    try:
+        if wait_until and datetime.fromisoformat(wait_until.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+            wait_until = ""
+    except ValueError:
+        wait_until = ""
+    report_state = durable_report(card)[0]
+    exists = getattr(card, "endpoint_exists", None)
+    result = {"kind": "unknown", "agent": "", "until": "", "gap": ""}
+    if card.bucket == "charted":
+        if hold_bucket == "blocked" or blocked:
+            result["kind"] = "blocked"
+        elif deferred:
+            result.update(kind="deferred", until=hold_until)
+        elif hold_bucket == "aged" or flow.get("phase") == "human" or flow.get("state") == "held":
+            # A captain hold outside Your decision is not asking the person now.
+            result.update(kind="held", gap="" if hold_bucket else "hold_until")
+        else:
+            result["kind"] = "ready" if flow.get("state") == "ready" else "queued"
+        return result
+    if card.bucket != "underway":
+        result["kind"] = "decision" if card.bucket == "captains_call" else "delivered"
+        return result
+    if state == "working" and confirmed:
+        result["kind"] = "validating" if validation else "working"
+    elif state == "parked" and validation:
+        result["kind"] = "validation_gate"
+    elif blocked:
+        result["kind"] = "blocked"
+    elif flow.get("phase") == "human":
+        result["kind"] = "decision"
+    elif wait_until:
+        result.update(kind="paused", until=wait_until)
+    elif deferred:
+        result.update(kind="deferred", until=hold_until)
+    elif state == "done" and confirmed:
+        result["kind"] = "integration"
+    elif report_state == "done":
+        result["kind"] = "finished"
+    elif state in ("paused", "parked") or report_state in ("paused", "parked"):
+        result.update(kind="paused", gap="" if exported_wait else "wait_until")
+    elif state in ("blocked", "failed") or report_state in ("blocked", "failed"):
+        result["kind"] = "technical"
+    elif exists is False:
+        result["kind"] = "stopped"
+    if result["kind"] == "working":
+        result["agent"] = "working"
+    elif result["kind"] == "validating":
+        result["agent"] = "validation"
+    else:
+        result["agent"] = {True: "present", False: "none"}.get(exists, "unknown")
+    return result
+
+
+def activity_counts(cards: list[Card]) -> dict[str, int]:
+    """Per-kind totals; ``working`` counts agents Firstmate reports working now."""
+    counts: dict[str, int] = {}
+    for card in cards:
+        kind = card_activity(card)["kind"]
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
+
+
 def dependency_caption(card: Card) -> str:
     deps = getattr(card, 'dependencies', [])
     if not deps:
@@ -5040,6 +5161,9 @@ class UI:
             total = snap.totals.get(ckey) or len(cards)
             shown = f"{len(cards)}/{total}" if total > len(cards) else str(len(cards))
             label = f"{title} ({shown})"
+            if ckey == "underway" and cards:
+                # Same mapping as the web: agents Firstmate reports working now.
+                label = f"{title} ({shown} · ●{activity_counts(cards).get('working', 0)} working)"
             if ckey == "landed":
                 label = f"Recent Landed ({shown}) · H historial"
             if len(display_columns) == 1:

@@ -171,6 +171,7 @@ class Board:
                 'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unconfirmed owner'),
                 'home': home_id(owner) if owner else '', 'context': context,
                 'presentation': project(card, context),
+                'activity': fm.card_activity(card),
                 'report': {'state': report_state, 'text': report_text, 'time': self.event_json(report_time)},
                 'native': {'state': getattr(card, 'snapshot_state', '') or 'unknown',
                            'detail': getattr(card, 'doing', '') or self.t('No observation recorded.'),

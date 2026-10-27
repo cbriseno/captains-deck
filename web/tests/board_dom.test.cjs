@@ -117,6 +117,32 @@ test('empty column placeholder is replaced by cards and returns when emptied', a
   assert.equal(placeholders(list).length, 1);
 });
 
+test('board counts agents working now and names what every other card waits for', async () => {
+  const act = (key, bucket, kind, agent = '', until = '') => ({...card(key, 'Summary ' + key), bucket,
+    activity: {kind, agent, until, gap: ''}, context: {reason: '', phase: 'unknown', firstmate_action: null}});
+  const data = board([act('a', 'underway', 'working', 'working'), act('b', 'underway', 'working', 'working'),
+    act('v', 'underway', 'validating', 'validation'), act('p', 'underway', 'paused', 'none', '2026-01-20T15:00:00Z'),
+    act('f', 'underway', 'finished', 'present'), act('u', 'underway', 'unknown', 'unknown')]);
+  data.columns[0].cards = [act('r', 'charted', 'ready'), act('d', 'charted', 'deferred', '', '2026-01-22'),
+    act('h', 'charted', 'held'), act('w', 'charted', 'blocked')];
+  const view = await mountBoard(data);
+  const section = (kind) => view.doc.getElementById('board').children.find(s => s.dataset.kind === kind);
+  const chips = (kind) => Object.fromEntries(cardsIn(section(kind).querySelector('.cards')).map(c => [c.dataset.key, c.querySelector('.phase').textContent]));
+  assert.ok(view.doc.getElementById('overview').textContent.includes('2 working now · 6 underway'));
+  assert.equal(section('underway').querySelector('.column-sub').textContent, '2 working now');
+  assert.equal(section('charted').querySelector('.column-sub').textContent, '1 ready to start');
+  assert.equal(view.doc.getElementById('metrics').children.find(m => m.dataset.kind === 'underway').querySelector('.metric-note').textContent, '2 working now');
+  const underway = chips('underway');
+  assert.equal(underway.a, 'Working now'); assert.equal(underway.v, 'Validation running');
+  assert.match(underway.p, /^Paused until .*2026/); assert.equal(underway.f, 'Reported done · still open');
+  assert.deepEqual(chips('charted'), {r: 'Ready to start', d: 'Deferred until Jan 22, 2026', h: 'On hold', w: 'Waiting on another task'});
+  const agents = Object.fromEntries(cardsIn(section('underway').querySelector('.cards')).map(c => [c.dataset.key, c.querySelector('.activity-note')]));
+  assert.deepEqual(Object.fromEntries(Object.entries(agents).map(([k, n]) => [k, [n.dataset.agent, n.textContent]])), {
+    a: ['working', 'Agent working now'], b: ['working', 'Agent working now'], v: ['validation', 'Validation run active for this task'],
+    p: ['none', 'No live agent'], f: ['present', 'Agent open, not reported working'], u: ['unknown', 'Agent presence not reported']});
+  assert.equal(descendants(view.doc.getElementById('board')).some(n => n.textContent === 'Live activity unverified.'), false);
+});
+
 test('updated card keeps focus on its open control across polls', async () => {
   const view = await mountBoard(board([card('k1', 'First summary')]));
   const opener = underwayList(view.doc).querySelector('.card-open');

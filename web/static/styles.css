@@ -1438,6 +1438,18 @@ article.task-card { padding:0; text-align:left; overflow-wrap:anywhere; }
 .card-next { color:var(--ink); }
 .activity-note { font-size:12px; line-height:1.65; color:var(--muted); margin:12px 0; }
 .card-open .activity-note { font-size:11px; margin-bottom:0; }
+/* Activity is what is happening now; it outranks the declared workflow phase colors. */
+.card-open .phase[data-activity="working"] { color:var(--active-ink); background:var(--active-surface); }
+.card-open .phase[data-activity="validating"],.card-open .phase[data-activity="validation_gate"],.card-open .phase[data-activity="ready"] { color:var(--integration-ink); background:var(--integration-surface); }
+.card-open .phase[data-activity="blocked"],.card-open .phase[data-activity="paused"],.card-open .phase[data-activity="deferred"],.card-open .phase[data-activity="held"] { color:var(--wait-ink); background:var(--wait-surface); }
+.card-open .phase[data-activity="finished"],.card-open .phase[data-activity="stopped"],.card-open .phase[data-activity="queued"] { color:var(--muted); background:var(--neutral); }
+.activity-note[data-agent]::before { content:''; display:inline-block; width:7px; height:7px; margin-right:7px; border-radius:50%; border:1px solid var(--muted); vertical-align:1px; }
+.activity-note[data-agent="working"] { color:var(--teal); }
+.activity-note[data-agent="working"]::before { background:var(--teal); border-color:var(--teal); }
+.activity-note[data-agent="validation"]::before { background:var(--blue); border-color:var(--blue); }
+.activity-note[data-agent="present"]::before { background:var(--muted); }
+.column-sub { font-size:11px; color:var(--muted); white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.column[data-kind="underway"] .column-sub { color:var(--teal); }
 .card-link { display:block; font-size:12px; color:var(--card-link); margin-top:12px; min-height:32px; }
 .event-time { font-size:12px; color:var(--muted); }
 .event-time summary { min-height:44px; color:var(--muted); font-weight:400; line-height:1.6; }

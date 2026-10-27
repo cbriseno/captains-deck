@@ -40,9 +40,9 @@ It always passes the owning `FM_HOME` to the subprocess.
 This retains configured home-local wrappers and supports producer installations with separate private data and public code.
 The helper root is trusted local configuration, never a request parameter.
 
-Required producer surfaces are unchanged:
+Required producer surfaces:
 
-- `fm-bearings-snapshot.sh --json --fields paths` supplies the board, progress, source times and optional supervisor declaration.
+- `fm-bearings-snapshot.sh --json --fields paths,endpoints` supplies the board, progress, endpoint presence, source times and optional supervisor declaration.
 - `fm-captain-hold.sh capabilities --json` must advertise `fm-captain-hold.capabilities.v1`, `guarded_input: single-row`, and `expected_identity` for `answers` and `reconcile-requests` before web submission is available.
 - `open TASK --identity` supplies the hold lifecycle identity; the guarded intake compares `--expected-identity` under the owner's existing lock.
 - `fm-delivery-history.sh --json` supplies `fm-delivery-history.v1`, the exact owner home and retained records; older local homes retain the existing canonical tasks-axi/Node fallback.

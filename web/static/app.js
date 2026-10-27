@@ -1,14 +1,18 @@
 /* English source messages are catalog keys. Never translate task data. */
 'use strict';
-DeckI18n.ready.then(({t, locale, dateFmt, relative, eventTime, exactTime}) => {
+DeckI18n.ready.then(({t, locale, dateFmt, relative, eventTime, exactTime, untilText}) => {
 /* User content is text only. Polling reads; only explicit buttons can POST. */
 const $ = (id) => document.getElementById(id);
 const S = { board: null, home: '', column: 'underway', online: false, view: 'board', query: '',
   busy: false, csrf: '', modal: null, opener: null, generation: 0, historyGeneration: 0,
   lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false };
 const labels = { charted: t("Up next"), underway: t("Underway"), captains_call: t("Your decision"), landed: t("Delivered") };
-const notes = { charted: t("The next step"), underway: t("Work started"), captains_call: t("Your answer is needed"), landed: t("Recent deliveries") };
+const notes = { captains_call: t("Your answer is needed"), landed: t("Recent deliveries") };
 const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waiting for a dependency"), integration: t("Integration pending"), technical: t("Technical hold"), active: t("Declared activity"), unknown: t("Unconfirmed state"), waiting: t("Declared wait"), reported: t("Work reported") };
+const runLabels = { running: t('Validation running'), fixing: t('Validation fixes in progress'), passed: t('Validation passed'), failed: t('Validation failed') };
+// Firstmate's crew state and endpoint probe, as projected by the bridge.
+const agentLines = { working: t('Agent working now'), validation: t('Validation run active for this task'), present: t('Agent open, not reported working'), none: t('No live agent'), unknown: t('Agent presence not reported') };
+const gapLines = { hold_until: t('Firstmate does not export when this hold ends.'), wait_until: t('Firstmate does not export when this pause ends.') };
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 $('timezone').textContent = t("Times in ") + zone;
 function node(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
@@ -51,14 +55,26 @@ function executorText(card) {
   return harness ? t('Registered executor: {name}', {name: {codex: 'Codex', claude: 'Claude Code', pi: 'Pi'}[harness] || harness}) : t('Executor not recorded');
 }
 function summaryText(card, compact = false) { return card.presentation?.summary || t(compact ? 'Summary pending from Firstmate.' : 'A human summary is missing. Firstmate needs to record the result or current situation.'); }
+function activityText(card) {
+  const a = card.activity || {}, until = a.until ? untilText(a.until) : '';
+  if (a.kind === 'paused') return until ? t('Paused until {date}', {date: until}) : t('Paused');
+  if (a.kind === 'deferred') return until ? t('Deferred until {date}', {date: until}) : t('Deferred');
+  if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting for a decision') : '';
+  return { working: t('Working now'), validating: t('Validation running'), validation_gate: t('Validation awaiting approval'), blocked: t('Waiting on another task'),
+    held: t('On hold'), finished: t('Reported done · still open'), stopped: t('Stopped'), ready: t('Ready to start'), queued: t('Queued') }[a.kind] || '';
+}
 function phaseText(card) {
   if (card.answered) return t('Answer recorded');
   if (card.bucket === 'landed') return t('Retained delivery');
-  if (card.bucket === 'charted' && card.context.phase === 'unknown') return t('Queued');
   const run = card.presentation?.run_step;
-  if (run) return {running: t('Validation running'), fixing: t('Validation fixes in progress'), passed: t('Validation passed'), failed: t('Validation failed')}[run.state];
-  return card.context.label || phaseLabels[card.context.phase];
+  if (run) return runLabels[run.state];
+  return activityText(card) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : card.context.label || phaseLabels[card.context.phase]);
 }
+function agentLine(card) {
+  const agent = card.activity?.agent || 'unknown', line = node('p', 'activity-note', agentLines[agent] || agentLines.unknown);
+  line.dataset.agent = agent; return line;
+}
+function activityCount(columns, id, kind) { return (columns.find(c => c.id === id)?.cards || []).filter(x => !x.answered && x.activity?.kind === kind).length; }
 function dependencyText(card) {
   return card.dependencies.map(d => (d.title || d.id) + ' · ' + (d.owner === '(main)' ? card.owner : d.owner || t('owner not recorded')) +
     (d.reconciliation_required ? t(' · needs reconciliation') : d.unresolved === false ? t(' · resolved') : '')).join('; ');
@@ -128,17 +144,21 @@ function renderBoard() {
   const counts = Object.fromEntries(columns.map(c => [c.id, c.cards.filter(x => !x.answered).length]));
   const attention = `${counts.captains_call || 0} ${counts.captains_call === 1 ? t("pending decision") : t("pending decisions")}`;
   const spaces = `${S.board.homes.length} ${S.board.homes.length === 1 ? t("space") : t("spaces")}`;
-  $('overview').textContent = matchMedia('(max-width: 639px)').matches ? attention + ' · ' + spaces : `${attention} · ${t('{count} tasks started', {count: counts.underway || 0})} · ${spaces}`;
+  // Underway holds every open task; only these agents are working right now.
+  const working = activityCount(columns, 'underway', 'working'), ready = activityCount(columns, 'charted', 'ready');
+  const now = t('{count} working now', {count: working});
+  $('overview').textContent = matchMedia('(max-width: 639px)').matches ? attention + ' · ' + now : `${attention} · ${now} · ${t('{count} underway', {count: counts.underway || 0})} · ${spaces}`;
+  const liveNotes = { ...notes, underway: now, charted: t('{count} ready to start', {count: ready}) };
   const metrics = [], nav = [];
   for (const id of ['captains_call', 'underway', 'charted', 'landed']) {
     const b = button('', () => { setView('board'); selectColumn(id, true); }, 'metric'); b.dataset.kind = id;
-    append(b, node('span', 'metric-number', String(counts[id] || 0)), append(node('span', 'metric-label', labels[id]), node('span', 'metric-note', notes[id]))); metrics.push(b);
+    append(b, node('span', 'metric-number', String(counts[id] || 0)), append(node('span', 'metric-label', labels[id]), node('span', 'metric-note', liveNotes[id]))); metrics.push(b);
   }
   for (const c of columns) {
     const b = button('', () => selectColumn(c.id)); b.dataset.kind = c.id; b.setAttribute('aria-pressed', String(S.column === c.id));
     append(b, node('span', '', String(counts[c.id] || 0)), document.createTextNode(labels[c.id] || c.title)); nav.push(b);
   }
-  const navIdentity = JSON.stringify(counts);
+  const navIdentity = JSON.stringify({counts, working, ready});
   if ($('columns-nav').dataset.signature !== navIdentity) {
     const focusedKind = document.activeElement.dataset.kind;
     const parent = document.activeElement.parentElement?.id;
@@ -152,7 +172,9 @@ function renderBoard() {
     if (!section) { section = node('section', 'column'); section.dataset.kind = c.id; $('board').append(section); }
     const cards = c.cards.filter(card => (S.query === '' || [card.title, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
       ...card.dependencies.map(d => d.title || d.id)].join(' ').toLocaleLowerCase(locale).includes(S.query)));
-    const heading = append(node('div', 'column-heading'), node('span', 'column-dot'), node('h2', '', labels[c.id] || c.title), node('span', 'column-count', String(cards.length)));
+    const sub = c.id === 'underway' ? t('{count} working now', {count: activityCount([{id: c.id, cards}], c.id, 'working')})
+      : c.id === 'charted' ? t('{count} ready to start', {count: activityCount([{id: c.id, cards}], c.id, 'ready')}) : '';
+    const heading = append(node('div', 'column-heading'), node('span', 'column-dot'), node('h2', '', labels[c.id] || c.title), sub && node('span', 'column-sub', sub), node('span', 'column-count', String(cards.length)));
     let list = section.querySelector('.cards');
     if (!list) { list = node('div', 'cards'); section.append(heading, list); }
     else section.firstChild.replaceWith(heading);
@@ -187,13 +209,14 @@ function renderCard(card) {
   const cardNode = node('article', 'task-card'); cardNode.dataset.key = card.key;
   const b = button('', () => card.bucket === 'landed' && card.home ? openDelivery(card.home, card.task, b) : openTicket(card.key, b), 'card-open'); b.dataset.key = card.key;
   const phase = node('span', 'phase', phaseText(card)); phase.dataset.phase = card.bucket === 'landed' ? 'delivered' : card.presentation?.run_step ? 'waiting' : card.context.phase;
+  phase.dataset.activity = card.answered ? '' : card.activity?.kind || '';
   const p = card.presentation || {};
   append(b, node('div', 'card-top', card.bucket === 'landed' ? t('Coordinated by {owner}', {owner: card.owner}) : executorText(card)), node('h3', '', card.title), phase,
     node('p', 'card-reason', card.bucket === 'landed' ? card.summary || t('Open the delivery to read the retained result.') : summaryText(card, true)));
   if (card.dependencies.length) b.append(node('p', 'dependency', t('Depends on: {dependency}', {dependency: dependencyText(card)})));
   else if (p.waiting_for) b.append(node('p', 'dependency', t('Waiting: ') + p.waiting_for));
   if (card.bucket !== 'landed' && p.next_action && p.next_action !== p.waiting_for && p.next_action !== p.summary) b.append(node('p', 'card-next', t('Next: {action}', {action: p.next_action})));
-  if (card.bucket === 'underway') b.append(node('p', 'activity-note', t('Live activity unverified.')));
+  if (card.bucket === 'underway') b.append(agentLine(card));
   b.append(node('span', 'card-link', card.bucket === 'captains_call' ? t('View question →') : card.bucket === 'landed' ? t('Read delivery →') : t('View context →')));
   return append(cardNode, b, timeView(card.time));
 }
@@ -317,9 +340,12 @@ async function openTicket(key, opener) {
       const c = ticket.context, p = ticket.presentation || {};
       $('detail-kicker').textContent = phaseText(ticket);
       $('detail-content').replaceChildren(prose(summaryText(ticket)), contextRow(t('Who is involved'), executorText(ticket)));
-      if (ticket.bucket === 'underway') $('detail-content').append(node('p', 'activity-note', t('Live worker activity is not verified.')));
+      const a = ticket.activity || {}, until = a.until ? untilText(a.until) : '';
+      if (ticket.bucket === 'underway') $('detail-content').append(contextRow(t('Agent'), agentLines[a.agent] || agentLines.unknown));
       if (ticket.dependencies.length) $('detail-content').append(contextRow(t('Dependencies'), dependencyText(ticket)));
-      if (p.waiting_for || ['waiting', 'technical', 'dependency', 'unknown'].includes(c.phase)) $('detail-content').append(contextRow(t('What it is waiting for'), p.waiting_for || t('The condition for resuming is missing. Firstmate needs to record what will allow this task to continue.')));
+      const waits = ['paused', 'deferred', 'held', 'blocked', 'validation_gate', 'stopped'].includes(a.kind);
+      if (p.waiting_for || waits || ['waiting', 'technical', 'dependency', 'unknown'].includes(c.phase)) $('detail-content').append(contextRow(t('What it is waiting for'), p.waiting_for || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('An approval at its validation gate.') : t('The condition for resuming is missing. Firstmate needs to record what will allow this task to continue.'))));
+      if (gapLines[a.gap]) $('detail-content').append(node('p', 'activity-note', gapLines[a.gap]));
       $('detail-content').append(contextRow(t('Next step'), p.next_action || t('No concrete next step is recorded. Firstmate needs to update the task.')));
       addTechnical(ticket); addHerdr(ticket);
     }

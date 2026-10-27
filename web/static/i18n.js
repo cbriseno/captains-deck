@@ -67,7 +67,14 @@ const DeckI18n = {
       if (typeof event?.epoch === 'number' && Number.isFinite(event.epoch)) return dateFmt.format(new Date(event.epoch * 1000));
       return t('Time not recorded');
     };
-    return {t, locale, dateFmt, relative, eventTime, exactTime};
+    // An exported hold/pause end: a date-only day stays that calendar day.
+    const untilText = (value) => {
+      const day = calendarDay(value);
+      if (day !== null) return dayFmt.format(new Date(day));
+      const at = /^\d{4}-\d{2}-\d{2}T/.test(value || '') ? Date.parse(value) : NaN;
+      return Number.isFinite(at) ? dateFmt.format(new Date(at)) : '';
+    };
+    return {t, locale, dateFmt, relative, eventTime, exactTime, untilText};
   }
 };
 DeckI18n.ready = DeckI18n.load();
