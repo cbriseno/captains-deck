@@ -365,17 +365,22 @@ function renderCall(ticket, draftOverride) {
   const key = ticket.key, c = ticket.call, draft = draftOverride || readDraft(key);
   const staleDraft = !!draft.occurrence && draft.occurrence !== c.occurrence && !!(draft.note || draft.value);
   S.modal = { type: 'call', key, ticket, request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence };
-  $('detail-kicker').textContent = t('CAPTAIN’S CALL'); $('detail-title').textContent = c.title || ticket.title;
+  $('detail-kicker').textContent = t('CAPTAIN’S CALL'); $('detail-title').textContent = ticket.title;
   const content = $('detail-content'); content.replaceChildren();
+  if (c.title && c.title !== ticket.title) content.append(node('h3', 'call-question-title', c.title));
+  const instructions = c.detail ? contextRow(t('Instructions to answer'), c.detail) : null;
+  if (instructions) instructions.className += ' call-instructions';
   if (ticket.answered) {
     $('detail-kicker').textContent = t('Answer recorded');
     content.append(prose(c.presentation?.decide || c.decide), contextRow(t('What happens next'), t('The recorded answer is waiting for owner handling. This does not confirm that work resumed.')),
       button(t('Check receipts'), async () => { await loadReceipts(); $('receipts-panel').open = true; $('detail').close(); }));
-    addTechnical(ticket, c.detail ? contextRow(t('Full question context'), c.detail) : null); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); return;
+    if (instructions) content.append(instructions);
+    addTechnical(ticket); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); return;
   }
   const error = node('p', 'notice', c.error || (staleDraft ? t("This draft belongs to an earlier question. It is preserved here: select a current option or edit your answer to enable sending.") : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
   if (c.presentation?.about || c.about) content.append(prose(c.presentation?.about || c.about));
   content.append(node('p', 'question', (c.presentation?.decide || c.decide)));
+  if (instructions) content.append(instructions);
   const form = node('fieldset', 'option-list'); form.append(node('legend', '', t("Choose an option or answer in your own words")));
   for (const option of c.options) {
     const choice = node('label', 'choice'), input = node('input'); input.type = 'radio'; input.name = 'answer'; input.value = option.value; input.checked = !staleDraft && draft.value === option.value;
@@ -396,7 +401,7 @@ function renderCall(ticket, draftOverride) {
   const actions = node('div', 'action-bar');
   append(actions, node('p', '', c.close === 'release' ? t("Firstmate will save your answer and release this hold. This does not confirm that the agent has resumed.") : t("Firstmate will record your selection through this task’s intake. Reconcile requests a review; it does not resolve the call.")), button(t("Send answer"), submitAnswer, 'primary'));
   actions.lastChild.id = 'answer-submit'; actions.lastChild.disabled = !!c.error || !S.online;
-  content.append(actions); addTechnical(ticket, c.detail ? contextRow(t('Full question context'), c.detail) : null); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); syncSubmit();
+  content.append(actions); addTechnical(ticket); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); syncSubmit();
 }
 async function checkCall() {
   const modal = S.modal;

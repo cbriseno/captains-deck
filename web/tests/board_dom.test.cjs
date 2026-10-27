@@ -10,6 +10,7 @@ class Element {
   constructor(tag, doc) { this.tagName = tag.toUpperCase(); this.ownerDocument = doc; this.children = []; this.parentElement = null;
     this.dataset = {}; this.attributes = {}; this.listeners = {}; this.className = ''; this.id = ''; this.value = ''; this.open = false; this.text = ''; }
   get firstChild() { return this.children[0] || null; }
+  get lastChild() { return this.children.at(-1) || null; }
   get textContent() { return this.children.length ? this.children.map(c => c.textContent).join('') : this.text; }
   set textContent(value) { this.replaceChildren(); this.text = String(value); }
   detach() { if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body; if (this.parentElement) { const list = this.parentElement.children; list.splice(list.indexOf(this), 1); this.parentElement = null; } }
@@ -42,8 +43,17 @@ function makeDom() {
   doc.body = new Element('body', doc); doc.activeElement = doc.body;
   doc.createElement = (tag) => new Element(tag, doc);
   doc.createTextNode = (text) => { const n = new Element('#text', doc); n.text = String(text); return n; };
-  doc.getElementById = (id) => { if (!doc.byId.has(id)) { const el = new Element('div', doc); el.id = id; doc.byId.set(id, el); } return doc.byId.get(id); };
+  const descendants = (node) => [node, ...node.children.flatMap(descendants)];
+  doc.getElementById = (id) => {
+    for (const root of doc.byId.values()) { const found = descendants(root).find(n => n.id === id); if (found) return found; }
+    const el = new Element('div', doc); el.id = id; doc.byId.set(id, el); return el;
+  };
   doc.querySelectorAll = () => [];
+  doc.querySelector = (selector) => {
+    const nodes = [...doc.byId.values()].flatMap(descendants);
+    if (selector === 'input[name="answer"]:checked') return nodes.find(n => n.tagName === 'INPUT' && n.name === 'answer' && n.checked) || null;
+    return nodes.find(n => n.matches(selector)) || null;
+  };
   doc.addEventListener = () => {};
   return doc;
 }
@@ -59,10 +69,13 @@ function board(underway) {
 }
 
 async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = {}) {
-  const doc = makeDom(), timers = [];
+  const doc = makeDom(), timers = [], requests = [], storage = new Map();
+  doc.getElementById('detail').showModal = function () { this.open = true; };
+  doc.getElementById('detail').close = function () { this.open = false; for (const fn of this.listeners.close || []) fn(); };
   class FixedDate extends Date { constructor(...args) { args.length ? super(...args) : super(clock); } static now() { return clock; } }
   let current = initial;
-  const fetch = async (url) => {
+  const fetch = async (url, options = {}) => {
+    requests.push({url, method: options.method || 'GET'});
     if (url.startsWith('api/locale')) return { ok: true, json: async () => ({ locale: 'en', messages: {} }) };
     if (url.startsWith('api/board')) return { ok: true, json: async () => JSON.parse(JSON.stringify(current)) };
     if (url.startsWith('api/ticket/')) return { ok: true, json: async () => JSON.parse(JSON.stringify(tickets[decodeURIComponent(url.slice('api/ticket/'.length))])) };
@@ -70,15 +83,15 @@ async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = 
   };
   const context = vm.createContext({ document: doc, fetch, navigator: {}, location: { href: 'http://localhost/', search: '' },
     matchMedia: () => ({ matches: false, addEventListener() {} }), setInterval: (fn) => timers.push(fn), setTimeout, clearTimeout,
-    AbortController, URL, URLSearchParams, Intl, Date: FixedDate, JSON, Map, Set, Promise, Option: function Option(text, value) { return Object.assign(new Element('option', doc), { text, value }); },
-    sessionStorage: { getItem() { return null; }, setItem() {} } });
+    AbortController, URL, URLSearchParams, Intl, Date: FixedDate, JSON, Map, Set, Promise, crypto: require('node:crypto').webcrypto, Option: function Option(text, value) { return Object.assign(new Element('option', doc), { text, value }); },
+    sessionStorage: { getItem(key) { return storage.get(key) || null; }, setItem(key, value) { storage.set(key, value); } } });
   context.window = context;
   context.addEventListener = () => {};
   vm.runInContext(fs.readFileSync(path.join(root, 'static/i18n.js'), 'utf8') + '\nthis.DeckI18n = DeckI18n;', context);
   vm.runInContext(fs.readFileSync(path.join(root, 'static/app.js'), 'utf8'), context);
   const flush = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve)); };
   await flush();
-  return { doc, flush, poll: timers[0], setBoard(next) { current = next; } };
+  return { doc, flush, requests, poll: timers[0], setBoard(next) { current = next; } };
 }
 
 const underwayList = (doc) => doc.getElementById('board').children.find(s => s.dataset.kind === 'underway').querySelector('.cards');
@@ -270,4 +283,71 @@ test('drawer shows the full recorded report and the registered executor without 
   assert.ok(all(content).some(e => e.tagName === 'P' && e.textContent === 'Registered executor: Codex'));
   const evidence = JSON.parse(all(content).find(e => e.className === 'technical-evidence').textContent);
   assert.deepEqual(Object.keys(evidence).sort(), ['context', 'native', 'task']);
+});
+
+const descendants = (node) => [node, ...node.children.flatMap(descendants)];
+function questionTicket(key, title, question, detail) {
+  return {...card(key, ''), title, original_title: title, bucket: 'captains_call', agent: 'Codex',
+    context: {phase: 'human'}, native: {}, call: {title: question, about: 'A sample decision is needed.',
+      decide: 'Choose a sample option.', detail, options: [{value: 'sample', label: 'Sample option'}],
+      freeform: true, freeform_hint: 'Sample context', close: 'release', identity: 'synthetic-hold-' + key,
+      occurrence: 'synthetic-occurrence-' + key, error: ''}};
+}
+async function questionView(tickets) {
+  const data = board([]); data.columns.find(c => c.id === 'captains_call').cards = Object.values(tickets);
+  const view = await mountBoard(data, undefined, tickets);
+  view.open = async (key) => {
+    const list = view.doc.getElementById('board').children.find(n => n.dataset.kind === 'captains_call').querySelector('.cards');
+    list.children.find(n => n.dataset.key === key).querySelector('.card-open').listeners.click[0]();
+    await view.flush();
+  };
+  return view;
+}
+
+test('question context retains each work title and complete safe instructions before its options', async () => {
+  const tickets = {
+    alpha: questionTicket('alpha', 'Prepare sample release', 'Confirm sample workspace', 'Run sample-cli status --scope example.\n' + 'Keep the sample output. '.repeat(40) + '<script>sample()</script>'),
+    beta: questionTicket('beta', 'Review sample guide', 'Choose sample format', 'Read docs/example.md, then choose a format.')
+  };
+  const view = await questionView(tickets);
+  for (const ticket of Object.values(tickets)) {
+    await view.open(ticket.key);
+    assert.equal(view.requests.filter(r => r.url.startsWith('api/ticket/')).at(-1).url, 'api/ticket/' + ticket.key);
+    assert.equal(view.doc.getElementById('detail-title').textContent, ticket.title);
+    const content = view.doc.getElementById('detail-content'), nodes = descendants(content);
+    assert.equal(JSON.parse(nodes.find(n => n.className === 'technical-evidence').textContent).task, ticket.task);
+    assert.ok(nodes.some(n => n.tagName === 'H3' && n.textContent === ticket.call.title), content.textContent);
+    const instructions = nodes.find(n => n.tagName === 'P' && n.textContent === ticket.call.detail);
+    assert.ok(instructions);
+    assert.equal(instructions.closest('details'), null);
+    assert.ok(nodes.indexOf(instructions) < nodes.findIndex(n => n.tagName === 'FIELDSET'));
+    assert.equal(nodes.filter(n => n.tagName === 'P' && n.textContent === ticket.call.detail).length, 1);
+    assert.equal(nodes.some(n => n.tagName === 'SCRIPT'), false);
+    view.doc.getElementById('detail-close').listeners.click[0]();
+  }
+  assert.ok(view.requests.every(r => r.method === 'GET'));
+});
+
+test('question context avoids a duplicate equal title and permits absent instructions', async () => {
+  const ticket = questionTicket('same', 'Choose sample scope', 'Choose sample scope', '');
+  const view = await questionView({same: ticket}); await view.open('same');
+  assert.equal(view.doc.getElementById('detail-title').textContent, ticket.title);
+  assert.equal(descendants(view.doc.getElementById('detail-content')).some(n => n.textContent === ticket.title), false);
+  assert.ok(descendants(view.doc.getElementById('detail-content')).some(n => n.tagName === 'FIELDSET'), view.doc.getElementById('detail-content').textContent);
+});
+
+test('question draft and occurrence guard survive refreshed question context without sending', async () => {
+  const ticket = questionTicket('draft', 'Prepare sample release', 'Confirm sample workspace', 'Read the sample instructions.');
+  const view = await questionView({draft: ticket}); await view.open('draft');
+  const note = view.doc.getElementById('answer-note'); note.value = 'Retain my sample draft';
+  note.listeners.input[0]({type: 'input'});
+  assert.equal(view.doc.getElementById('answer-submit').disabled, false);
+  await view.poll(); await view.flush();
+  assert.equal(view.doc.getElementById('answer-note'), note);
+  ticket.call.occurrence = 'synthetic-new-occurrence'; ticket.call.identity = 'synthetic-new-hold';
+  await view.poll(); await view.flush();
+  assert.equal(view.doc.getElementById('answer-submit').disabled, true);
+  assert.equal(note.value, 'Retain my sample draft');
+  assert.equal(view.doc.getElementById('call-change').hidden, false);
+  assert.ok(view.requests.every(r => r.method === 'GET'));
 });

@@ -835,6 +835,25 @@ dialog::backdrop {
   margin:18px 0
 }
 
+.call-question-title {
+  font-size:19px;
+  line-height:1.45;
+  margin:22px 0 14px
+}
+
+#detail-content>.call-instructions {
+  margin:18px 0 24px
+}
+
+#detail-content>.context-row.call-instructions h3 {
+  font-size:14px;
+  color:var(--ink)
+}
+
+#detail-content>.context-row.call-instructions p {
+  font-size:15px
+}
+
 .option-list {
   border:0;
   margin:20px 0;
