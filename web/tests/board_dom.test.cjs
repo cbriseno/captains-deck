@@ -187,3 +187,68 @@ test('supervisor disclosures keep their own state when the row changes shape', a
   assert.equal(byRole(after, 'snapshot').open, false);
   assert.equal(view.doc.activeElement, byRole(after, 'source').querySelector('summary'));
 });
+
+const supervisorClock = Date.UTC(2026, 0, 15, 12);
+const supervisorRow = (view) => view.doc.getElementById('supervisors').children[0];
+const disclosure = (row, role) => [...row.querySelectorAll('details')].find(d => d.dataset.role === role);
+const sourceSnapshot = (overrides = {}) => [{home: '/home/example/space', label: 'example', received_at: supervisorClock / 1000 - 3600,
+  error: null, generated: new Date(supervisorClock - 7200000).toISOString(), supervisor: null, ...overrides}];
+
+test('recovered source falling into error keeps the outer and snapshot disclosures open', async () => {
+  const view = await mountBoard({...board([]), sources: sourceSnapshot()}, supervisorClock);
+  disclosure(supervisorRow(view), 'source').open = true;
+  disclosure(supervisorRow(view), 'snapshot').open = true;
+  view.setBoard({...board([]), sources: sourceSnapshot({error: 'Source unavailable', received_at: 0})});
+  await view.poll(); await view.flush();
+  const row = supervisorRow(view);
+  assert.equal(disclosure(row, 'receipt'), undefined);
+  assert.equal(disclosure(row, 'source').open, true);
+  assert.equal(disclosure(row, 'snapshot').open, true);
+});
+
+test('a newly present receipt does not inherit another disclosure state', async () => {
+  const view = await mountBoard({...board([]), sources: sourceSnapshot({error: 'Source unavailable', received_at: 0})}, supervisorClock);
+  disclosure(supervisorRow(view), 'snapshot').open = true;
+  view.setBoard({...board([]), sources: sourceSnapshot()});
+  await view.poll(); await view.flush();
+  const row = supervisorRow(view);
+  assert.equal(disclosure(row, 'receipt').open, false);
+  assert.equal(disclosure(row, 'source').open, false);
+  assert.equal(disclosure(row, 'snapshot').open, true);
+});
+
+test('an unknown snapshot time that becomes known keeps its open state and shows the exact instant', async () => {
+  const view = await mountBoard({...board([]), sources: sourceSnapshot({generated: ''})}, supervisorClock);
+  disclosure(supervisorRow(view), 'snapshot').open = true;
+  const known = new Date(supervisorClock - 1800000).toISOString();
+  view.setBoard({...board([]), sources: sourceSnapshot({generated: known})});
+  await view.poll(); await view.flush();
+  const snapshot = disclosure(supervisorRow(view), 'snapshot');
+  assert.equal(snapshot.open, true);
+  assert.equal(snapshot.querySelector('.exact-time').textContent, new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(supervisorClock - 1800000)));
+});
+
+test('a focused receipt that disappears moves focus to the source summary without carrying its state', async () => {
+  const view = await mountBoard({...board([]), sources: sourceSnapshot()}, supervisorClock);
+  disclosure(supervisorRow(view), 'receipt').open = true;
+  disclosure(supervisorRow(view), 'receipt').querySelector('summary').focus();
+  view.setBoard({...board([]), sources: sourceSnapshot({error: 'Source unavailable', received_at: 0})});
+  await view.poll(); await view.flush();
+  const row = supervisorRow(view);
+  assert.equal(disclosure(row, 'source').open, false);
+  assert.equal(view.doc.activeElement, disclosure(row, 'source').querySelector('summary'));
+});
+
+test('unchanged-shape polls keep independent disclosure states and focus', async () => {
+  const view = await mountBoard({...board([]), sources: sourceSnapshot()}, supervisorClock);
+  disclosure(supervisorRow(view), 'receipt').open = true;
+  disclosure(supervisorRow(view), 'snapshot').open = true;
+  disclosure(supervisorRow(view), 'snapshot').querySelector('summary').focus();
+  view.setBoard({...board([]), sources: sourceSnapshot({received_at: supervisorClock / 1000 - 1800})});
+  await view.poll(); await view.flush();
+  const row = supervisorRow(view);
+  assert.equal(disclosure(row, 'receipt').open, true);
+  assert.equal(disclosure(row, 'source').open, false);
+  assert.equal(disclosure(row, 'snapshot').open, true);
+  assert.equal(view.doc.activeElement, disclosure(row, 'snapshot').querySelector('summary'));
+});
