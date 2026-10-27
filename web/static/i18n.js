@@ -44,8 +44,10 @@ const DeckI18n = {
     };
     const calendarDay = (date) => {
       const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || '');
-      const ms = match ? Date.UTC(+match[1], +match[2] - 1, +match[3]) : NaN;
-      return Number.isFinite(ms) ? ms : null;
+      if (!match) return null;
+      const [year, month, day] = [+match[1], +match[2], +match[3]];
+      const ms = Date.UTC(year, month - 1, day), check = new Date(ms);
+      return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day ? ms : null;
     };
     const dateRelative = (day, now) => {
       const today = new Date(now * 1000);

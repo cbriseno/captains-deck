@@ -107,6 +107,11 @@ function theme(saved, systemDark, storageFails = false) {
   assert.ok(dateOnly.includes(en.api.t('no time recorded')));
   assert.ok(en.api.eventTime({label: 'Updated', date: 'not-a-date'}, clock).includes(en.api.t('time unavailable')));
   assert.ok(en.api.exactTime({date: '2026-01-10'}).includes('2026'));
+  assert.ok(en.api.eventTime({label: 'Updated', date: '2026-02-31'}, clock).includes(en.api.t('time unavailable')));
+  assert.equal(en.api.exactTime({date: '2026-02-31'}), en.api.t('Time not recorded'));
+  assert.equal(en.api.exactTime({date: '2027-02-29'}), en.api.t('Time not recorded'));
+  assert.ok(en.api.exactTime({date: '2028-02-29'}).includes('2028'));
+  assert.ok(en.api.eventTime({label: 'Updated', date: '2028-02-29'}, clock).includes('year'));
   assert.ok(en.api.exactTime({date: 'not-a-date', epoch: clock}).includes(en.api.dateFmt.format(new Date(clock * 1000))));
   const a = theme(null, true), b = theme('light', true);
   assert.equal(a.document.documentElement.dataset.theme, 'dark');
