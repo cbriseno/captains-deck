@@ -132,11 +132,14 @@ class PresentationTests(unittest.TestCase):
 
     def test_purely_technical_filenames_fall_back_to_usable_text(self):
         card = self.task()
-        card.flow['reason'] = 'report.json'
-        card.flow['next_action'] = 'run: SANITIZED_RUN'
-        p = self.read(card)['presentation']
-        self.assertEqual(p['summary'], '')
-        self.assertEqual(p['next_action'], '')
+        for candidate in ('report.json', 'report.json.', 'report.json logs.jsonl'):
+            card.flow['reason'] = candidate
+            card.flow['waiting_for'] = candidate
+            card.flow['next_action'] = 'run: SANITIZED_RUN'
+            p = self.read(card)['presentation']
+            self.assertEqual(p['summary'], '')
+            self.assertEqual(p['waiting_for'], '')
+            self.assertEqual(p['next_action'], '')
 
     def test_landed_card_summary_keeps_a_filename_sentence(self):
         landed = next(c for c in self.board.collector.snap.cols['landed'] if c.task == 'demo-research')
