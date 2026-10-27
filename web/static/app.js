@@ -367,8 +367,7 @@ function renderCall(ticket, draftOverride) {
   S.modal = { type: 'call', key, ticket, request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence };
   $('detail-kicker').textContent = t('CAPTAIN’S CALL'); $('detail-title').textContent = ticket.title;
   const content = $('detail-content'); content.replaceChildren();
-  const repeatsWork = [ticket.title, ticket.original_title].includes(c.title) || ticket.original_title.startsWith(c.title + ': ');
-  if (c.title && !repeatsWork) content.append(node('h3', 'call-question-title', c.title));
+  if (c.title && ![ticket.title, ticket.original_title].includes(c.title)) content.append(node('h3', 'call-question-title', c.title));
   const instructions = c.detail ? contextRow(t('Instructions to answer'), c.detail) : null;
   if (instructions) instructions.className += ' call-instructions';
   if (ticket.answered) {
