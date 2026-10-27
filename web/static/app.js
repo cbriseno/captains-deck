@@ -162,7 +162,11 @@ function renderBoard() {
         if (old) old.replaceWith(item);
         if (focused) (dateFocused ? item.querySelector('summary') : item.querySelector('.card-open')).focus({preventScroll: true});
       }
-      if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null);
+      if (list.children[index] !== item) {
+        const focused = item.contains(document.activeElement) ? document.activeElement : null;
+        list.insertBefore(item, list.children[index] || null);
+        focused?.focus({preventScroll: true});
+      }
     }
     if (!cards.length) list.replaceChildren(node('p', 'empty', S.query ? t("No tasks match your search.") : c.id === 'captains_call' ? t("No pending questions. Firstmate is keeping course.") : c.id === 'landed' ? t("No deliveries in this recent view. Search history for retained deliveries.") : t("No tasks in this state.")));
   }

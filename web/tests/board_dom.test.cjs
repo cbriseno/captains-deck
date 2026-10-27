@@ -130,3 +130,14 @@ test('removing an earlier card keeps the focused card and its disclosure in plac
   assert.equal(view.doc.activeElement, opener);
   assert.equal(list.children[0].querySelector('.event-time').open, true);
 });
+
+test('reordering a focused card keeps the same focused control', async () => {
+  const view = await mountBoard(board([card('a', 'A'), card('b', 'B')]));
+  const list = () => underwayList(view.doc);
+  const opener = list().children[1].querySelector('.card-open');
+  opener.focus();
+  view.setBoard(board([card('b', 'B'), card('a', 'A')]));
+  await view.poll(); await view.flush();
+  assert.deepEqual(cardsIn(list()).map(c => c.dataset.key), ['b', 'a']);
+  assert.equal(view.doc.activeElement, opener);
+});
