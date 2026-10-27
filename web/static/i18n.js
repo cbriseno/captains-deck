@@ -34,16 +34,40 @@ const DeckI18n = {
       if (Math.abs(minutes) < 60) return relativeFmt.format(minutes, 'minute');
       const hours = Math.round(seconds / 3600);
       if (Math.abs(hours) < 24) return relativeFmt.format(hours, 'hour');
-      return relativeFmt.format(Math.round(seconds / 86400), 'day');
+      return span(Math.round(seconds / 86400));
+    };
+    const span = (days) => {
+      if (Math.abs(days) < 7) return relativeFmt.format(days, 'day');
+      if (Math.abs(days) < 30) return relativeFmt.format(Math.round(days / 7), 'week');
+      if (Math.abs(days) < 365) return relativeFmt.format(Math.round(days / 30.4375), 'month');
+      return relativeFmt.format(Math.round(days / 365.25), 'year');
+    };
+    const calendarDay = (date) => {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || '');
+      if (!match) return null;
+      const [year, month, day] = [+match[1], +match[2], +match[3]];
+      const ms = Date.UTC(year, month - 1, day), check = new Date(ms);
+      return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day ? ms : null;
+    };
+    const dateRelative = (day, now) => {
+      const today = new Date(now * 1000);
+      return span(Math.round((day - Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000));
     };
     const eventTime = (event, now = Date.now() / 1000) => {
       if (!event) return t('Time not recorded');
       const label = t(event.label || 'Event');
-      if (event.date) return `${label} · ${dayFmt.format(new Date(event.date + 'T00:00:00Z'))} · ${t('no time recorded')}`;
-      if (typeof event.epoch === 'number') return `${label} · ${dateFmt.format(new Date(event.epoch * 1000))} · ${event.epoch > now + 5 ? t('future date; check the clock') : relative(event.epoch, now)}`;
+      const day = calendarDay(event.date);
+      if (day !== null) return `${label} · ${dateRelative(day, now)} · ${t('no time recorded')}`;
+      if (typeof event.epoch === 'number' && Number.isFinite(event.epoch)) return `${label} · ${event.epoch > now + 5 ? t('future date; check the clock') : relative(event.epoch, now)}`;
       return `${label} · ${t(event.problem === 'not recorded' ? 'time not recorded' : 'time unavailable')}`;
     };
-    return {t, locale, dateFmt, relative, eventTime};
+    const exactTime = (event) => {
+      const day = calendarDay(event?.date);
+      if (day !== null) return `${dayFmt.format(new Date(day))} · ${t('no time recorded')}`;
+      if (typeof event?.epoch === 'number' && Number.isFinite(event.epoch)) return dateFmt.format(new Date(event.epoch * 1000));
+      return t('Time not recorded');
+    };
+    return {t, locale, dateFmt, relative, eventTime, exactTime};
   }
 };
 DeckI18n.ready = DeckI18n.load();

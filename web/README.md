@@ -9,10 +9,18 @@ The established terminal interactions are preserved.
 On a phone, four named state buttons select one full-width column.
 Desktop has four columns; tablets have two.
 Integration remains a phase of Underway.
-Cards open full context, including the reason, dependency owner, waiting condition, next action and supervisor declaration.
-Deliveries open a readable summary with separate Report and Details tabs.
+Cards lead with a human summary, the registered executor, dependencies and any concrete recorded next action.
+The source home coordinates work; it is not the executor.
+Absent summaries, resume conditions and next actions remain explicit information gaps for Firstmate to fill.
+Validation job progress does not establish live native worker activity.
+Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
+Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
+Deliveries open a readable summary with a separate Report view and optional technical details.
 History searches the retained current/archive export, including deliveries beyond the recent cap.
-Date-only events never acquire a time; exact events show browser-local time, relative age and original provenance in details.
+Relative event time is primary and updates while the view stays open without replacing focused controls or announcing a timer.
+The date disclosure opens with touch or keyboard and shows exact browser-local time.
+Date-only events keep their calendar date and never acquire an hour; unknown times and future clock uncertainty stay explicit.
+UTC and original provenance remain in technical details.
 
 ## Run locally
 
@@ -230,6 +238,7 @@ Health confirms collector readiness; source timestamps and errors on the board d
 ```sh
 python3 -m unittest discover -s /absolute/captains-deck/web/tests -p 'test_*.py' -v
 node /absolute/captains-deck/web/tests/localization.test.cjs
+node /absolute/captains-deck/web/tests/board_dom.test.cjs
 ```
 
 The browser-helper tests run under Node.js 22, the version CI pins; production still requires only Python.

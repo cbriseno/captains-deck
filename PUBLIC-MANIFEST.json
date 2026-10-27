@@ -42,7 +42,7 @@
     {
       "mode": "100644",
       "path": ".github/workflows/test.yml",
-      "sha256": "5462339e4af9516e8f7566e85c9a0048d0dc8b00c8ffdbfbd9f5e0f5d5cf9add"
+      "sha256": "f27bd1355d54de8417b5a22e690cf40cdea44bb800114b6acc6a1693b743fcfb"
     },
     {
       "mode": "100644",
@@ -82,12 +82,12 @@
     {
       "mode": "100644",
       "path": "herdr-plugin.toml",
-      "sha256": "faca345dd4f822fda94081f3b60decb0309cac948f4a634d14dc45848ab253af"
+      "sha256": "413929453bebfe49434838c483bf2d1d5159aa172ec771efe1e8604e52d7dce2"
     },
     {
       "mode": "100644",
       "path": "public-export.json",
-      "sha256": "6a407d4e1944a75c79383633ce38a1ee12dd91b4f7f05f1f937336ffa8e5f2f6"
+      "sha256": "615846da6b0e9f8bb07e26d27de308f3ea7fde0a0915d54d351f7171a5879663"
     },
     {
       "mode": "100644",
@@ -327,27 +327,32 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "713a896f26f9ea94574fd3d855e15b9a556fca0bc7ab9dc9c98277f93cc4387a"
+      "sha256": "27e3b001f4786cc645499bccab91b32af7565b7ca45b7abe30715b3366cbf559"
     },
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "ebaf40b869fb63d73253237cd3e058752099b8e6487dcb00cf58aefc6f4daea9"
+      "sha256": "f0b65acd266cd743883d94d3e4dd271882b6892814b5f3a4620f50bbeda8943f"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "6a57c89f15af3d731aa40bf09c15a15e81d701488a2b25a3b4d7707a04140d1c"
+      "sha256": "f195fee8db8595bb3321e42104e3fc359775fc156ec4424086967f61cd51862c"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "21293a9420999e6c438c58ffa5e7a02a2146c219f6b1ea1f750a5a8d6c015e16"
+      "sha256": "4483cdf4613d225a1446cd2c2a7c2f2c357e29bc94fda8a0e988534857eaeb53"
     },
     {
       "mode": "100644",
       "path": "web/localization.py",
       "sha256": "74acfac3f49a09e26d6d8e3aea870e3c872e079ced1c089ef48dbea8bf216219"
+    },
+    {
+      "mode": "100644",
+      "path": "web/presentation.py",
+      "sha256": "d45bca8e1ac07620367109d3a5fcdc9abdcd398d31a7acde7ea472e0d7407750"
     },
     {
       "mode": "100644",
@@ -372,12 +377,12 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "7fab3c949cce7a0954397917ad675745da0da1cbd37f680591bab67b8142d324"
+      "sha256": "186da08bb59e9a6c9f1c9898a030deb0b8e529065d93333633be0e247f0f0282"
     },
     {
       "mode": "100644",
       "path": "web/static/i18n.js",
-      "sha256": "8c7ca752dd9372d4e9793fbc00d78daa287f46f537c162055595a980d0bcd222"
+      "sha256": "81b842b1f37f9789b42615d873af7904737e861ff1a1e943940518083bb050f0"
     },
     {
       "mode": "100644",
@@ -387,12 +392,12 @@
     {
       "mode": "100644",
       "path": "web/static/index.html",
-      "sha256": "56b5dbb5cf0757b0b1489a21a52f78e7c6ffa62b37277037bd7cc32602ec7956"
+      "sha256": "7cc551094b995e8bac3136aff1346df34337365391aa78485b0656ee13832196"
     },
     {
       "mode": "100644",
       "path": "web/static/styles.css",
-      "sha256": "038df44b1a041c8d856ee9255961643d530a8de67a1540ba2ec6f7fbff5e0a1f"
+      "sha256": "f0d48e273e260e99e89ee54d60cd27df9c32aa4e8c9b1dacd26cdbf426312f66"
     },
     {
       "mode": "100644",
@@ -406,13 +411,18 @@
     },
     {
       "mode": "100644",
+      "path": "web/tests/board_dom.test.cjs",
+      "sha256": "48b3bfdfde802f87fa71b04c699e5dcd8b0f4759a9e09a35ab89158a32cc6449"
+    },
+    {
+      "mode": "100644",
       "path": "web/tests/fixtures.py",
       "sha256": "5ae11b193d59e4b7c2cdb5be427fec77cc19bf4200912387a206649421a8d998"
     },
     {
       "mode": "100644",
       "path": "web/tests/localization.test.cjs",
-      "sha256": "887ead4cfc49411f47a5b5b7558201eac0738039785923b625e568515e175759"
+      "sha256": "cc0391ec7678653529ab2e0800c9169f707aba1e86016d125564f00821c738b9"
     },
     {
       "mode": "100644",
@@ -422,7 +432,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "88342ca9572c89973d153d6a4fc40f4646705dce03c131f2fc98a94d99f0cb8d"
+      "sha256": "e9fe3697741c01d0f48967c7176a0a25abded2347caf751bc887db2c977621a1"
     },
     {
       "mode": "100644",
@@ -433,6 +443,11 @@
       "mode": "100644",
       "path": "web/tests/test_portable.py",
       "sha256": "254176d1fdf009d134c8d18056a448681143e68cd8d6849db59b0d7164e016fd"
+    },
+    {
+      "mode": "100644",
+      "path": "web/tests/test_presentation.py",
+      "sha256": "4cb48ab8faf6f7ab67460483d023f8c4dac8dc0ce35263a76a9c07f7d5ef0321"
     },
     {
       "mode": "100644",
