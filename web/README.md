@@ -8,9 +8,9 @@ The established terminal interactions are preserved.
 
 On a phone, four named state buttons select one full-width column.
 Desktop has four columns; tablets have two.
-Integration remains a phase of En curso.
+Integration remains a phase of Underway.
 Cards open full context, including the reason, dependency owner, waiting condition, next action and supervisor declaration.
-Deliveries open a readable summary with separate Informe and Detalles tabs.
+Deliveries open a readable summary with separate Report and Details tabs.
 History searches the retained current/archive export, including deliveries beyond the recent cap.
 Date-only events never acquire a time; exact events show browser-local time, relative age and original provenance in details.
 
@@ -46,6 +46,7 @@ Every child process still receives the owning `FM_HOME`.
 
 | Environment | Default | Purpose |
 | --- | --- | --- |
+| `CD_WEB_LANGUAGE` | `en` | Explicit per-installation UI language: `en`, `es`, or a regional variant |
 | `CD_WEB_PORT` | `8787` | Listener port, 1024–65535 |
 | `CD_WEB_BIND` | `127.0.0.1` | Other bind addresses are rejected |
 | `CD_WEB_ORIGIN` | empty | Exact optional private HTTPS origin, without path |
@@ -97,6 +98,67 @@ For login persistence, configure your OS user service manager to run `serve.py m
 Linux systemd user services, macOS LaunchAgents and Windows Task Scheduler can use that same foreground entrypoint.
 Nothing installs, enables or changes a service automatically.
 
+## Language and appearance
+
+English is the deterministic public default, including on Spanish-language systems and browsers.
+Set `CD_WEB_LANGUAGE` in the existing private JSON configuration to select this installation’s language:
+
+```json
+{
+  "CD_WEB_LANGUAGE": "es-MX",
+  "CD_WEB_PORT": "8787",
+  "FM_FLOW_HOMES_JSON": "{}",
+  "FM_FLOW_HOMES_ONLY": "1"
+}
+```
+
+```sh
+python3 web/serve.py run --config /absolute/private/deck.json
+```
+
+For a temporary foreground preference on Linux, macOS or WSL:
+
+```sh
+CD_WEB_LANGUAGE=es python3 web/serve.py run
+```
+
+In PowerShell, use `$env:CD_WEB_LANGUAGE = 'es'; py -3 web/serve.py run`.
+An explicit `--config` value overrides the inherited environment; an absent key uses the environment, then `en`.
+The JSON file persists across launcher restarts and upgrades without editing application source.
+Restart that Deck server with the same configuration and reload its browsers after changing the value.
+Use the existing service manager for a service-managed installation.
+No Herdr restart is needed.
+
+Supported values are `en` and `es`, optionally followed by a two-letter or three-digit region: for example `en-GB`, `en-US`, `es-ES`, `es-MX` or `es-419`.
+Case and surrounding whitespace are normalized; underscores are accepted as region separators.
+Regional variants share their language catalog and use the regional locale for dates.
+Unknown languages, malformed values, extensions and `auto` fall back to `en`.
+Missing translation keys fall back to English.
+There is no automatic browser, OS or agent-conversation language detection.
+An agent selects the desired language by reading or updating this explicit installation preference.
+All browsers of that server see the same language; independent servers with separate configurations remain independent.
+
+Only presentation changes: task titles, authored questions/options, reports, answers, URLs and protocol/state identifiers retain their content.
+Exact times use the selected locale and the browser’s timezone; date-only events keep their calendar date without inventing a time or shifting across timezones.
+Provenance retains the original source and timestamp values.
+
+The header’s **Theme** selector offers **System**, **Light** and **Dark**.
+System is the initial choice and follows the operating system’s appearance, including changes while the page is open.
+An explicit choice persists in that browser’s local storage for the Deck origin; another browser or origin has its own choice.
+When storage is disabled the choice works for the current page.
+Theme is independent of the server language and does not write tasks or configuration.
+
+### Adding translations
+
+`web/locales/en.json` and `es.json` are plain-text catalogs shared by the Python bridge and browser.
+English source messages are stable keys; preserve named placeholders such as `{count}` and `{date}`.
+To add a language, copy the English catalog, translate its values, and extend the language pattern in `normalize_language` in `web/localization.py` (currently the bounded `en|es` match); without that change the new code normalizes to `en`.
+No translation framework or service is needed.
+The shared TUI helpers accept an optional presentation callback; their default terminal wording remains unchanged.
+Never run a translator over authored task content or decision payloads.
+Use `t(...)` for new UI chrome and `data-i18n`, `data-i18n-aria-label` or `data-i18n-placeholder` for static document text.
+Catalog values enter the page through `textContent` and safe attribute setters.
+
 ## Optional private HTTPS proxy
 
 Keep the listener on `127.0.0.1` and use a dedicated private HTTPS origin with no URL prefix.
@@ -146,6 +208,7 @@ Identifiers are server-issued opaque owner/card IDs; clients cannot supply files
 
 | Method | Route | Purpose |
 | --- | --- | --- |
+| GET | `/api/locale` | Instance language, regional locale and plain-text UI catalog |
 | GET | `/health` | Readiness: 503 while the first snapshot is loading or unavailable, 200 after a valid snapshot |
 | GET | `/api/board?home=ID` | Four states, sources, owner declarations and session CSRF |
 | GET | `/api/ticket/KEY` | Full task context or current question/options |
@@ -166,8 +229,11 @@ Health confirms collector readiness; source timestamps and errors on the board d
 
 ```sh
 python3 -m unittest discover -s /absolute/captains-deck/web/tests -p 'test_*.py' -v
+node /absolute/captains-deck/web/tests/localization.test.cjs
 ```
 
+The browser-helper tests run under Node.js 22, the version CI pins; production still requires only Python.
+The public CI runs the launcher and language configuration checks on Linux, macOS and Windows.
 Tests exercise the real HTTP boundary and temporary owner subprocesses, including two-browser races, restart deduplication, identity/origin/CSRF rejection, stale questions, long answers, synthetic archive history and report symlinks/traversal.
 `web/tests/preview.py /ABSOLUTE/TASK_PROOF_DIR` starts a clearly isolated fixture server on loopback 8788 for browser checks.
 Production has no fixture or arbitrary data-file CLI flag.

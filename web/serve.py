@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from deck_platform import file_lock, private_directory
 
 CONFIG_KEYS = {
-    'CD_WEB_PORT', 'CD_WEB_BIND', 'CD_WEB_ORIGIN', 'CD_WEB_USERS',
+    'CD_WEB_LANGUAGE', 'CD_WEB_PORT', 'CD_WEB_BIND', 'CD_WEB_ORIGIN', 'CD_WEB_USERS',
     'CD_WEB_HERDR_ORIGIN', 'CD_WEB_DATA', 'CD_WEB_RUNTIME',
     'FM_HOME', 'FM_ROOT_OVERRIDE', 'FM_BASH', 'FM_FLOW_HOMES', 'FM_FLOW_HOMES_JSON',
     'FM_FLOW_HOMES_ONLY', 'FM_FLOW_BEARINGS_SECS', 'FM_FLOW_BEARINGS_TIMEOUT',

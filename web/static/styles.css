@@ -10,6 +10,45 @@
   --purple:#7146a6;
   --amber:#855b0d;
   --red:#a33338;
+  --primary:var(--blue);
+  --primary-ink:white;
+  --glow:#e5eafa88;
+  --hover-border:#a5b3da;
+  --hover-surface:#f8f9fe;
+  --focus:#7185f0;
+  --primary-hover:#3044af;
+  --control-border:#8190a7;
+  --placeholder:#65748c;
+  --brand-surface:#e5eafe;
+  --call-surface:#f8f3ff;
+  --call-border:#e7daf7;
+  --call-ink:#684098;
+  --inset:#eaf0f7;
+  --neutral:#edf1f6;
+  --human-surface:#f0e7fb;
+  --wait-surface:#fff3dc;
+  --wait-ink:#805808;
+  --integration-surface:#eaf0ff;
+  --integration-ink:#3b51a7;
+  --active-surface:#e6f5f0;
+  --active-ink:#186653;
+  --card-line:#edf0f6;
+  --card-link:#4c60b1;
+  --empty-border:#cdd6e4;
+  --notice-border:#ead5aa;
+  --notice-surface:#fff7e8;
+  --notice-ink:#744e11;
+  --error-surface:#fff0ef;
+  --error-border:#ecc3c3;
+  --supervision-surface:#ffffffa6;
+  --close-surface:#f0f3f8;
+  --tab-border:#acb9ef;
+  --tab-surface:#f0f3ff;
+  --selected-surface:#f2f4ff;
+  --selected-border:#6b7ddd;
+  --receipt-border:#beded3;
+  --receipt-surface:#f0f9f5;
+  --nav-surface:#e8edf5;
   --shadow:0 7px 24px #1c315509;
   font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   font-synthesis:none
@@ -21,7 +60,7 @@
 
 body {
   margin:0;
-  background:radial-gradient(ellipse at 85% 0,#e5eafa88,transparent 45%),var(--canvas);
+  background:radial-gradient(ellipse at 85% 0,var(--glow),transparent 45%),var(--canvas);
   color:var(--ink);
   font-size:14px;
   line-height:1.55;
@@ -64,28 +103,28 @@ button {
 }
 
 button:hover:enabled {
-  border-color:#a5b3da;
-  background:#f8f9fe
+  border-color:var(--hover-border);
+  background:var(--hover-surface)
 }
 
 button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible {
-  outline:3px solid #7185f0;
+  outline:3px solid var(--focus);
   outline-offset:3px
 }
 
 button.primary {
-  background:var(--blue);
-  border-color:var(--blue);
-  color:white
+  background:var(--primary);
+  border-color:var(--primary);
+  color:var(--primary-ink)
 }
 
 button.primary:hover:enabled {
-  background:#3044af
+  background:var(--primary-hover)
 }
 
 input,select,textarea {
   min-height:46px;
-  border:1px solid #c9d3e3;
+  border:1px solid var(--control-border);
   border-radius:10px;
   padding:10px 12px;
   background:var(--surface);
@@ -94,7 +133,7 @@ input,select,textarea {
 }
 
 input::placeholder,textarea::placeholder {
-  color:#65748c
+  color:var(--placeholder)
 }
 
 label {
@@ -165,7 +204,7 @@ h3 {
   width:39px;
   height:42px;
   border-radius:13px;
-  background:#e5eafe;
+  background:var(--brand-surface);
   color:var(--blue);
   font-size:23px
 }
@@ -272,9 +311,9 @@ h3 {
 }
 
 .metric[data-kind="captains_call"] {
-  background:#f8f3ff;
-  border-color:#e7daf7;
-  color:#684098
+  background:var(--call-surface);
+  border-color:var(--call-border);
+  color:var(--call-ink)
 }
 
 .metric[data-kind="underway"] .metric-number {
@@ -309,7 +348,7 @@ h3 {
   border:1px solid var(--line);
   border-radius:11px;
   padding:3px;
-  background:#eaf0f7;
+  background:var(--inset);
   gap:3px
 }
 
@@ -323,7 +362,7 @@ h3 {
 }
 
 .view-switch button[aria-pressed="true"] {
-  background:white;
+  background:var(--surface);
   box-shadow:0 2px 5px #24374c13;
   color:var(--ink)
 }
@@ -415,12 +454,12 @@ h3 {
   font-weight:400;
   min-width:0;
   overflow-wrap:anywhere;
-  background:white;
+  background:var(--surface);
   transition:transform .14s,box-shadow .14s
 }
 
 .task-card:hover:enabled {
-  background:white;
+  background:var(--surface);
   transform:translateY(-2px);
   box-shadow:0 10px 25px #26386510
 }
@@ -443,7 +482,7 @@ h3 {
 .phase {
   display:inline-block;
   color:var(--muted);
-  background:#edf1f6;
+  background:var(--neutral);
   border-radius:5px;
   padding:3px 7px;
   font-size:9px;
@@ -452,23 +491,23 @@ h3 {
 }
 
 .phase[data-phase="human"] {
-  background:#f0e7fb;
-  color:#684098
+  background:var(--human-surface);
+  color:var(--call-ink)
 }
 
 .phase[data-phase="dependency"],.phase[data-phase="technical"] {
-  background:#fff3dc;
-  color:#805808
+  background:var(--wait-surface);
+  color:var(--wait-ink)
 }
 
 .phase[data-phase="integration"] {
-  background:#eaf0ff;
-  color:#3b51a7
+  background:var(--integration-surface);
+  color:var(--integration-ink)
 }
 
 .phase[data-phase="active"] {
-  background:#e6f5f0;
-  color:#186653
+  background:var(--active-surface);
+  color:var(--active-ink)
 }
 
 .task-card h3 {
@@ -492,14 +531,14 @@ h3 {
   font-size:11px;
   margin-top:12px;
   padding:8px 0 0;
-  border-top:1px solid #edf0f6;
+  border-top:1px solid var(--card-line);
   color:var(--amber)
 }
 
 .card-time {
   margin-top:15px;
   padding-top:11px;
-  border-top:1px solid #edf0f6;
+  border-top:1px solid var(--card-line);
   display:flex;
   justify-content:space-between;
   gap:8px;
@@ -509,7 +548,7 @@ h3 {
 }
 
 .card-time span:last-child {
-  color:#4c60b1;
+  color:var(--card-link);
   flex-shrink:0
 }
 
@@ -517,7 +556,7 @@ h3 {
   font-size:12px;
   line-height:1.65;
   padding:22px 17px;
-  border:1px dashed #cdd6e4;
+  border:1px dashed var(--empty-border);
   border-radius:13px;
   color:var(--muted)
 }
@@ -532,24 +571,24 @@ h3 {
 .notice {
   margin-bottom:18px;
   padding:14px 16px;
-  border:1px solid #ead5aa;
-  background:#fff7e8;
+  border:1px solid var(--notice-border);
+  background:var(--notice-surface);
   border-radius:11px;
   font-size:12px;
-  color:#744e11
+  color:var(--notice-ink)
 }
 
 .notice.error {
   color:var(--red);
-  background:#fff0ef;
-  border-color:#ecc3c3
+  background:var(--error-surface);
+  border-color:var(--error-border)
 }
 
 .supervision {
   border:1px solid var(--line);
   border-radius:15px;
   padding:22px;
-  background:#ffffffa6;
+  background:var(--supervision-surface);
   margin:30px 0 0
 }
 
@@ -700,7 +739,7 @@ dialog {
   max-height:calc(100dvh - 40px);
   overflow:auto;
   color:var(--ink);
-  background:white;
+  background:var(--surface);
   overscroll-behavior:contain
 }
 
@@ -722,7 +761,7 @@ dialog::backdrop {
 
 .close {
   border:0;
-  background:#f0f3f8;
+  background:var(--close-surface);
   border-radius:50%;
   min-width:44px;
   padding:7px;
@@ -785,8 +824,8 @@ dialog::backdrop {
 
 .detail-tabs button[aria-pressed="true"] {
   color:var(--blue);
-  border-color:#acb9ef;
-  background:#f0f3ff
+  border-color:var(--tab-border);
+  background:var(--tab-surface)
 }
 
 .question {
@@ -821,9 +860,9 @@ dialog::backdrop {
 }
 
 .choice:has(input:checked) {
-  background:#f2f4ff;
-  border-color:#6b7ddd;
-  box-shadow:inset 0 0 0 1px #6b7ddd
+  background:var(--selected-surface);
+  border-color:var(--selected-border);
+  box-shadow:inset 0 0 0 1px var(--selected-border)
 }
 
 .choice input {
@@ -876,7 +915,7 @@ dialog::backdrop {
 .action-bar {
   position:sticky;
   bottom:-25px;
-  background:white;
+  background:var(--surface);
   border-top:1px solid var(--line);
   padding:15px 0 2px;
   display:flex;
@@ -897,8 +936,8 @@ dialog::backdrop {
 }
 
 .receipt {
-  border:1px solid #beded3;
-  background:#f0f9f5;
+  border:1px solid var(--receipt-border);
+  background:var(--receipt-surface);
   border-radius:12px;
   padding:16px;
   margin:20px 0;
@@ -960,7 +999,7 @@ dialog::backdrop {
   position:absolute;
   top:-100px;
   left:10px;
-  background:white;
+  background:var(--surface);
   padding:10px;
   z-index:20
 }
@@ -1097,7 +1136,7 @@ dialog::backdrop {
     display: grid;
     grid-template-columns: repeat(4,minmax(0,1fr));
     gap: 0;
-    background: #e8edf5;
+    background: var(--nav-surface);
     border-radius: 11px;
     padding: 4px;
     margin-bottom: 18px;
@@ -1113,7 +1152,7 @@ dialog::backdrop {
     min-height: 57px;
   }
   .columns-nav button[aria-pressed="true"] {
-    background: white;
+    background: var(--surface);
     box-shadow: 0 2px 7px #23375310;
     color: var(--blue);
   }
@@ -1297,3 +1336,74 @@ dialog::backdrop {
 .prose h3:first-child { margin-top: 0; }
 
 .prose p { margin: 0 0 16px; }
+
+/* Selected theme also applies to native controls, dialogs and mobile columns. */
+:root[data-theme="dark"] {
+  color-scheme:dark;
+  --ink:#e7edf7;
+  --muted:#b2bfd4;
+  --line:#43516a;
+  --canvas:#121a29;
+  --surface:#1b273b;
+  --blue:#aabbff;
+  --teal:#83d8c1;
+  --purple:#d4acff;
+  --amber:#efc879;
+  --red:#ffb1b9;
+  --primary:#aabbff;
+  --primary-ink:#121a29;
+  --shadow:0 7px 24px #0003;
+  --glow:#23366066;
+  --hover-border:#6c7faa;
+  --hover-surface:#233149;
+  --focus:#aabaff;
+  --primary-hover:#b8c5ff;
+  --control-border:#6e7c95;
+  --placeholder:#a9b6cc;
+  --brand-surface:#273654;
+  --call-surface:#30243f;
+  --call-border:#705389;
+  --call-ink:#d9b5ff;
+  --inset:#1b273b;
+  --neutral:#243248;
+  --human-surface:#352748;
+  --wait-surface:#372d1b;
+  --wait-ink:#f0cc85;
+  --integration-surface:#273454;
+  --integration-ink:#b9c9ff;
+  --active-surface:#193b33;
+  --active-ink:#91dfc6;
+  --card-line:#34425a;
+  --card-link:#b3c2ff;
+  --empty-border:#576780;
+  --notice-border:#7d653a;
+  --notice-surface:#352b1c;
+  --notice-ink:#f0d19a;
+  --error-surface:#3b232b;
+  --error-border:#96616e;
+  --supervision-surface:#1a2639;
+  --close-surface:#2c3a50;
+  --tab-border:#8195cf;
+  --tab-surface:#273654;
+  --selected-surface:#293957;
+  --selected-border:#98adff;
+  --receipt-border:#507f72;
+  --receipt-surface:#19342d;
+  --nav-surface:#1b273b;
+}
+.theme-label { display:flex; align-items:center; gap:8px; margin-left:12px; }
+.theme-label select { min-width:100px; }
+@media(max-width:639px) {
+  .theme-label { gap:4px; font-size:10px; }
+  .theme-label select { min-width:0; width:94px; padding:8px; font-size:11px; }
+  .topbar { gap:8px; }
+}
+@media(max-width:359px) {
+  .theme-label { margin-left:0; }
+  .theme-label>span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .theme-label select { width:84px; }
+  .brand { gap:8px; }
+  .crew-label { flex-basis:100%; }
+  .view-switch { width:100%; }
+  .view-switch button { flex:1; }
+}

@@ -1,49 +1,52 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f4f6fa">
-<title>Captain’s Deck · La tripulación</title>
+<title data-i18n="Captain’s Deck · Your crew">Captain’s Deck · Your crew</title>
+<script src="theme.js"></script>
 <link rel="icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="styles.css">
+<script src="i18n.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#workspace">Ir al tablero</a>
+<a class="skip" href="#workspace" data-i18n="Skip to board">Skip to board</a>
 <div class="shell">
 <header class="topbar">
-  <a class="brand" href="./" aria-label="Captain’s Deck, inicio"><span class="brand-mark" aria-hidden="true">⚓</span><span>Captain’s Deck<small>FIRSTMATE / WORKSPACE</small></span></a>
+  <a class="brand" href="./" aria-label="Captain’s Deck, home" data-i18n-aria-label="Captain’s Deck, home"><span class="brand-mark" aria-hidden="true">⚓</span><span>Captain’s Deck<small>FIRSTMATE / WORKSPACE</small></span></a>
+  <label class="theme-label"><span data-i18n="Theme">Theme</span><select id="theme"><option value="system" data-i18n="System">System</option><option value="light" data-i18n="Light">Light</option><option value="dark" data-i18n="Dark">Dark</option></select></label>
 </header>
 <main id="workspace">
   <section class="intro" aria-labelledby="heading">
-    <div><p class="eyebrow">PUENTE DE MANDO</p><h1 id="heading">Tu tripulación,<br class="phone-break"> a la vista.</h1><p class="intro-copy" id="overview">Leyendo el estado que conserva Firstmate…</p></div>
-    <div class="connection"><span id="connection" role="status">Conectando…</span><span id="updated">Todavía no hay una lectura.</span><button id="refresh" type="button">↻ Actualizar</button></div>
+    <div><p class="eyebrow" data-i18n="COMMAND BRIDGE">COMMAND BRIDGE</p><h1 id="heading"><span data-i18n="Your crew,">Your crew,</span><br class="phone-break"><span data-i18n=" in view."> in view.</span></h1><p class="intro-copy" id="overview" data-i18n="Reading Firstmate’s retained state…">Reading Firstmate’s retained state…</p></div>
+    <div class="connection"><span id="connection" role="status" data-i18n="Connecting…">Connecting…</span><span id="updated" data-i18n="No read yet.">No read yet.</span><button id="refresh" type="button" data-i18n="↻ Refresh">↻ Refresh</button></div>
   </section>
   <div id="notice" class="notice" role="status" hidden></div>
-  <section id="metrics" class="metrics" aria-label="Resumen de la tripulación"></section>
+  <section id="metrics" class="metrics" aria-label="Crew overview" data-i18n-aria-label="Crew overview"></section>
   <div class="toolbar">
-    <label class="crew-label">Tripulación<select id="crew" aria-label="Tripulación"><option value="">Toda la tripulación</option></select></label>
-    <div class="view-switch" aria-label="Vista"><button id="board-view" type="button" aria-pressed="true">Tablero</button><button id="history-view" type="button" aria-pressed="false">Historial <span aria-hidden="true">↗</span></button></div>
+    <label class="crew-label"><span data-i18n="Crew">Crew</span><select id="crew" aria-label="Crew" data-i18n-aria-label="Crew"><option value="" data-i18n="All crew">All crew</option></select></label>
+    <div class="view-switch" aria-label="View" data-i18n-aria-label="View"><button id="board-view" type="button" aria-pressed="true" data-i18n="Board">Board</button><button id="history-view" type="button" aria-pressed="false"><span data-i18n="History">History</span> <span aria-hidden="true">↗</span></button></div>
   </div>
-  <section id="board-view-panel" aria-label="Tablero">
-    <nav id="columns-nav" class="columns-nav" aria-label="Estados del trabajo"></nav>
-    <div class="board-filter"><label for="board-search">Buscar en el tablero</label><input id="board-search" aria-label="Buscar en el tablero" type="search" placeholder="Título, motivo o responsable…" autocomplete="off"></div>
-    <div id="board" class="board"><p class="placeholder">Cargando el tablero…</p></div>
-    <p class="footnote">En curso incluye esperas e integración pendiente. Cada tarjeta conserva el estado declarado por su responsable.</p>
+  <section id="board-view-panel" aria-label="Board" data-i18n-aria-label="Board">
+    <nav id="columns-nav" class="columns-nav" aria-label="Work states" data-i18n-aria-label="Work states"></nav>
+    <div class="board-filter"><label for="board-search" data-i18n="Search board">Search board</label><input id="board-search" aria-label="Search board" data-i18n-aria-label="Search board" type="search" placeholder="Title, reason or owner…" data-i18n-placeholder="Title, reason or owner…" autocomplete="off"></div>
+    <div id="board" class="board"><p class="placeholder" data-i18n="Loading board…">Loading board…</p></div>
+    <p class="footnote" data-i18n="Underway includes waits and pending integration. Each card retains its owner’s declared state.">Underway includes waits and pending integration. Each card retains its owner’s declared state.</p>
   </section>
   <section id="history-panel" aria-labelledby="history-heading" hidden>
-    <div class="history-intro"><div><p class="eyebrow">MEMORIA DE LA TRIPULACIÓN</p><h2 id="history-heading">Lo que ya se entregó</h2><p>Busca también fuera de Recientes por nombre, iniciativa o tarea.</p></div><label>Buscar entregas<input id="history-search" type="search" placeholder="Nombre, iniciativa o tarea…" autocomplete="off"></label></div>
+    <div class="history-intro"><div><p class="eyebrow" data-i18n="CREW MEMORY">CREW MEMORY</p><h2 id="history-heading" data-i18n="What has been delivered">What has been delivered</h2><p data-i18n="Search beyond Recent by name, initiative or task.">Search beyond Recent by name, initiative or task.</p></div><label><span data-i18n="Search deliveries">Search deliveries</span><input id="history-search" type="search" placeholder="Name, initiative or task…" data-i18n-placeholder="Name, initiative or task…" autocomplete="off"></label></div>
     <p id="history-status" class="muted" role="status"></p><div id="history-results" class="history-results"></div>
-    <details class="source-details"><summary>Retención y fuentes del historial</summary><div id="history-sources"></div></details>
+    <details class="source-details"><summary data-i18n="History retention and sources">History retention and sources</summary><div id="history-sources"></div></details>
   </section>
-  <section class="supervision" aria-labelledby="supervision-heading"><div class="supervision-heading"><span class="compass" aria-hidden="true">◎</span><div><h2 id="supervision-heading">Desde Firstmate</h2><p>Declaraciones del supervisor y frescura de las fuentes.</p></div></div><div id="supervisors"><p class="muted">Esperando la primera lectura.</p></div></section>
-  <details id="receipts-panel" class="source-details" hidden><summary>Recibos de tus respuestas</summary><p>Guardado, aviso, ACK y consumo se confirman por separado.</p><div id="receipts"></div></details>
+  <section class="supervision" aria-labelledby="supervision-heading"><div class="supervision-heading"><span class="compass" aria-hidden="true">◎</span><div><h2 id="supervision-heading" data-i18n="From Firstmate">From Firstmate</h2><p data-i18n="Supervisor declarations and source freshness.">Supervisor declarations and source freshness.</p></div></div><div id="supervisors"><p class="muted" data-i18n="Waiting for the first read.">Waiting for the first read.</p></div></section>
+  <details id="receipts-panel" class="source-details" hidden><summary data-i18n="Your answer receipts">Your answer receipts</summary><p data-i18n="Saving, notification, ACK and consumption are confirmed separately.">Saving, notification, ACK and consumption are confirmed separately.</p><div id="receipts"></div></details>
 </main>
-<footer><span class="private-mark">●</span> Vista privada · Firstmate conserva las tareas y sus respuestas.<span id="timezone"></span></footer>
+<footer><span class="private-mark">●</span><span data-i18n="Private view · Firstmate retains tasks and answers.">Private view · Firstmate retains tasks and answers.</span><span id="timezone"></span></footer>
 </div>
 <dialog id="detail" aria-labelledby="detail-title">
-  <div class="dialog-top"><span id="detail-kicker" class="eyebrow">CONTEXTO DE LA TAREA</span><button id="detail-close" class="close" type="button" aria-label="Cerrar detalle">✕</button></div>
+  <div class="dialog-top"><span id="detail-kicker" class="eyebrow" data-i18n="TASK CONTEXT">TASK CONTEXT</span><button id="detail-close" class="close" type="button" aria-label="Close details" data-i18n-aria-label="Close details">✕</button></div>
   <h2 id="detail-title" tabindex="-1"></h2><p id="detail-meta" class="muted"></p>
   <div id="detail-content"></div>
 </dialog>
