@@ -30,8 +30,11 @@ const DeckI18n = {
     const relative = (epoch, now = Date.now() / 1000) => {
       const seconds = epoch - now;
       if (Math.abs(seconds) < 60) return t('now');
-      const [size, unit] = [[86400, 'day'], [3600, 'hour'], [60, 'minute']].find(([size]) => Math.abs(seconds) > size / 2);
-      return relativeFmt.format(Math.round(seconds / size), unit);
+      const minutes = Math.round(seconds / 60);
+      if (Math.abs(minutes) < 60) return relativeFmt.format(minutes, 'minute');
+      const hours = Math.round(seconds / 3600);
+      if (Math.abs(hours) < 24) return relativeFmt.format(hours, 'hour');
+      return relativeFmt.format(Math.round(seconds / 86400), 'day');
     };
     const eventTime = (event, now = Date.now() / 1000) => {
       if (!event) return t('Time not recorded');

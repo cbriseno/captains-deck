@@ -55,6 +55,20 @@ function theme(saved, systemDark, storageFails = false) {
   assert.equal(en.api.relative(now - 1500, now), '25 minutes ago');
   assert.equal(en.api.relative(now - 59, now), 'now');
   assert.equal(en.api.relative(now + 3599, now), 'in 1 hour');
+  assert.equal(en.api.relative(now - 1801, now), '30 minutes ago');
+  assert.equal(en.api.relative(now + 1801, now), 'in 30 minutes');
+  assert.equal(en.api.relative(now - 43201, now), '12 hours ago');
+  assert.equal(en.api.relative(now + 43201, now), 'in 12 hours');
+  assert.equal(en.api.relative(now - 86400, now), 'yesterday');
+  assert.equal(en.api.relative(now + 86399, now), 'tomorrow');
+  assert.equal(en.api.relative(now - 172800, now), '2 days ago');
+  assert.equal(es.api.relative(now - 1801, now), 'hace 30 minutos');
+  assert.equal(es.api.relative(now + 1801, now), 'dentro de 30 minutos');
+  assert.equal(es.api.relative(now - 43201, now), 'hace 12 horas');
+  assert.equal(es.api.relative(now + 43201, now), 'dentro de 12 horas');
+  assert.equal(es.api.relative(now - 3599, now), 'hace 1 hora');
+  assert.equal(es.api.relative(now - 86399, now), 'ayer');
+  assert.equal(es.api.relative(now + 3599, now), 'dentro de 1 hora');
   for (const {api} of [en, es]) {
     const event = {label: 'Delivered', date: '2026-10-24', epoch: null};
     const before = JSON.stringify(event);

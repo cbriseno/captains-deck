@@ -152,7 +152,7 @@ Theme is independent of the server language and does not write tasks or configur
 
 `web/locales/en.json` and `es.json` are plain-text catalogs shared by the Python bridge and browser.
 English source messages are stable keys; preserve named placeholders such as `{count}` and `{date}`.
-To add a language, copy the English catalog, translate its values and register its code in `web/localization.py`’s locale allowlist.
+To add a language, copy the English catalog, translate its values, and extend the language pattern in `normalize_language` in `web/localization.py` (currently the bounded `en|es` match); without that change the new code normalizes to `en`.
 No translation framework or service is needed.
 The shared TUI helpers accept an optional presentation callback; their default terminal wording remains unchanged.
 Never run a translator over authored task content or decision payloads.
