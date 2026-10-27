@@ -217,15 +217,22 @@ function renderSupervisors() {
     const row = node('div', 'supervisor');
     row.dataset.home = source.home; row.dataset.signature = signature;
     const receipt = source.error ? node('small', '', t(source.error)) : source.received_at ? timeView({label: 'Source received', epoch: source.received_at}) : node('small', '', t('No confirmed read'));
+    receipt.dataset.role = 'receipt';
     const title = append(node('div'), node('strong', '', source.label), receipt);
     const status = !s?.observed_at ? t('Current activity is unknown. There is no supervisor declaration.') : expired ? t('Declaration expired; current activity is unknown.') : t('Coordination is declared separately from worker activity.');
-    append(row, title, append(node('div'), node('p', '', status), disclosure(t('Source details'), prose(supervisorText(s)), timeView({label: 'Snapshot generated', epoch: Date.parse(source.generated) / 1000}))));
+    const snapshot = timeView({label: 'Snapshot generated', epoch: Date.parse(source.generated) / 1000});
+    snapshot.dataset.role = 'snapshot';
+    const detailsView = disclosure(t('Source details'), prose(supervisorText(s)), snapshot);
+    detailsView.dataset.role = 'source';
+    append(row, title, append(node('div'), node('p', '', status), detailsView));
     if (old) {
-      const focusedIndex = old.contains(document.activeElement) ? [...old.querySelectorAll('summary')].indexOf(document.activeElement) : -1;
-      const openStates = [...old.querySelectorAll('details')].map(d => d.open);
-      [...row.querySelectorAll('details')].forEach((d, i) => { d.open = !!openStates[i]; });
+      const focusedRole = old.contains(document.activeElement) ? document.activeElement.closest('details')?.dataset.role : null;
+      const openByRole = Object.fromEntries([...old.querySelectorAll('details')].map(d => [d.dataset.role, d.open]));
+      const views = [...row.querySelectorAll('details')];
+      for (const d of views) d.open = !!openByRole[d.dataset.role];
       old.replaceWith(row);
-      if (focusedIndex >= 0) row.querySelectorAll('summary')[focusedIndex]?.focus({preventScroll: true});
+      const target = views.find(d => d.dataset.role === focusedRole) || views.find(d => d.dataset.role === 'source');
+      if (focusedRole) target.querySelector('summary').focus({preventScroll: true});
     } else $('supervisors').append(row);
   }
   for (const old of current.values()) old.remove();

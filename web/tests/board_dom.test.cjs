@@ -169,3 +169,21 @@ test('source read, server receipt and snapshot time keep distinct events with ex
   assert.equal(rowAgain.querySelectorAll('details')[2].open, true);
   assert.equal(view.doc.activeElement, rowAgain.querySelectorAll('summary')[0]);
 });
+
+test('supervisor disclosures keep their own state when the row changes shape', async () => {
+  const clock = Date.UTC(2026, 0, 15, 12), received = clock / 1000 - 3600;
+  const row = (view) => view.doc.getElementById('supervisors').children[0];
+  const byRole = (r, role) => [...r.querySelectorAll('details')].find(d => d.dataset.role === role);
+  const failing = [{home: '/home/example/space', label: 'example', received_at: received, error: 'Source unavailable', generated: '', supervisor: null}];
+  const recovered = [{home: '/home/example/space', label: 'example', received_at: received, error: null, generated: new Date(clock).toISOString(), supervisor: null}];
+  const view = await mountBoard({...board([]), sources: failing}, clock);
+  byRole(row(view), 'source').open = true;
+  byRole(row(view), 'source').querySelector('summary').focus();
+  view.setBoard({...board([]), sources: recovered});
+  await view.poll(); await view.flush();
+  const after = row(view);
+  assert.equal(byRole(after, 'receipt').open, false);
+  assert.equal(byRole(after, 'source').open, true);
+  assert.equal(byRole(after, 'snapshot').open, false);
+  assert.equal(view.doc.activeElement, byRole(after, 'source').querySelector('summary'));
+});
