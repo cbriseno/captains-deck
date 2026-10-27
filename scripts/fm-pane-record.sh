@@ -12,7 +12,7 @@ fm_config_dir() {
   if [ -n "${HERDR_PLUGIN_CONFIG_DIR:-}" ]; then
     printf '%s' "$HERDR_PLUGIN_CONFIG_DIR"
   else
-    printf '%s/plugins/config/herdr-firstmate-flow' "${HERDR_CONFIG_DIR:-$HOME/.config/herdr}"
+    printf '%s/plugins/config/herdr-firstmate-flow' "${HERDR_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr}"
   fi
 }
 
