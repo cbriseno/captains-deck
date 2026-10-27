@@ -20,7 +20,7 @@ DIAGNOSTIC = "harness state unavailable (unknown codex-unverified)"
 
 
 def card_for(tmp_path, *, state="unknown", doing=DIAGNOSTIC,
-             declared="working", text="editing the renderer", native="working", harness="codex"):
+             declared="working", text="editing the renderer", native="working", harness="codex", source=None):
     (tmp_path / "state").mkdir(exist_ok=True)
     (tmp_path / "state/task.meta").write_text(
         f"harness={harness}\nherdr_pane_id=synthetic:p1\n"
@@ -31,6 +31,8 @@ def card_for(tmp_path, *, state="unknown", doing=DIAGNOSTIC,
         )
     home = flow.Home("captain", str(tmp_path), "captain")
     entry = {"id": "task", "state": state, "doing": doing, "name": "Status correction"}
+    if source:
+        entry["flow"] = {"source": source}
     agents = {"synthetic:p1": {"agent_status": native}} if native else {}
     cols, _ = flow.make_cards(
         home, {"in_flight": [entry]}, flow.build_meta_index([home]),
@@ -85,9 +87,18 @@ class ActivityProvenanceTests(unittest.TestCase):
         for native in (None, "working", "idle"):
             with self.subTest(native=native):
                 card, _ = self.card(state="working", doing="harness busy (claude-hook)",
-                                    native=native, harness="claude")
+                                    native=native, harness="claude", source="current_state.pane")
                 assert card.badge == "● shipping"
                 assert not card.activity_unconfirmed
+
+    def test_a_working_verdict_without_a_busy_pane_is_not_shipping(self):
+        for source in (None, "current_state.status-log", "current_state.remote-endpoint", "current_state.none"):
+            for native in (None, "working", "idle"):
+                with self.subTest(source=source, native=native):
+                    card, _ = self.card(state="working", doing="editing the renderer",
+                                        native=native, harness="claude", source=source)
+                    assert card.badge == {"working": "● Herdr working", "idle": "○ Herdr idle"}.get(native, "? unknown")
+                    assert flow.activity_counts([card]).get("working", 0) == 0
 
     def test_firstmate_task_outcomes_survive_native_working(self):
         for state, label in (

@@ -2571,8 +2571,11 @@ class Card:
         "dependencies",
         "wait_reason",
         "supervisor",
-        # Structured liveness and wait inputs for card_activity(). Absent
-        # producer fields stay empty/None; they are never read from prose.
+        # Structured liveness and wait inputs for card_activity(). hold_bucket
+        # and hold_until (gate, in-flight and secondmate rows), wait_until and
+        # state_source (in-flight rows) are the companion Firstmate fork's
+        # bearings export. Absent producer fields stay empty/None; they are
+        # never read from prose.
         "run_step",
         "endpoint_exists",
         "state_source",
@@ -2782,6 +2785,13 @@ def make_cards(
                 "needs-decision": ("\u2691 decision", C_DECIDE),
                 "done": ("\u2713 done", C_DIM),
             }
+            # The native source may describe a pane's activity truthfully
+            # without establishing Firstmate's semantic task verdict.
+            native_badges = {
+                "working": ("\u25cf Herdr working", C_OK),
+                "blocked": ("\u26d4 Herdr blocked", C_BAD),
+                "idle": ("\u25cb Herdr idle", C_DIM),
+            }
             if card.blockers:
                 blocked = any(b["state"] == "blocked" for b in card.blockers)
                 card.badge, card.badge_color = task_badges["blocked" if blocked else "needs-decision"]
@@ -2795,13 +2805,6 @@ def make_cards(
                 if card.activity_unconfirmed:
                     card.badge += " \u00b7 reported"
             elif card.activity_unconfirmed:
-                # The native source may describe a pane's activity truthfully
-                # without establishing Firstmate's semantic task verdict.
-                native_badges = {
-                    "working": ("\u25cf Herdr working", C_OK),
-                    "blocked": ("\u26d4 Herdr blocked", C_BAD),
-                    "idle": ("\u25cb Herdr idle", C_DIM),
-                }
                 card.badge, card.badge_color = native_badges.get(
                     card.live_status, ("? unknown", C_WARN)
                 )
@@ -2811,10 +2814,12 @@ def make_cards(
                 card.badge, card.badge_color = "\u2691 decision", C_DECIDE
             elif "validating" in doing:
                 card.badge, card.badge_color = "\u25d0 validating", C_WARN
-            elif state == "working":
+            elif card_activity(card)["kind"] == "working":
                 card.badge, card.badge_color = "\u25cf shipping", C_OK
             else:
-                card.badge, card.badge_color = "\u00b7 queued", C_QUEUE
+                card.badge, card.badge_color = native_badges.get(
+                    card.live_status, ("? unknown", C_WARN)
+                )
 
     for entry in snap.get("gates") or []:
         c = Card()
@@ -4119,14 +4124,16 @@ def card_activity(card: Card) -> dict[str, str]:
     Firstmate's current state is the fm-crew-state verdict. Its source tells an
     agent's own busy pane from a validation run reported as working for it;
     any other source (status log, remote endpoint, none) is not live evidence.
-    Endpoint presence is Firstmate's backend probe. Hold and pause dates are
-    used only as exported fields; reason prose is never parsed for them. A
-    hold day is compared with the local calendar day; a pause time without an
-    offset is UTC. A date that has passed is never shown as the end.
+    Endpoint presence is Firstmate's backend probe: the agent's pane exists,
+    not that an agent runs in it. Hold and pause dates are used only as
+    exported fields; reason prose is never parsed for them. A hold day is
+    compared with the local calendar day; a pause time without an offset is
+    UTC. A date that has passed is never shown as the end.
 
     kind: working|validating|validation_gate|blocked|decision|paused|deferred|
           held|finished|integration|technical|stopped|ready|queued|unknown.
-    agent: working|validation|present|none|unknown (Underway only).
+    agent: working|validation|present (pane open, not reported working)|none|
+           unknown (Underway only).
     until: the exported date for paused/deferred. gap: the missing producer
     field that would have made the card more specific.
     """

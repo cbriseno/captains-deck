@@ -139,7 +139,7 @@ test('board counts agents working now and names what every other card waits for'
   const agents = Object.fromEntries(cardsIn(section('underway').querySelector('.cards')).map(c => [c.dataset.key, c.querySelector('.activity-note')]));
   assert.deepEqual(Object.fromEntries(Object.entries(agents).map(([k, n]) => [k, [n.dataset.agent, n.textContent]])), {
     a: ['working', 'Agent working now'], b: ['working', 'Agent working now'], v: ['validation', 'Validation run active for this task'],
-    p: ['none', 'No live agent'], f: ['present', 'Agent open, not reported working'], u: ['unknown', 'Agent presence not reported']});
+    p: ['none', 'No live agent'], f: ['present', 'Agent pane open, not reported working'], u: ['unknown', 'Agent presence not reported']});
   assert.equal(descendants(view.doc.getElementById('board')).some(n => n.textContent === 'Live activity unverified.'), false);
 });
 

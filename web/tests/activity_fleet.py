@@ -4,8 +4,8 @@ Mirrors a reported board: many cards under Underway and Up next, while only
 three agents were working. The rest wait on their own validation, another
 task, the person or a date, or have no live agent. Rows use the fields
 fm-bearings.v1 exports with ``--fields paths,endpoints``. ``firstmate_fields``
-adds the proposed hold/wait/state-source fields that Firstmate does not export
-yet, so both the present and the degraded paths stay testable.
+adds the companion Firstmate fork's hold_bucket/hold_until, wait_until and
+state_source fields, so both the present and the degraded paths stay testable.
 """
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
