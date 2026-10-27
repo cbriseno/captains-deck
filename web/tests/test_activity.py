@@ -162,6 +162,9 @@ class ActivityTruthTests(unittest.TestCase):
             ui.render(snap, force=True)
         text = '\n'.join(f._ANSI_RE.sub('', row) for row in frames[-1])
         self.assertIn('Underway (10 · ●3 working)', text)
+        badges = {c.task: c.badge for c in snap.cols['underway']}
+        self.assertEqual(sorted(k for k, b in badges.items() if b == '● shipping'), ['api-pagination', 'docs-refresh', 'search-index'])
+        self.assertEqual(badges['queue-retry'], '? unknown')
 
 
 if __name__ == '__main__':

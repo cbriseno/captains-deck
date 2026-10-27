@@ -11,7 +11,7 @@ const notes = { captains_call: t("Your answer is needed"), landed: t("Recent del
 const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waiting for a dependency"), integration: t("Integration pending"), technical: t("Technical hold"), active: t("Declared activity"), unknown: t("Unconfirmed state"), waiting: t("Declared wait"), reported: t("Work reported") };
 const runLabels = { running: t('Validation running'), fixing: t('Validation fixes in progress'), passed: t('Validation passed'), failed: t('Validation failed') };
 // Firstmate's crew state and endpoint probe, as projected by the bridge.
-const agentLines = { working: t('Agent working now'), validation: t('Validation run active for this task'), present: t('Agent open, not reported working'), none: t('No live agent'), unknown: t('Agent presence not reported') };
+const agentLines = { working: t('Agent working now'), validation: t('Validation run active for this task'), present: t('Agent pane open, not reported working'), none: t('No live agent'), unknown: t('Agent presence not reported') };
 const gapLines = { hold_until: t('Firstmate does not export when this hold ends.'), wait_until: t('Firstmate does not export when this pause ends.') };
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 $('timezone').textContent = t("Times in ") + zone;

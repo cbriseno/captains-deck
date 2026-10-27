@@ -50,7 +50,8 @@ def test_fixture_badges_and_meta():
     assert gates["demo-blocked-2"].badge == "\u23f3 dependency"
     assert gates["demo-blocked-2"].blocked_by == "schema-migrate-3"
     work = cols["underway"][0]
-    assert work.badge == "\u25cf shipping"
+    # The recorded row predates the exported crew-state source.
+    assert work.badge == "? unknown"
     assert (work.agent, work.model, work.effort) == ("claude", "opus", "xhigh")
     assert work.spawn_epoch > 0
     assert work.worktree == "/tmp/treehouse/demo/1/demo-work-1"

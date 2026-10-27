@@ -16,7 +16,7 @@ Each card states what is happening now: an agent working, a validation run, or w
 The header and the Underway heading count only agents whose own pane Firstmate reports busy; a working verdict from a status log or any other source is not counted, and Underway still lists every open task.
 Up next separates work ready to start from work blocked by another task, held, or deferred to a date.
 Validation job progress does not establish live native worker activity.
-Agent presence comes from Firstmate's endpoint probe; hold and pause end dates appear only when Firstmate exports them as fields, never from reason text.
+Firstmate's endpoint probe shows only that an agent's pane exists, not that an agent runs in it; hold and pause end dates appear only when Firstmate exports them as fields, never from reason text.
 Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
 Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
 Deliveries open a readable summary with a separate Report view and optional technical details.
