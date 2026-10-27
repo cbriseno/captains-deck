@@ -31,6 +31,8 @@ jobs:
         run: python3 -m unittest discover -s web/tests -p 'test_*.py'
       - name: Web locale, dates and theme helpers
         run: node web/tests/localization.test.cjs
+      - name: Web board, drawer and question rendering
+        run: node web/tests/board_dom.test.cjs
       - name: Decision dialog checks
         run: python3 tests/test_flow_decision_dialog.py
       - name: Firstmate contract (fixture home)

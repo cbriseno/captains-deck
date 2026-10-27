@@ -238,6 +238,7 @@ Health confirms collector readiness; source timestamps and errors on the board d
 ```sh
 python3 -m unittest discover -s /absolute/captains-deck/web/tests -p 'test_*.py' -v
 node /absolute/captains-deck/web/tests/localization.test.cjs
+node /absolute/captains-deck/web/tests/board_dom.test.cjs
 ```
 
 The browser-helper tests run under Node.js 22, the version CI pins; production still requires only Python.
