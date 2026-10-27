@@ -120,6 +120,23 @@ def test_homes_only_without_a_list_falls_back_to_the_scan(tmp_path: Path) -> Non
     assert os.path.realpath(scan_home) in paths
 
 
+def test_outside_herdr_the_fm_home_file_follows_herdrs_xdg_roots(tmp_path: Path) -> None:
+    with _patches() as mp:
+        _isolate(mp, tmp_path)
+        mp.delenv("HERDR_PLUGIN_CONFIG_DIR")
+        mp.delenv("HERDR_PLUGIN_STATE_DIR")
+        mp.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+        mp.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+        home = _make_home(tmp_path, "configured-home")
+        cfg = tmp_path / "xdg-config" / "herdr" / "plugins" / "config" / "herdr-firstmate-flow"
+        cfg.mkdir(parents=True)
+        (cfg / "fm_home").write_text(f"{home}\n")
+        paths = _paths(flow.discover_homes())
+        state = flow._plugin_state_dir()
+    assert os.path.realpath(home) in paths
+    assert state == str(tmp_path / "xdg-state" / "herdr" / "plugins" / "herdr-firstmate-flow")
+
+
 def test_once_all_merges_the_fleet_instead_of_an_empty_all(tmp_path: Path) -> None:
     with _patches() as mp:
         _isolate(mp, tmp_path)
