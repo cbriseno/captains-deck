@@ -23,7 +23,7 @@ class LocaleTests(unittest.TestCase):
         for value, expected in [('', 'en'), (None, 'en'), ('en', 'en'),
                                 (' ES_mx ', 'es-MX'), ('es-419', 'es-419'), ('en-gb', 'en-GB'),
                                 ('fr-FR', 'en'), ('auto', 'en'), ('../es', 'en'),
-                                ('es-invalid', 'en'), ('es-MX-u-ca-gregory', 'en')]:
+                                ('es-invalid', 'en'), ('es-MX-u-ca-gregory', 'en'), ('eſ', 'en')]:
             with self.subTest(value=value):
                 self.assertEqual(normalize_language(value), expected)
                 loc = Localization(value)

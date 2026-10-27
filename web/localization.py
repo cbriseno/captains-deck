@@ -14,7 +14,7 @@ def normalize_language(value):
     # Deliberately accept a language plus optional BCP 47 region, including 419.
     # No OS/browser language discovery: a clean installation always uses English.
     tag = str(value or '').strip().replace('_', '-')
-    match = re.fullmatch(r'(en|es)(?:-([a-z]{2}|[0-9]{3}))?', tag, re.I)
+    match = re.fullmatch(r'(en|es)(?:-([a-z]{2}|[0-9]{3}))?', tag, re.I | re.ASCII)
     if not match:
         return 'en'
     return match[1].lower() + ('-' + match[2].upper() if match[2] else '')
