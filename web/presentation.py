@@ -29,7 +29,7 @@ STOCK_REASONS = {'Motivo no registrado', 'No specific reason was recorded.',
                  'No se registró un motivo concreto.'}
 TECHNICAL = re.compile(
     r'harness state unavailable|\b[0-9a-f]{24,}\b|\b[0-9A-HJKMNP-TV-Z]{26}\b|\brun:\s*\S+|'
-    r'\b(?:spawn_gen|endpoint_task_id|schema|HEAD)\b|'
+    r'\b(?:spawn_gen|endpoint_task_id)\b|(?-i:\bHEAD\b)|\b(?:schema|head)\b["\']?\s*[:=]|'
     r'(?:/home/|/tmp/)\S+', re.I)
 FILE_ONLY = re.compile(r'\S+\.(?:md|json|jsonl)[.,;:!?)]*(?:\s+\S+\.(?:md|json|jsonl)[.,;:!?)]*)*', re.I)
 

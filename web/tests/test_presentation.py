@@ -130,6 +130,26 @@ class PresentationTests(unittest.TestCase):
         card.flow['next_action'] = 'Revisa docs/guide.md antes de integrar.'
         self.assertEqual(self.read(card)['presentation']['next_action'], 'Revisa docs/guide.md antes de integrar.')
 
+    def test_readable_sentences_keep_schema_and_head_words(self):
+        card = self.task()
+        for sentence in ('Added schema validation for the config file.',
+                         'Migrated the database schema to v2. Tests pass.',
+                         'The release branch head now includes the fix.',
+                         'Añadí validación del schema de configuración.'):
+            card.flow.update(reason=sentence, waiting_for=sentence, next_action=sentence)
+            p = self.read(card)['presentation']
+            self.assertEqual((p['summary'], p['waiting_for'], p['next_action']), (sentence,) * 3)
+        landed = next(c for c in self.board.collector.snap.cols['landed'] if c.task == 'demo-research')
+        landed.delivery_summary = 'Added schema validation for the config file.\n\nDetalle.'
+        self.assertEqual(self.board.card_json(landed)['summary'], 'Added schema validation for the config file.')
+
+    def test_schema_and_head_tokens_fall_back_to_usable_text(self):
+        card = self.task()
+        for candidate in ('HEAD abc123', 'head: abc123', 'schema: fm-flow.v1', '{"schema":"fm-flow.v1"}'):
+            card.flow.update(reason=candidate, waiting_for=candidate, next_action=candidate)
+            p = self.read(card)['presentation']
+            self.assertEqual((p['summary'], p['waiting_for'], p['next_action']), ('', '', ''), candidate)
+
     def test_purely_technical_filenames_fall_back_to_usable_text(self):
         card = self.task()
         for candidate in ('report.json', 'report.json.', 'report.json logs.jsonl'):

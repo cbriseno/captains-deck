@@ -336,6 +336,23 @@ test('question context avoids a duplicate equal title and permits absent instruc
   assert.ok(descendants(view.doc.getElementById('detail-content')).some(n => n.tagName === 'FIELDSET'), view.doc.getElementById('detail-content').textContent);
 });
 
+test('question context does not repeat a work title that differs only by title presentation', async () => {
+  const tickets = {
+    markdown: {...questionTicket('markdown', 'Decide on deploy target', 'Decide on `deploy` target', ''), original_title: 'Decide on `deploy` target'},
+    report: {...questionTicket('report', 'Choose release scope', 'Choose release scope data/reports/sample.md', ''), original_title: 'Choose release scope data/reports/sample.md'},
+    legacy: {...questionTicket('legacy', 'Deploy sample: pick a target', 'Deploy sample', '')},
+    distinct: {...questionTicket('distinct', 'Prepare sample release', 'Confirm sample workspace', ''), original_title: 'Prepare sample release data/reports/sample.md'},
+  };
+  const view = await questionView(tickets);
+  for (const ticket of Object.values(tickets)) {
+    await view.open(ticket.key);
+    assert.equal(view.doc.getElementById('detail-title').textContent, ticket.title);
+    const headings = descendants(view.doc.getElementById('detail-content')).filter(n => n.className === 'call-question-title').map(n => n.textContent);
+    assert.deepEqual(headings, ticket.key === 'distinct' ? [ticket.call.title] : [], ticket.key);
+    view.doc.getElementById('detail-close').listeners.click[0]();
+  }
+});
+
 test('question draft and occurrence guard survive refreshed question context without sending', async () => {
   const ticket = questionTicket('draft', 'Prepare sample release', 'Confirm sample workspace', 'Read the sample instructions.');
   const view = await questionView({draft: ticket}); await view.open('draft');
