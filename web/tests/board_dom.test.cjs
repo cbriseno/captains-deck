@@ -141,3 +141,17 @@ test('reordering a focused card keeps the same focused control', async () => {
   assert.deepEqual(cardsIn(list()).map(c => c.dataset.key), ['b', 'a']);
   assert.equal(view.doc.activeElement, opener);
 });
+
+test('source read time shows a relative label with the same exact instant on demand', async () => {
+  const at = Math.floor(Date.now() / 1000) - 120;
+  const sources = [{home: '/home/example/space', label: 'example', received_at: at, generated: new Date(at * 1000).toISOString(), supervisor: null, error: null}];
+  const view = await mountBoard({...board([]), sources});
+  const header = view.doc.getElementById('updated');
+  assert.ok(header.querySelector('.relative-time').textContent.includes('2 minutes ago'));
+  assert.equal(header.querySelector('.exact-time').textContent, new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(at * 1000)));
+  const summary = header.querySelector('summary');
+  summary.focus();
+  await view.poll(); await view.flush();
+  assert.equal(view.doc.getElementById('updated').querySelector('summary'), summary);
+  assert.equal(view.doc.activeElement, summary);
+});

@@ -62,7 +62,7 @@ def flow_evidence(flow):
     return evidence
 
 
-def project(card, context, coordinator):
+def project(card, context):
     flow = getattr(card, 'flow', {}) or {}
     # Optional producer-authored presentation is distinct from a raw run report.
     human = flow.get('presentation')
@@ -79,10 +79,6 @@ def project(card, context, coordinator):
         'summary': first_excerpt([human.get('summary'), reason, context.get('reason')], STOCK_REASONS),
         'next_action': first_excerpt([human.get('next_action'), flow.get('next_action')], STOCK_ACTIONS),
         'waiting_for': first_excerpt([human.get('waiting_for'), flow.get('waiting_for')], STOCK_WAITS),
-        'coordinator': coordinator,
         'executor': {'harness': getattr(card, 'agent', '') or ''},
         'run_step': {'phase': 'validation', 'state': run[1]} if run else None,
-        # snapshot_state can be the validation job, and Herdr status can be
-        # unverified. Neither establishes native model activity.
-        'activity': 'unverified',
     }

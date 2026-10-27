@@ -170,7 +170,7 @@ class Board:
                 'original_title': card.title,
                 'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unconfirmed owner'),
                 'home': home_id(owner) if owner else '', 'context': context,
-                'presentation': project(card, context, owner.label if owner else ''),
+                'presentation': project(card, context),
                 'evidence': {'flow': flow_evidence(getattr(card, 'flow', {}) or {}),
                              'delivery_summary': getattr(card, 'delivery_summary', '') or '',
                              'registration': {'harness': getattr(card, 'agent', '') or '',

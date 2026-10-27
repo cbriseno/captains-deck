@@ -88,6 +88,16 @@ async function api(path, body) {
     throw err;
   } finally { clearTimeout(timer); }
 }
+function renderUpdated(at) {
+  const updated = $('updated');
+  if (!at) { if (updated.dataset.epoch) { updated.replaceChildren(t("First read pending.")); delete updated.dataset.epoch; } return; }
+  if (updated.dataset.epoch === String(at)) return;
+  const focused = updated.contains(document.activeElement), open = updated.querySelector('details')?.open;
+  const view = timeView({label: 'Source read', epoch: at});
+  view.open = !!open;
+  updated.replaceChildren(view); updated.dataset.epoch = String(at);
+  if (focused) view.querySelector('summary').focus({preventScroll: true});
+}
 function sourceStatus() {
   if (!S.board) return;
   const sources = S.board.sources || [];
@@ -99,7 +109,7 @@ function sourceStatus() {
   const connectionText = disconnected ? t("Offline") : failed ? t("Source error") : stale ? t("Stale data") : S.board.loading ? t("Loading sources") : t("Connected to Deck");
   if ($('connection').textContent !== connectionText) $('connection').textContent = connectionText;
   $('connection').dataset.level = disconnected || failed ? 'error' : stale ? 'warning' : 'ok';
-  $('updated').textContent = at ? t('Source read {age}', {age: relative(at)}) : t("First read pending.");
+  renderUpdated(at);
   if (disconnected) notice(t("Deck is offline. The last view and your draft are preserved. Review the question before sending after reconnecting."));
   else if (failed) notice(t("A source could not be refreshed. Retained data may be stale; check the sources below."));
   else if (stale) notice(t("The Firstmate read is old. The current state is not yet confirmed."));
@@ -201,18 +211,17 @@ function renderSupervisors() {
   for (const source of S.board.sources || []) {
     const s = source.supervisor, observed = Date.parse(s?.observed_at) / 1000, ttl = Number(s?.ttl || s?.ttl_seconds || 0);
     const expired = s?.freshness === 'stale' || (ttl > 0 && Date.now() / 1000 - observed > ttl);
-    const signature = JSON.stringify({supervisor: s, error: source.error, expired});
+    const signature = JSON.stringify({supervisor: s, error: source.error, expired, generated: source.generated});
     const old = current.get(source.home); current.delete(source.home);
     if (old?.dataset.signature === signature) {
       old.querySelector('small').textContent = t(source.error) || (source.received_at ? t('Source read ') + relative(source.received_at) : t('No confirmed read'));
-      old.querySelector('.export-time').textContent = source.generated || t('Not recorded.');
       continue;
     }
     const row = node('div', 'supervisor');
     row.dataset.home = source.home; row.dataset.signature = signature;
     const title = append(node('div'), node('strong', '', source.label), node('small', '', t(source.error) || (source.received_at ? t("Source read ") + relative(source.received_at) : t("No confirmed read"))));
     const status = !s?.observed_at ? t('Current activity is unknown. There is no supervisor declaration.') : expired ? t('Declaration expired; current activity is unknown.') : t('Coordination is declared separately from worker activity.');
-    append(row, title, append(node('div'), node('p', '', status), disclosure(t('Source details'), prose(supervisorText(s)), append(node('p', 'export-time'), source.generated || t('Not recorded.')))));
+    append(row, title, append(node('div'), node('p', '', status), disclosure(t('Source details'), prose(supervisorText(s)), timeView({label: 'Snapshot generated', epoch: Date.parse(source.generated) / 1000}))));
     if (old) {
       const focused = old.contains(document.activeElement);
       row.querySelector('details').open = old.querySelector('details').open;

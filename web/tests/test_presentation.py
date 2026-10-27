@@ -34,11 +34,10 @@ class PresentationTests(unittest.TestCase):
         card.live_status = 'done'
         result = self.read(card)
         p = result['presentation']
-        self.assertEqual(p['coordinator'], self.home.label)
+        self.assertEqual(result['owner'], self.home.label)
         self.assertEqual(p['executor'], {'harness': 'codex'})
         self.assertEqual(result['evidence']['registration']['crew'], 'web')
-        self.assertEqual(p['activity'], 'unverified')
-        self.assertNotEqual(p['coordinator'], p['executor']['harness'])
+        self.assertNotEqual(result['owner'], p['executor']['harness'])
         self.assertEqual(result['native']['herdr'], 'done')
 
     def test_validation_job_does_not_prove_native_worker_activity(self):
@@ -47,7 +46,6 @@ class PresentationTests(unittest.TestCase):
                          next_action='El worker continúa el encargo.')
         p = self.read(card)['presentation']
         self.assertEqual(p['run_step'], {'phase': 'validation', 'state': 'running'})
-        self.assertEqual(p['activity'], 'unverified')
         self.assertEqual(p['summary'], '')
         self.assertEqual(p['next_action'], '')
 
@@ -146,7 +144,6 @@ class PresentationTests(unittest.TestCase):
         for column in board['columns']:
             for card in column['cards']:
                 self.assertIn('presentation', card)
-                self.assertEqual(card['presentation']['activity'], 'unverified')
         queued = board['columns'][0]['cards'][0]
         self.assertEqual(queued['time']['date'], '2026-10-24')
         self.assertIsNone(queued['time']['epoch'])
