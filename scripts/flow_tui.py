@@ -4142,7 +4142,7 @@ def card_activity(card: Card) -> dict[str, object]:
 
     kind: working|validating|last_seen_working|validation_gate|blocked|decision|
           paused|deferred|held|finished|integration|technical|stopped|ready|
-          queued|unknown.
+          queued|delivered|unknown.
     agent: working|validation|open (pane open; working reported without a
            live source)|present (pane open, not reported working)|none|
            unknown (Underway only).
