@@ -5,7 +5,7 @@ The deck reads a small set of Firstmate surfaces from the home and only ever
 writes through the guarded answer intakes. Firstmate updates itself, so this
 checker verifies that these parts still exist and still parse:
 
-  - ``bin/fm-bearings-snapshot.sh --json --fields paths`` and the sections /
+  - ``bin/fm-bearings-snapshot.sh --json --fields paths,endpoints`` and the sections /
     item fields ``make_cards()`` reads
   - the configured subset of ``state/<task>.meta`` keys
   - ``state/<task>.status`` tail lines (``<state> [at=<epoch>]: <text>``)
@@ -38,7 +38,7 @@ SNAPSHOT_SCRIPT = os.path.join("bin", "fm-bearings-snapshot.sh")
 HOLD_SCRIPT = os.path.join("bin", "fm-captain-hold.sh")
 SEND_SCRIPT = os.path.join("bin", "fm-send.sh")
 REQUIRED_SCRIPTS = (SNAPSHOT_SCRIPT, HOLD_SCRIPT, SEND_SCRIPT)
-SNAPSHOT_FLAGS = ("--json", "--fields", "paths")
+SNAPSHOT_FLAGS = ("--json", "--fields", "paths,endpoints")
 EXPECTED_SCHEMA = "fm-bearings.v1"
 SECTIONS = ("gates", "in_flight", "decisions_open", "landed", "paths")
 ITEM_FIELDS = {

@@ -113,6 +113,11 @@ function theme(saved, systemDark, storageFails = false) {
   assert.ok(en.api.exactTime({date: '2028-02-29'}).includes('2028'));
   assert.ok(en.api.eventTime({label: 'Updated', date: '2028-02-29'}, clock).includes('year'));
   assert.ok(en.api.exactTime({date: 'not-a-date', epoch: clock}).includes(en.api.dateFmt.format(new Date(clock * 1000))));
+  // An exported hold end keeps its calendar day; a pause end keeps its instant.
+  assert.equal(en.api.untilText('2026-11-02'), '2 Nov 2026');
+  assert.equal(es.api.untilText('2026-11-02'), '2 nov 2026');
+  assert.equal(en.api.untilText('2026-11-03T15:00:00Z'), en.api.dateFmt.format(new Date(Date.UTC(2026, 10, 3, 15))));
+  for (const bad of ['', '2026-02-31', 'until 2026-11-02', 'soon']) assert.equal(en.api.untilText(bad), '');
   const a = theme(null, true), b = theme('light', true);
   assert.equal(a.document.documentElement.dataset.theme, 'dark');
   assert.equal(b.document.documentElement.dataset.theme, 'light');

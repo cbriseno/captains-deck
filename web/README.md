@@ -12,7 +12,11 @@ Integration remains a phase of Underway.
 Cards lead with a human summary, the registered executor, dependencies and any concrete recorded next action.
 The source home coordinates work; it is not the executor.
 Absent summaries, resume conditions and next actions remain explicit information gaps for Firstmate to fill.
+Each card states what is happening now: an agent working, a validation run, or what it waits for (another task, a decision, an approval, a date).
+The header and the Underway heading count only agents Firstmate's crew state reports working now; Underway still lists every open task.
+Up next separates work ready to start from work blocked by another task, held, or deferred to a date.
 Validation job progress does not establish live native worker activity.
+Agent presence comes from Firstmate's endpoint probe; hold and pause end dates appear only when Firstmate exports them as fields, never from reason text.
 Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
 Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
 Deliveries open a readable summary with a separate Report view and optional technical details.
