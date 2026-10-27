@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "0534f1283e363b3b14e18ee825b8e2cb88ff0ebb574a3aeeed408cbca5843181"
+      "sha256": "e9b175548186995c88cb40c7eaff83ef338d2f83701c8bb0e4c3b61713c07827"
     },
     {
       "mode": "100755",
@@ -432,7 +432,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_portable.py",
-      "sha256": "201472d5bbd25775fdeda4145ddabad50ad8c991c207f4a0abb20a730bbffc5a"
+      "sha256": "254176d1fdf009d134c8d18056a448681143e68cd8d6849db59b0d7164e016fd"
     },
     {
       "mode": "100644",
