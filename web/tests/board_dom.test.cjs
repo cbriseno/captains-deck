@@ -12,7 +12,7 @@ class Element {
   get firstChild() { return this.children[0] || null; }
   get textContent() { return this.children.length ? this.children.map(c => c.textContent).join('') : this.text; }
   set textContent(value) { this.replaceChildren(); this.text = String(value); }
-  detach() { if (this.parentElement) { const list = this.parentElement.children; list.splice(list.indexOf(this), 1); this.parentElement = null; } }
+  detach() { if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body; if (this.parentElement) { const list = this.parentElement.children; list.splice(list.indexOf(this), 1); this.parentElement = null; } }
   insert(node, index) { node = typeof node === 'string' ? this.ownerDocument.createTextNode(node) : node; node.detach(); node.parentElement = this; this.children.splice(index, 0, node); }
   append(...nodes) { for (const n of nodes) this.insert(n, this.children.length); }
   replaceChildren(...nodes) { for (const c of this.children) c.parentElement = null; this.children = []; this.append(...nodes); }
@@ -116,4 +116,17 @@ test('updated card keeps focus on its open control across polls', async () => {
   assert.ok(underwayList(view.doc).contains(focused));
   assert.equal(cardsIn(underwayList(view.doc)).length, 1);
   assert.equal(underwayList(view.doc).querySelector('.event-time').open, true);
+});
+
+test('removing an earlier card keeps the focused card and its disclosure in place', async () => {
+  const view = await mountBoard(board([card('a', 'A'), card('b', 'B'), card('c', 'C')]));
+  const opener = underwayList(view.doc).children[1].querySelector('.card-open');
+  underwayList(view.doc).children[1].querySelector('.event-time').open = true;
+  opener.focus();
+  view.setBoard(board([card('b', 'B'), card('c', 'C')]));
+  await view.poll(); await view.flush();
+  const list = underwayList(view.doc);
+  assert.deepEqual(cardsIn(list).map(c => c.dataset.key), ['b', 'c']);
+  assert.equal(view.doc.activeElement, opener);
+  assert.equal(list.children[0].querySelector('.event-time').open, true);
 });

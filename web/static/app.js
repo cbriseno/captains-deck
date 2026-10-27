@@ -146,8 +146,9 @@ function renderBoard() {
     let list = section.querySelector('.cards');
     if (!list) { list = node('div', 'cards'); section.append(heading, list); }
     else section.firstChild.replaceWith(heading);
-    list.querySelector(':scope > .empty')?.remove();
-    const retained = new Map([...list.children].map(n => [n.dataset.key, n]));
+    const keys = new Set(cards.map(card => card.key));
+    const retained = new Map();
+    for (const n of [...list.children]) if (keys.has(n.dataset.key)) retained.set(n.dataset.key, n); else n.remove();
     for (const [index, card] of cards.entries()) {
       // Source freshness is independent of card progress. Retain unchanged
       // controls, disclosure state and focus across polls.
@@ -163,7 +164,6 @@ function renderBoard() {
       }
       if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null);
     }
-    for (const old of retained.values()) old.remove();
     if (!cards.length) list.replaceChildren(node('p', 'empty', S.query ? t("No tasks match your search.") : c.id === 'captains_call' ? t("No pending questions. Firstmate is keeping course.") : c.id === 'landed' ? t("No deliveries in this recent view. Search history for retained deliveries.") : t("No tasks in this state.")));
   }
   for (const n of [...$('board').children]) if (!n.dataset.kind) n.remove();
