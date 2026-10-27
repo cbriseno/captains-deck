@@ -24,6 +24,8 @@ herdr plugin install cbriseno/captains-deck
 
 To run your own checkout instead, use `herdr plugin link /absolute/path/to/captains-deck`.
 Either way the plugin id is `herdr-firstmate-flow`, the same id the upstream Captain's Deck uses, so only one of them can be installed at a time.
+A link, or an install over a GitHub install, replaces the registered one; Herdr refuses to install over a linked checkout until you run `herdr plugin unlink herdr-firstmate-flow`.
+The config directory below is shared and survives the switch.
 
 Point the deck at your Firstmate home:
 
