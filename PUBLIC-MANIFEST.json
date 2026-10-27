@@ -377,12 +377,12 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "f874ac30ce894a3faa15138b7be723c913ac1a419717c8ca493af0d895271cfb"
+      "sha256": "7d399dbe921c7f39dab33b9914b13e45a75dcf9577e577c28c718d72c0633497"
     },
     {
       "mode": "100644",
       "path": "web/static/i18n.js",
-      "sha256": "d6382f9e6c80d760b7da8d9db65b9d7f70856b5a0503de9ef338bab1a02e4a21"
+      "sha256": "81b842b1f37f9789b42615d873af7904737e861ff1a1e943940518083bb050f0"
     },
     {
       "mode": "100644",
@@ -412,7 +412,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "44b4fab06ef5799099b3e2b1d34fe6226392ff9d4535691f59ece7d46d22e464"
+      "sha256": "dfe79a2f346a79d075a0889545f6112206ffc29642d8d01cebf7de70aca81bbd"
     },
     {
       "mode": "100644",
@@ -422,7 +422,7 @@
     {
       "mode": "100644",
       "path": "web/tests/localization.test.cjs",
-      "sha256": "e26538648cefcd082df19711c23e837d9561ed2e20492305ea2367a176c76ccc"
+      "sha256": "cc0391ec7678653529ab2e0800c9169f707aba1e86016d125564f00821c738b9"
     },
     {
       "mode": "100644",
