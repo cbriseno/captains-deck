@@ -58,8 +58,9 @@ function board(underway) {
   return { homes: [{ id: '/home/example/space', label: 'example' }], columns, sources: [], source_ttl: 60, error: null, loading: false, csrf: 'synthetic' };
 }
 
-async function mountBoard(initial) {
+async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12)) {
   const doc = makeDom(), timers = [];
+  class FixedDate extends Date { constructor(...args) { args.length ? super(...args) : super(clock); } static now() { return clock; } }
   let current = initial;
   const fetch = async (url) => {
     if (url.startsWith('api/locale')) return { ok: true, json: async () => ({ locale: 'en', messages: {} }) };
@@ -68,7 +69,7 @@ async function mountBoard(initial) {
   };
   const context = vm.createContext({ document: doc, fetch, navigator: {}, location: { href: 'http://localhost/', search: '' },
     matchMedia: () => ({ matches: false, addEventListener() {} }), setInterval: (fn) => timers.push(fn), setTimeout, clearTimeout,
-    AbortController, URL, URLSearchParams, Intl, Date, JSON, Map, Set, Promise, Option: function Option(text, value) { return Object.assign(new Element('option', doc), { text, value }); },
+    AbortController, URL, URLSearchParams, Intl, Date: FixedDate, JSON, Map, Set, Promise, Option: function Option(text, value) { return Object.assign(new Element('option', doc), { text, value }); },
     sessionStorage: { getItem() { return null; }, setItem() {} } });
   context.window = context;
   context.addEventListener = () => {};
@@ -142,16 +143,23 @@ test('reordering a focused card keeps the same focused control', async () => {
   assert.equal(view.doc.activeElement, opener);
 });
 
-test('source read time shows a relative label with the same exact instant on demand', async () => {
-  const at = Math.floor(Date.now() / 1000) - 120;
-  const sources = [{home: '/home/example/space', label: 'example', received_at: at, generated: new Date(at * 1000).toISOString(), supervisor: null, error: null}];
-  const view = await mountBoard({...board([]), sources});
+test('source read, server receipt and snapshot time keep distinct events with exact dates on demand', async () => {
+  const clock = Date.UTC(2026, 0, 15, 12), received = clock / 1000 - 3600, generated = Date.UTC(2026, 0, 15, 9);
+  const sources = [{home: '/home/example/space', label: 'example', received_at: received, generated: new Date(generated).toISOString(), supervisor: null, error: null}];
+  const view = await mountBoard({...board([]), sources}, clock);
+  const exact = (ms) => new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(ms));
   const header = view.doc.getElementById('updated');
-  assert.ok(header.querySelector('.relative-time').textContent.includes('2 minutes ago'));
-  assert.equal(header.querySelector('.exact-time').textContent, new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(at * 1000)));
-  const summary = header.querySelector('summary');
+  assert.equal(header.querySelector('.exact-time').textContent, exact(clock));
+  const row = view.doc.getElementById('supervisors').children[0];
+  const times = row.querySelectorAll('.relative-time');
+  assert.ok(times[0].textContent.includes('1 hour ago'));
+  assert.equal(row.querySelectorAll('.exact-time')[0].textContent, exact(received * 1000));
+  assert.equal(row.querySelectorAll('.exact-time')[1].textContent, exact(generated));
+  const summary = row.querySelectorAll('summary')[0];
   summary.focus();
+  view.setBoard({...board([]), sources});
   await view.poll(); await view.flush();
-  assert.equal(view.doc.getElementById('updated').querySelector('summary'), summary);
+  const rowAgain = view.doc.getElementById('supervisors').children[0];
+  assert.equal(rowAgain.querySelectorAll('summary')[0], summary);
   assert.equal(view.doc.activeElement, summary);
 });
