@@ -311,6 +311,34 @@ test('drawer shows the full recorded report and the registered executor without 
   assert.deepEqual(Object.keys(evidence).sort(), ['context', 'native', 'task']);
 });
 
+test('a ready or queued card detail does not claim a missing resume condition', async () => {
+  const gate = (key, kind) => ({...card(key, 'Summary ' + key), bucket: 'charted', activity: {kind, agent: '', until: '', gap: ''},
+    context: {phase: 'unknown', reason: '', firstmate_action: null}, presentation: {summary: 'Summary ' + key, waiting_for: '', next_action: null, executor: {harness: ''}},
+    native: {}, report: null, agent: '', herdr_url: ''});
+  const tickets = {r: gate('r', 'ready'), q: gate('q', 'queued'), h: gate('h', 'held')};
+  const data = board([]); data.columns[0].cards = Object.values(tickets);
+  const view = await mountBoard(data, undefined, tickets);
+  const detail = async (key) => {
+    const list = view.doc.getElementById('board').children.find(s => s.dataset.kind === 'charted').querySelector('.cards');
+    list.children.find(n => n.dataset.key === key).querySelector('.card-open').listeners.click[0]();
+    await view.flush();
+    const content = view.doc.getElementById('detail-content'), kicker = view.doc.getElementById('detail-kicker').textContent;
+    const rows = Object.fromEntries(descendants(content).filter(n => n.className === 'context-row').map(n => [n.children[0].textContent, n.children[1].textContent]));
+    view.doc.getElementById('detail-close').listeners.click[0]();
+    return [kicker, rows, content.textContent];
+  };
+  const missing = 'The condition for resuming is missing.';
+  for (const [key, chip] of [['r', 'Ready to start'], ['q', 'Queued']]) {
+    const [kicker, rows, text] = await detail(key);
+    assert.equal(kicker, chip);
+    assert.equal('What it is waiting for' in rows, false, key);
+    assert.equal(text.includes(missing), false, key);
+  }
+  const [kicker, rows] = await detail('h');
+  assert.equal(kicker, 'On hold');
+  assert.ok(rows['What it is waiting for'].startsWith(missing));
+});
+
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
 function questionTicket(key, title, question, detail) {
   return {...card(key, ''), title, original_title: title, bucket: 'captains_call', agent: 'Codex',

@@ -344,7 +344,7 @@ async function openTicket(key, opener) {
       if (ticket.bucket === 'underway') $('detail-content').append(contextRow(t('Agent'), agentLines[a.agent] || agentLines.unknown));
       if (ticket.dependencies.length) $('detail-content').append(contextRow(t('Dependencies'), dependencyText(ticket)));
       const waits = ['paused', 'deferred', 'held', 'blocked', 'validation_gate', 'stopped'].includes(a.kind);
-      if (p.waiting_for || waits || ['waiting', 'technical', 'dependency', 'unknown'].includes(c.phase)) $('detail-content').append(contextRow(t('What it is waiting for'), p.waiting_for || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('An approval at its validation gate.') : t('The condition for resuming is missing. Firstmate needs to record what will allow this task to continue.'))));
+      if (!['ready', 'queued'].includes(a.kind) && (p.waiting_for || waits || ['waiting', 'technical', 'dependency', 'unknown'].includes(c.phase))) $('detail-content').append(contextRow(t('What it is waiting for'), p.waiting_for || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('An approval at its validation gate.') : t('The condition for resuming is missing. Firstmate needs to record what will allow this task to continue.'))));
       if (gapLines[a.gap]) $('detail-content').append(node('p', 'activity-note', gapLines[a.gap]));
       $('detail-content').append(contextRow(t('Next step'), p.next_action || t('No concrete next step is recorded. Firstmate needs to update the task.')));
       addTechnical(ticket); addHerdr(ticket);
