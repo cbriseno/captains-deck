@@ -115,6 +115,12 @@ class PresentationTests(unittest.TestCase):
         result = self.read(card)
         self.assertEqual(result['presentation']['summary'], 'The change was applied.')
 
+    def test_card_report_text_is_the_complete_declared_reason(self):
+        card = self.task()
+        report = 'Informe completo.\n\n' + 'Detalle de evidencia sintética. ' * 40 + 'FIN_DEL_INFORME'
+        card.flow.update(declared_state='working', reason=report)
+        self.assertEqual(self.board.card_json(card)['report']['text'], report)
+
     def test_malformed_optional_presentation_fields_do_not_break_board_reads(self):
         card = self.task()
         card.flow['presentation'] = {'summary': [], 'next_action': {}, 'waiting_for': 123}
