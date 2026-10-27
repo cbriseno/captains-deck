@@ -46,15 +46,12 @@ def excerpt(value, limit=280):
     text = re.sub(r'\s+', ' ', text).strip()
     if FILE_ONLY.fullmatch(text) or RECORD.fullmatch(text):
         return ''
-    if TECHNICAL.search(text):
+    if TECHNICAL.search(text) or len(text) > limit:
         text = re.split(r'(?<=[.!?])\s+', text)[0]
-        if TECHNICAL.search(text):
+        if TECHNICAL.search(text) or FILE_ONLY.fullmatch(text) or RECORD.fullmatch(text):
             return ''
     if len(text) <= limit:
         return text
-    opening = re.split(r'(?<=[.!?])\s+', text)[0]
-    if len(opening) <= limit:
-        return opening
     return text[:limit - 1].rsplit(' ', 1)[0] + '…'
 
 

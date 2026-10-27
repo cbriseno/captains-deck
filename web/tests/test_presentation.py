@@ -114,6 +114,8 @@ class PresentationTests(unittest.TestCase):
         card.flow['reason'] = 'The change was applied. Evidence is in report.json and run: SANITIZED.'
         result = self.read(card)
         self.assertEqual(result['presentation']['summary'], 'The change was applied.')
+        card.flow['reason'] = 'Updated the schema: users, teams and roles. See /home/example/run.log.'
+        self.assertEqual(self.read(card)['presentation']['summary'], 'Updated the schema: users, teams and roles.')
 
     def test_card_report_text_is_the_complete_declared_reason(self):
         card = self.task()
@@ -154,14 +156,19 @@ class PresentationTests(unittest.TestCase):
     def test_schema_and_head_tokens_fall_back_to_usable_text(self):
         card = self.task()
         for candidate in ('HEAD abc123', 'head: abc123', 'schema: fm-flow.v1', '{"schema":"fm-flow.v1"}',
-                          '{"schema": "fm-flow.v1", "task": "sample"}', 'schema: fm-flow.v1 state: running'):
+                          '{"schema": "fm-flow.v1", "task": "sample"}', 'schema: fm-flow.v1 state: running',
+                          'head: abc123. See /home/example/run.log.',
+                          'schema: fm-flow.v1. Written to /tmp/example/flow.json.',
+                          'head: abc123. HEAD moved.',
+                          'schema: fm-flow.v1. ' + 'Synthetic prose follows here. ' * 12):
             card.flow.update(reason=candidate, waiting_for=candidate, next_action=candidate)
             p = self.read(card)['presentation']
             self.assertEqual((p['summary'], p['waiting_for'], p['next_action']), ('', '', ''), candidate)
 
     def test_purely_technical_filenames_fall_back_to_usable_text(self):
         card = self.task()
-        for candidate in ('report.json', 'report.json.', 'report.json logs.jsonl'):
+        for candidate in ('report.json', 'report.json.', 'report.json logs.jsonl',
+                          'report.json. See /home/example/run.log.'):
             card.flow['reason'] = candidate
             card.flow['waiting_for'] = candidate
             card.flow['next_action'] = 'run: SANITIZED_RUN'
