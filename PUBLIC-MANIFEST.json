@@ -377,7 +377,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "91739a471acd7756d305a6341239bf7c73eea51091dc8e2dde8f53a581d14183"
+      "sha256": "fd712f30c89d07d77d182f70db8b7b2be987b77327b8641ebddaf95489e0740e"
     },
     {
       "mode": "100644",
@@ -417,7 +417,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "394765572de869f650735e1da8891b0a642fbac298a2ae3a2082d248ab6f7495"
+      "sha256": "54c8cdd9e528873727efcb67d74155e9806b2c1c95f9337b836012ccc24f0aa0"
     },
     {
       "mode": "100644",
