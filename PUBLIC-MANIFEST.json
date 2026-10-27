@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "0cea18549c14d985c8746b75402a4acb6492a9fbe4a2bee53ae25e4c418898d3"
+      "sha256": "0604345bf8423305d7bc793803a17cbbf7818b287014398bac6eda9b9a4ff955"
     },
     {
       "mode": "100755",
@@ -202,12 +202,12 @@
     {
       "mode": "100644",
       "path": "tests/test_fixture_board.py",
-      "sha256": "93b369140e37bf8d21ca0dd44edc70ca60687fbdfbc830ff8116cdda2be98d81"
+      "sha256": "0e38d4059e1768bd56eea8f42dc2995e41e20a36d382b3c0938170e28a303604"
     },
     {
       "mode": "100644",
       "path": "tests/test_flow_activity_provenance.py",
-      "sha256": "755a80b77566712dffc160f993dba00b9c609ea9c6be7bcb4207501e3ff58300"
+      "sha256": "732880f3d80297dbfdcfab90fce25507b1803f70470d606d31be721cc825f564"
     },
     {
       "mode": "100644",
@@ -327,7 +327,7 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "4e77bcb7aeb50065a71d2ef679cb7c083036baea409591f8dbf99dfe3ac9a697"
+      "sha256": "60be9a9632e01c279c8e97599e1f2290f363ec42d89394d68e6f5b74a0c6aef9"
     },
     {
       "mode": "100644",
@@ -337,12 +337,12 @@
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "dcd458c56d6b6d68619ff0518591b6ca9148fdd7bbcdbfd9a3d500f9f851f276"
+      "sha256": "6eb69e08bda83123d193e5a4382285560a41e51bf95280c233718cdc9a5f6d38"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "7d5563c1f7044463613a247e8f40afa57286579db2ffd79229f5cfe11b32b312"
+      "sha256": "4fe0e6ff7661e9784148c7a409ce0480d375b060410462d5cc49ecb0f25e8f2c"
     },
     {
       "mode": "100644",
@@ -377,7 +377,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "2d4c6685722f237f828ecf78efd477fe8590f595e7079ab38714d227e3cd6aed"
+      "sha256": "91739a471acd7756d305a6341239bf7c73eea51091dc8e2dde8f53a581d14183"
     },
     {
       "mode": "100644",
@@ -412,12 +412,12 @@
     {
       "mode": "100644",
       "path": "web/tests/activity_fleet.py",
-      "sha256": "caff52a01cf8edcd3eb4d29db83744fcfaa7d03cdbb7ec125429618ce02fd195"
+      "sha256": "04d761f2bbff62a9693c6bb43715c3ad5480252d57fcc6cdcd7becce627b3885"
     },
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "38603f72acfbb0ea6c3db32dede969920bcb06b10c2fbcb2cdde141bcca2a848"
+      "sha256": "394765572de869f650735e1da8891b0a642fbac298a2ae3a2082d248ab6f7495"
     },
     {
       "mode": "100644",
@@ -432,12 +432,12 @@
     {
       "mode": "100644",
       "path": "web/tests/preview.py",
-      "sha256": "d20d34a1a2f2cacc3656d1ebc809835f17a3c1e8602d5940bafdf7b7d8588ab3"
+      "sha256": "ba9f9cd2509b272927aa8f46af93a87d3bec0e1db076433e2479536f27842760"
     },
     {
       "mode": "100644",
       "path": "web/tests/test_activity.py",
-      "sha256": "497add4e30b4070a41cf50a22f85f786db3f24f0ee2724f5255ad85dbd9001f9"
+      "sha256": "1ef6d29bd16333d1c7989255dea56e96bd87db068030926766ee57331b9adb34"
     },
     {
       "mode": "100644",
