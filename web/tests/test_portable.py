@@ -144,6 +144,20 @@ class PortableTests(unittest.TestCase):
                 local.write_text('#!/bin/sh\n')
                 self.assertEqual(endpoint_path(home, endpoint.name), str(local))
 
+    @unittest.skipIf(os.name == 'nt', 'Symlink reads require POSIX/WSL')
+    def test_delivery_read_through_symlinked_home_but_not_symlinked_leaf(self):
+        with tempfile.TemporaryDirectory(prefix='deck symlink ') as tmp:
+            root = Path(tmp)
+            real = root / 'real'
+            (real / 'data').mkdir(parents=True)
+            (real / 'data' / 'report.md').write_text('report', encoding='utf-8')
+            (real / 'data' / 'leak.md').symlink_to(real / 'data' / 'report.md')
+            (root / 'link').symlink_to(real, target_is_directory=True)
+            link = str(root / 'link')
+            self.assertEqual(bridge.fm.delivery_read(link, link + '/data/report.md', 100), 'report')
+            with self.assertRaises(OSError):
+                bridge.fm.delivery_read(link, link + '/data/leak.md', 100)
+
     def test_safety_capability_fails_closed(self):
         with patch.object(bridge.fm, 'safe_file_reads', return_value=False):
             with self.assertRaisesRegex(OSError, 'no-follow'):

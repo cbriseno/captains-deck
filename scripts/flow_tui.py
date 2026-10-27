@@ -2964,6 +2964,10 @@ def delivery_read(home: str, path: str, limit: int) -> str:
     if '..' in path.split('/'):
         raise ValueError('unsafe traversal path')
     root = os.path.realpath(home)
+    if os.path.isabs(path):
+        # Resolve the directory chain like root (macOS /var -> /private/var) but
+        # never the leaf, which the O_NOFOLLOW open must see as-is.
+        path = os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
     relative = os.path.relpath(path, root) if os.path.isabs(path) else path
     parts = relative.split('/')
     if not home or any(p in ('', '.', '..') for p in parts) or '\\' in path or '\x00' in path:
