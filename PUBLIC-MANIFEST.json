@@ -332,7 +332,7 @@
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "a2931ff5b46f3364683496fd9caab55c74d761f31ee34a56ea7bb76a9d312320"
+      "sha256": "f0b65acd266cd743883d94d3e4dd271882b6892814b5f3a4620f50bbeda8943f"
     },
     {
       "mode": "100644",
@@ -352,7 +352,7 @@
     {
       "mode": "100644",
       "path": "web/presentation.py",
-      "sha256": "4945493951c7988ee41f215314e1c6c06d9800f72a71a90cae3a36d56d91f6ca"
+      "sha256": "fed32fb9f88cd1eca5eee06d1d583946aca5ce672019d4798c7d8c4e9ff43215"
     },
     {
       "mode": "100644",
@@ -377,7 +377,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "a1825b5aa6f4660dac74a5542cdbda81f6e6fb8e74a432eb788855b21fbb623b"
+      "sha256": "3b3c401b8d00923cdb97b3d07e4360ab09ecb83511cebcfa8b92b27562f391d9"
     },
     {
       "mode": "100644",
@@ -412,7 +412,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "12d609e1fceadbb6223c80e11532d4e1cdb2f6364de7a0069101b4816c5108b6"
+      "sha256": "5466b658ac6049d2c795a1a32717629a3dad277ebde364568f697b899d3cb045"
     },
     {
       "mode": "100644",
@@ -432,7 +432,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "88342ca9572c89973d153d6a4fc40f4646705dce03c131f2fc98a94d99f0cb8d"
+      "sha256": "e9fe3697741c01d0f48967c7176a0a25abded2347caf751bc887db2c977621a1"
     },
     {
       "mode": "100644",
@@ -447,7 +447,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_presentation.py",
-      "sha256": "ad6c321895c6e74ea0df013e68eb8a0933da59bacff126ea42133999780bd35e"
+      "sha256": "d66354d7a2cef1fa077a93f2437db74e6154d2cdeb1f1dc754a42ff8f8dd7cc4"
     },
     {
       "mode": "100644",
