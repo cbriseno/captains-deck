@@ -196,7 +196,8 @@ class WebTests(unittest.TestCase):
         Path(self.home.path,'data/demo-research/delivery.md').write_text('# Demo research\n\n## Resultado\n'+'Opción de viaje con horario y evidencia. '*30+'FIN_DEL_RESULTADO\n\n## Pendiente\nLa compra corresponde a la persona.\n')
         self.init();_,data=self.req('/api/history?q=DEMO');row=data['records'][0]
         status,delivery=self.req('/api/delivery/'+row['home']+'/demo-research');self.assertEqual(status,200)
-        self.assertIn('FIN_DEL_RESULTADO',json.dumps(delivery))
+        self.assertEqual(delivery['summary'],'Resultado\n'+'Opción de viaje con horario y evidencia. '*30+'FIN_DEL_RESULTADO\nPendiente\nLa compra corresponde a la persona.')
+        self.assertEqual(delivery['report'].count('Una línea de evidencia útil'),35)
         self.assertIn('FIN_DEL_INFORME',delivery['report'])
 
     def test_explanation_reads_are_inert_and_post_has_stable_owner_receipt(self):
