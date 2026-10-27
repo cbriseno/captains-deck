@@ -105,6 +105,8 @@ test('empty column placeholder is replaced by cards and returns when emptied', a
 test('updated card keeps focus on its open control across polls', async () => {
   const view = await mountBoard(board([card('k1', 'First summary')]));
   const opener = underwayList(view.doc).querySelector('.card-open');
+  const disclosure = underwayList(view.doc).querySelector('.event-time');
+  disclosure.open = true;
   opener.focus();
   view.setBoard(board([card('k1', 'Changed summary')]));
   await view.poll(); await view.flush();
@@ -113,4 +115,5 @@ test('updated card keeps focus on its open control across polls', async () => {
   assert.notEqual(focused, opener);
   assert.ok(underwayList(view.doc).contains(focused));
   assert.equal(cardsIn(underwayList(view.doc)).length, 1);
+  assert.equal(underwayList(view.doc).querySelector('.event-time').open, true);
 });

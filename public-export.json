@@ -85,6 +85,7 @@
     "web/static/styles.css",
     "web/static/sw.js",
     "web/static/theme.js",
+    "web/tests/board_dom.test.cjs",
     "web/tests/fixtures.py",
     "web/tests/localization.test.cjs",
     "web/tests/preview.py",
