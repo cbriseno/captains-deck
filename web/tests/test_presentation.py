@@ -135,7 +135,12 @@ class PresentationTests(unittest.TestCase):
         for sentence in ('Added schema validation for the config file.',
                          'Migrated the database schema to v2. Tests pass.',
                          'The release branch head now includes the fix.',
-                         'Añadí validación del schema de configuración.'):
+                         'Añadí validación del schema de configuración.',
+                         'Updated the schema: added a users table.',
+                         'Schema: new users table added.',
+                         'The new head: Ana leads the release.',
+                         'Actualicé el schema: agregué una tabla de usuarios.',
+                         'Nuevo head: Ana coordina la entrega.'):
             card.flow.update(reason=sentence, waiting_for=sentence, next_action=sentence)
             p = self.read(card)['presentation']
             self.assertEqual((p['summary'], p['waiting_for'], p['next_action']), (sentence,) * 3)
@@ -145,7 +150,8 @@ class PresentationTests(unittest.TestCase):
 
     def test_schema_and_head_tokens_fall_back_to_usable_text(self):
         card = self.task()
-        for candidate in ('HEAD abc123', 'head: abc123', 'schema: fm-flow.v1', '{"schema":"fm-flow.v1"}'):
+        for candidate in ('HEAD abc123', 'head: abc123', 'schema: fm-flow.v1', '{"schema":"fm-flow.v1"}',
+                          '{"schema": "fm-flow.v1", "task": "sample"}', 'schema: fm-flow.v1 state: running'):
             card.flow.update(reason=candidate, waiting_for=candidate, next_action=candidate)
             p = self.read(card)['presentation']
             self.assertEqual((p['summary'], p['waiting_for'], p['next_action']), ('', '', ''), candidate)
