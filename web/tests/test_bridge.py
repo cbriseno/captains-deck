@@ -260,5 +260,12 @@ class WebTests(unittest.TestCase):
         _,data=self.req('/api/receipts');self.assertEqual(len(data['receipts']),1)
         self.assertNotIn('actor',data['receipts'][0])
 
+    def test_intake_environment_drops_codex_and_claude_supervisor_identity(self):
+        names=('CODEX_THREAD_ID','CODEX_SESSION_ID','CLAUDE_SESSION_ID','CLAUDE_CODE_SESSION_ID','CLAUDE_PID',
+               'FM_TASK_ID','HERDR_PANE_ID')
+        with patch.dict(os.environ,{name:'supervisor' for name in names}):
+            env=bridge.Board.child_env(self.home)
+        self.assertEqual(set(names)&set(env),set());self.assertEqual(env['FM_HOME'],self.home.path)
+
 
 if __name__=='__main__':unittest.main()

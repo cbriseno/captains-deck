@@ -350,6 +350,7 @@ class Board:
         # External intake, never impersonate Root or inherit a worker namespace.
         for key in list(env):
             if key.startswith('FM_') or key in ('CODEX_THREAD_ID', 'CODEX_SESSION_ID', 'CLAUDE_SESSION_ID',
+                                               'CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID',
                                                'HERDR_PANE_ID', 'HERDR_TAB_ID', 'HERDR_WORKSPACE_ID'):
                 env.pop(key, None)
         env['FM_HOME'] = home.path
