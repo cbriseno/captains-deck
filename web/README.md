@@ -232,7 +232,7 @@ python3 -m unittest discover -s /absolute/captains-deck/web/tests -p 'test_*.py'
 node /absolute/captains-deck/web/tests/localization.test.cjs
 ```
 
-Node.js 20+ is needed only for the browser-helper tests; production still requires only Python.
+The browser-helper tests run under Node.js 22, the version CI pins; production still requires only Python.
 The public CI runs the launcher and language configuration checks on Linux, macOS and Windows.
 Tests exercise the real HTTP boundary and temporary owner subprocesses, including two-browser races, restart deduplication, identity/origin/CSRF rejection, stale questions, long answers, synthetic archive history and report symlinks/traversal.
 `web/tests/preview.py /ABSOLUTE/TASK_PROOF_DIR` starts a clearly isolated fixture server on loopback 8788 for browser checks.
