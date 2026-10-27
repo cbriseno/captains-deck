@@ -29,6 +29,9 @@ Set `FM_FLOW_HOMES_ONLY=1` to restrict discovery to the explicit labelled list.
 `FM_FLOW_HOMES_JSON={}` with homes-only intentionally selects no homes for an empty setup.
 Use `homes.conf` or JSON for paths containing spaces; the legacy whitespace-separated `FM_FLOW_HOMES` syntax remains available.
 `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_BIN_PATH`, `CD_WEB_DATA` and `CD_WEB_RUNTIME` keep all state and integrations configurable.
+For manual terminal launches and the web server, shared Deck configuration resolves to `HERDR_PLUGIN_CONFIG_DIR`, then `<HERDR_CONFIG_DIR>/plugins/config/herdr-firstmate-flow`, then `${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/config/herdr-firstmate-flow`.
+See the [installation instructions](../README.md#install) for configuring `fm_home` or `homes.conf` there.
+Shared plugin state resolves to `HERDR_PLUGIN_STATE_DIR` or `${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/herdr-firstmate-flow`.
 On POSIX the prior `~/.config/captains-deck-web` and `~/.local/state/captains-deck-web` defaults remain, respecting XDG overrides.
 On native Windows the launcher uses the user's `LOCALAPPDATA/captains-deck-web` directory.
 

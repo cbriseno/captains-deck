@@ -305,7 +305,8 @@ def _plugin_state_dir() -> str:
     """The plugin's own state directory. Herdr hands the path to plugin
     processes; the fallback matches the directory Herdr uses for this plugin."""
     return os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.join(
-        os.path.expanduser("~"), ".local", "state", "herdr", "plugins", DECISION_SOURCE_ID
+        os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"),
+        "herdr", "plugins", DECISION_SOURCE_ID,
     )
 
 
@@ -718,12 +719,14 @@ class Home:
 
 def _plugin_config_dir() -> str:
     """The plugin config dir Herdr hands plugin processes (matching
-    kanban-view.sh), with HERDR_CONFIG_DIR as the fallback for manual runs and
-    tests."""
+    kanban-view.sh), with HERDR_CONFIG_DIR and then Herdr's own XDG config
+    root as the fallback for manual runs, the web server and tests."""
     plugin_dir = os.environ.get("HERDR_PLUGIN_CONFIG_DIR")
     if plugin_dir:
         return plugin_dir
-    base = os.environ.get("HERDR_CONFIG_DIR") or os.path.expanduser("~/.config/herdr")
+    base = os.environ.get("HERDR_CONFIG_DIR") or os.path.join(
+        os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "herdr"
+    )
     return os.path.join(base, "plugins", "config", "herdr-firstmate-flow")
 
 
@@ -873,7 +876,8 @@ def discover_homes(verbose: bool = False) -> list[Home]:
             fm_home_file = os.path.join(_plugin_config_dir(), "fm_home")
             try:
                 with open(fm_home_file) as fh:
-                    single = fh.read().strip()
+                    lines = (line.strip() for line in fh)
+                    single = next((line for line in lines if line and not line.startswith("#")), "")
             except OSError:
                 single = ""
         if single:

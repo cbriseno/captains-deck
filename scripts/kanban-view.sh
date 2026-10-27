@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Optional debug log: a `debug_log` file in the plugin config dir either contains
 # a log path or (when empty) enables <config>/debug_log.log.
-cfg_dir="${HERDR_PLUGIN_CONFIG_DIR:-$HOME/.config/herdr/plugins/config/herdr-firstmate-flow}"
+cfg_dir="${HERDR_PLUGIN_CONFIG_DIR:-${HERDR_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr}/plugins/config/herdr-firstmate-flow}"
 if [ -e "$cfg_dir/debug_log" ]; then
   debug_path="$(head -n1 "$cfg_dir/debug_log" 2>/dev/null || true)"
   [ -n "$debug_path" ] || debug_path="$cfg_dir/debug_log.log"
