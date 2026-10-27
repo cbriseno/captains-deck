@@ -78,6 +78,11 @@ def payload(now=None, firstmate_fields=False):
              flow=_flow('dependency', 'waiting', 'current_state.status-log', 'Waiting for the billing export to land.', 'paused',
                         'The build is ready; publishing waits for the billing export.', 'Export invoices for billing',
                         [('billing-export', 'Export invoices for billing', 'in_flight')])),
+        # The last status line says working, but the pane is idle and no run is attributed.
+        dict(_registration('codex'), id='queue-retry', name='Retry failed queue jobs', kind='ship',
+             state='working', blocked_by='-', doing='working: retry backoff added',
+             flow=_flow('active', 'executing', 'current_state.status-log', 'working: retry backoff added', 'working',
+                        'Backoff is added; the agent ended its turn.')),
     ]
     gate = lambda id, title, filed, flow, blocked='-', reason='-': dict(
         _registration('claude' if id == 'pilot-rollout' else None), id=id, title=title, filed=filed, owner='(main)',
@@ -106,13 +111,14 @@ def payload(now=None, firstmate_fields=False):
     decisions = [dict(id='scope-choice', key='scope-choice', verb='captain-hold', owner='(main)',
                       title='Choose the beta scope', summary='Choose the beta scope: two options are ready',
                       flow=_flow('human', 'held', 'backlog.hold_reason', 'Choose which features enter the beta.'))]
-    live = {'api-pagination', 'search-index', 'docs-refresh', 'release-notes', 'billing-export', 'notes-sync', 'mobile-publish'}
+    live = {'api-pagination', 'search-index', 'docs-refresh', 'release-notes', 'billing-export', 'notes-sync', 'mobile-publish',
+            'queue-retry'}
     endpoints = [{'id': row['id'], 'backend': 'herdr', 'target': 'synthetic', 'exists': row['id'] in live, 'agent': 'not_checked'}
                  for row in in_flight + [gates[4]]]
     if firstmate_fields:
         sources = {'api-pagination': 'pane', 'search-index': 'pane', 'docs-refresh': 'pane', 'release-notes': 'run-step',
                    'billing-export': 'run-step', 'cache-migration': 'status-log', 'log-rotation': 'none',
-                   'notes-sync': 'pane', 'mobile-publish': 'status-log'}
+                   'notes-sync': 'pane', 'mobile-publish': 'status-log', 'queue-retry': 'status-log'}
         for row in in_flight:
             row['state_source'] = sources[row['id']]
         until = stamp.replace(hour=15, minute=0, second=0) + timedelta(days=7)

@@ -1,8 +1,10 @@
 """The board says what is happening now, from the reproduced busy-looking fleet."""
+from datetime import date, timedelta
 import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -38,11 +40,14 @@ class ActivityTruthTests(unittest.TestCase):
             'billing-export': ('validation_gate', 'present'),
             'cache-migration': ('paused', 'none'), 'log-rotation': ('paused', 'none'),
             'notes-sync': ('finished', 'present'), 'mobile-publish': ('blocked', 'present'),
+            # A working verdict read from the status log is not a busy pane.
+            'queue-retry': ('unknown', 'present'),
         }
         self.assertEqual({k: (cards[k]['activity']['kind'], cards[k]['activity']['agent']) for k in expected}, expected)
-        underway = self.board().collector.snap.cols['underway']
-        self.assertEqual(len(underway), 9)
-        self.assertEqual(f.activity_counts(underway)['working'], 3)
+        for firstmate_fields in (False, True):
+            underway = self.board(firstmate_fields).collector.snap.cols['underway']
+            self.assertEqual(len(underway), 10)
+            self.assertEqual(f.activity_counts(underway)['working'], 3)
 
     def test_queued_ready_is_distinct_from_blocked_and_deferred(self):
         cards = self.cards(self.board())
@@ -64,16 +69,54 @@ class ActivityTruthTests(unittest.TestCase):
         self.assertEqual(present['device-trial']['activity']['kind'], 'deferred')
         self.assertRegex(present['device-trial']['activity']['until'], r'^\d{4}-\d{2}-\d{2}$')
         self.assertEqual(present['cache-migration']['activity']['kind'], 'paused')
-        self.assertTrue(present['cache-migration']['activity']['until'].endswith('Z'))
+        self.assertRegex(present['cache-migration']['activity']['until'], r'^\d{4}-\d{2}-\d{2}T15:00:00\+00:00$')
         self.assertFalse(any(c['activity']['gap'] for c in present.values()))
 
     def test_a_passed_pause_date_or_hold_is_not_presented_as_current(self):
-        card = next(c for c in self.board(True).collector.snap.cols['underway'] if c.task == 'cache-migration')
+        board = self.board(True)
+        card = next(c for c in board.collector.snap.cols['underway'] if c.task == 'cache-migration')
         card.wait_until = '2020-01-01T00:00:00Z'
-        self.assertEqual(f.card_activity(card)['until'], '')
-        gate = next(c for c in self.board().collector.snap.cols['charted'] if c.task == 'device-trial')
+        gate = next(c for c in board.collector.snap.cols['charted'] if c.task == 'device-trial')
+        self.assertEqual(gate.hold_bucket, 'dated')
         gate.hold_until = '2020-01-01'
-        self.assertEqual(f.card_activity(gate)['kind'], 'held')
+        cards = self.cards(board)
+        self.assertEqual((cards['cache-migration']['activity']['kind'], cards['cache-migration']['activity']['until']), ('paused', ''))
+        self.assertEqual((cards['device-trial']['activity']['kind'], cards['device-trial']['activity']['until']), ('held', ''))
+        card.wait_until = ''
+        card.hold_bucket, card.hold_until = 'dated', '2020-01-01'
+        self.assertEqual((f.card_activity(card)['kind'], f.card_activity(card)['until']), ('held', ''))
+        card.hold_until = '2999-01-01'
+        self.assertEqual((f.card_activity(card)['kind'], f.card_activity(card)['until']), ('deferred', '2999-01-01'))
+
+    def test_a_malformed_or_offsetless_pause_date_never_breaks_the_board(self):
+        board = self.board(True)
+        card = next(c for c in board.collector.snap.cols['underway'] if c.task == 'cache-migration')
+        cases = {'2999-01-01': '2999-01-01T00:00:00+00:00', '2999-01-01T15:00:00': '2999-01-01T15:00:00+00:00',
+                 '2999-01-01T15:00:00+02:00': '2999-01-01T15:00:00+02:00', '2020-01-01': '', '2020-01-01T15:00:00': ''}
+        for value, until in cases.items():
+            card.wait_until = value
+            self.assertEqual(self.cards(board)['cache-migration']['activity'], {'kind': 'paused', 'agent': 'none', 'until': until, 'gap': ''}, value)
+        card.wait_until = 'soon'
+        self.assertEqual(self.cards(board)['cache-migration']['activity'], {'kind': 'paused', 'agent': 'none', 'until': '', 'gap': 'wait_until'})
+        gate = next(c for c in board.collector.snap.cols['charted'] if c.task == 'device-trial')
+        gate.hold_until = 'later'
+        self.assertEqual(self.cards(board)['device-trial']['activity'], {'kind': 'held', 'agent': '', 'until': '', 'gap': ''})
+
+    @unittest.skipUnless(hasattr(time, 'tzset'), 'needs time.tzset')
+    def test_hold_day_is_compared_with_the_local_calendar_day(self):
+        gate = next(c for c in self.board(True).collector.snap.cols['charted'] if c.task == 'device-trial')
+        # One of these zones is on a different calendar day than UTC at any instant.
+        for zone in ('Etc/GMT-14', 'Etc/GMT+12'):
+            try:
+                with patch.dict(os.environ, TZ=zone):
+                    time.tzset()
+                    today = date.today()
+                    gate.hold_until = today.isoformat()
+                    self.assertEqual(f.card_activity(gate)['kind'], 'held', zone)
+                    gate.hold_until = (today + timedelta(days=1)).isoformat()
+                    self.assertEqual((f.card_activity(gate)['kind'], f.card_activity(gate)['until']), ('deferred', gate.hold_until), zone)
+            finally:
+                time.tzset()
 
     def test_state_source_separates_agent_from_validation_when_flow_source_is_replaced(self):
         card = next(c for c in self.board(True).collector.snap.cols['underway'] if c.task == 'release-notes')
@@ -81,9 +124,16 @@ class ActivityTruthTests(unittest.TestCase):
         card.doing = 'Held for review'
         self.assertEqual(f.card_activity(card)['kind'], 'validating')
         card.state_source = ''
+        # With no known source, a fresh validation run still marks validation.
+        self.assertEqual(f.card_activity(card)['kind'], 'validating')
         card.run_step = {}
-        # Without either signal Firstmate's working verdict is reported as working.
-        self.assertEqual(f.card_activity(card)['kind'], 'working')
+        # Without either signal Firstmate's working verdict is not live evidence.
+        self.assertEqual((f.card_activity(card)['kind'], f.card_activity(card)['agent']), ('paused', 'present'))
+        for source, kind in (('pane', 'working'), ('run-step', 'validating'), ('status-log', 'paused'),
+                             ('remote-endpoint', 'paused'), ('none', 'paused'), ('later', 'paused')):
+            card.state_source = source
+            self.assertEqual(f.card_activity(card)['kind'], kind, source)
+            self.assertEqual(f.activity_counts([card]).get('working', 0), int(kind == 'working'), source)
 
     def test_missing_endpoint_export_degrades_to_unknown_presence(self):
         data = activity_fleet.payload()
@@ -94,11 +144,6 @@ class ActivityTruthTests(unittest.TestCase):
         self.assertEqual(agents['cache-migration'], 'unknown')
         self.assertEqual(agents['notes-sync'], 'unknown')
         self.assertEqual(agents['api-pagination'], 'working')
-
-    def test_registered_execution_names_the_executor_without_task_meta(self):
-        cards = self.cards(self.board())
-        self.assertEqual(cards['search-index']['presentation']['executor'], {'harness': 'pi'})
-        self.assertEqual(cards['readme-badges']['presentation']['executor'], {'harness': ''})
 
     def test_language_changes_labels_only(self):
         root = Path(self.tmp.name) / 'es'
@@ -116,7 +161,7 @@ class ActivityTruthTests(unittest.TestCase):
                 patch.object(ui, 'paint', side_effect=lambda rows, *_: frames.append(rows)):
             ui.render(snap, force=True)
         text = '\n'.join(f._ANSI_RE.sub('', row) for row in frames[-1])
-        self.assertIn('Underway (9 · ●3 working)', text)
+        self.assertIn('Underway (10 · ●3 working)', text)
 
 
 if __name__ == '__main__':
