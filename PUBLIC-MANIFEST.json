@@ -352,7 +352,7 @@
     {
       "mode": "100644",
       "path": "web/presentation.py",
-      "sha256": "fed32fb9f88cd1eca5eee06d1d583946aca5ce672019d4798c7d8c4e9ff43215"
+      "sha256": "d45bca8e1ac07620367109d3a5fcdc9abdcd398d31a7acde7ea472e0d7407750"
     },
     {
       "mode": "100644",
@@ -377,7 +377,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "f6af12c12f491418f06e7e71f0a87cf1a2a882a19c23e9ae0cacb3ecb3ddb70d"
+      "sha256": "186da08bb59e9a6c9f1c9898a030deb0b8e529065d93333633be0e247f0f0282"
     },
     {
       "mode": "100644",
@@ -412,7 +412,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "6bd0b84e7dc5756de60ee74702bf75fb108d478cf08af0080f044bdeee483bb1"
+      "sha256": "48b3bfdfde802f87fa71b04c699e5dcd8b0f4759a9e09a35ab89158a32cc6449"
     },
     {
       "mode": "100644",
@@ -447,7 +447,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_presentation.py",
-      "sha256": "d66354d7a2cef1fa077a93f2437db74e6154d2cdeb1f1dc754a42ff8f8dd7cc4"
+      "sha256": "4cb48ab8faf6f7ab67460483d023f8c4dac8dc0ce35263a76a9c07f7d5ef0321"
     },
     {
       "mode": "100644",
