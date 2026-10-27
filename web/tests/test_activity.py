@@ -42,12 +42,14 @@ class ActivityTruthTests(unittest.TestCase):
             'notes-sync': ('finished', 'present'), 'mobile-publish': ('blocked', 'present'),
             # A working verdict read from the status log is not a busy pane.
             'queue-retry': ('unknown', 'present'),
+            # Working, but its source is replaced by the hold until state_source is exported.
+            'theme-tokens': ('unknown', 'open'),
         }
         self.assertEqual({k: (cards[k]['activity']['kind'], cards[k]['activity']['agent']) for k in expected}, expected)
-        for firstmate_fields in (False, True):
+        for firstmate_fields, working in ((False, 3), (True, 4)):
             underway = self.board(firstmate_fields).collector.snap.cols['underway']
-            self.assertEqual(len(underway), 10)
-            self.assertEqual(f.activity_counts(underway)['working'], 3)
+            self.assertEqual(len(underway), 11)
+            self.assertEqual(f.activity_counts(underway)['working'], working)
 
     def test_queued_ready_is_distinct_from_blocked_and_deferred(self):
         cards = self.cards(self.board())
@@ -95,12 +97,12 @@ class ActivityTruthTests(unittest.TestCase):
                  '2999-01-01T15:00:00+02:00': '2999-01-01T15:00:00+02:00', '2020-01-01': '', '2020-01-01T15:00:00': ''}
         for value, until in cases.items():
             card.wait_until = value
-            self.assertEqual(self.cards(board)['cache-migration']['activity'], {'kind': 'paused', 'agent': 'none', 'until': until, 'gap': ''}, value)
+            self.assertEqual(self.cards(board)['cache-migration']['activity'], {'kind': 'paused', 'agent': 'none', 'until': until, 'gap': '', 'seen_at': 0.0}, value)
         card.wait_until = 'soon'
-        self.assertEqual(self.cards(board)['cache-migration']['activity'], {'kind': 'paused', 'agent': 'none', 'until': '', 'gap': 'wait_until'})
+        self.assertEqual(self.cards(board)['cache-migration']['activity'], {'kind': 'paused', 'agent': 'none', 'until': '', 'gap': 'wait_until', 'seen_at': 0.0})
         gate = next(c for c in board.collector.snap.cols['charted'] if c.task == 'device-trial')
         gate.hold_until = 'later'
-        self.assertEqual(self.cards(board)['device-trial']['activity'], {'kind': 'held', 'agent': '', 'until': '', 'gap': ''})
+        self.assertEqual(self.cards(board)['device-trial']['activity'], {'kind': 'held', 'agent': '', 'until': '', 'gap': '', 'seen_at': 0.0})
 
     @unittest.skipUnless(hasattr(time, 'tzset'), 'needs time.tzset')
     def test_hold_day_is_compared_with_the_local_calendar_day(self):
@@ -128,7 +130,7 @@ class ActivityTruthTests(unittest.TestCase):
         self.assertEqual(f.card_activity(card)['kind'], 'validating')
         card.run_step = {}
         # Without either signal Firstmate's working verdict is not live evidence.
-        self.assertEqual((f.card_activity(card)['kind'], f.card_activity(card)['agent']), ('paused', 'present'))
+        self.assertEqual((f.card_activity(card)['kind'], f.card_activity(card)['agent']), ('paused', 'open'))
         for source, kind in (('pane', 'working'), ('run-step', 'validating'), ('status-log', 'paused'),
                              ('remote-endpoint', 'paused'), ('none', 'paused'), ('later', 'paused')):
             card.state_source = source
@@ -151,20 +153,43 @@ class ActivityTruthTests(unittest.TestCase):
         english = self.cards(self.board())
         self.assertEqual({k: v['activity'] for k, v in spanish.items()}, {k: v['activity'] for k, v in english.items()})
 
-    def test_terminal_underway_heading_counts_agents_working_now(self):
-        board = self.board()
-        snap = board.collector.snap
+    def terminal(self, snap):
         ui = f.UI()
         ui.collector.snapshot = lambda: snap
         frames = []
         with patch.object(f.shutil, 'get_terminal_size', return_value=os.terminal_size((184, 40))), \
                 patch.object(ui, 'paint', side_effect=lambda rows, *_: frames.append(rows)):
             ui.render(snap, force=True)
-        text = '\n'.join(f._ANSI_RE.sub('', row) for row in frames[-1])
-        self.assertIn('Underway (10 · ●3 working)', text)
+        return '\n'.join(f._ANSI_RE.sub('', row) for row in frames[-1])
+
+    def test_terminal_underway_heading_counts_agents_working_now(self):
+        snap = self.board().collector.snap
+        text = self.terminal(snap)
+        self.assertIn('Underway (11 · ●3 working)', text)
         badges = {c.task: c.badge for c in snap.cols['underway']}
         self.assertEqual(sorted(k for k, b in badges.items() if b == '● shipping'), ['api-pagination', 'docs-refresh', 'search-index'])
         self.assertEqual(badges['queue-retry'], '? unknown')
+
+    def test_a_retained_snapshot_after_a_failed_refresh_never_claims_work_now(self):
+        board, home = activity_fleet.fleet(Path(self.tmp.name) / 'retained')
+        collector = bridge.Collector()
+        with patch.object(f, 'bearings_snapshot', return_value=activity_fleet.payload()):
+            cols = collector._load_bearings(home, time.time(), {}, {}, [home])[1]
+        self.assertEqual(f.activity_counts(cols['underway'])['working'], 3)
+        raw, _, path = collector._raw[home.label]
+        received = time.time() - 7200
+        collector._raw[home.label] = (raw, received, path)
+        with patch.object(f, 'bearings_snapshot', return_value={}):
+            cols = collector._load_bearings(home, time.time(), {}, {}, [home])[1]
+        self.assertEqual(collector.source_errors[home.label], 'Could not refresh Firstmate.')
+        board.collector.snap.cols = cols
+        cards = self.cards(board)
+        for task in ('api-pagination', 'search-index', 'docs-refresh', 'release-notes'):
+            self.assertEqual(cards[task]['activity'], {'kind': 'last_seen_working', 'agent': 'open', 'until': '', 'gap': '', 'seen_at': received}, task)
+        self.assertEqual(cards['cache-migration']['activity']['kind'], 'paused')
+        self.assertEqual(f.activity_counts(cols['underway']).get('working', 0), 0)
+        self.assertNotIn('● shipping', {c.badge for c in cols['underway']})
+        self.assertIn('Underway (11 · ●0 working)', self.terminal(board.collector.snap))
 
 
 if __name__ == '__main__':

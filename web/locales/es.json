@@ -407,6 +407,8 @@
   "Ready to start": "Lista para empezar",
   "Agent working now": "Agente trabajando ahora",
   "Validation run active for this task": "Validación en curso para esta tarea",
+  "Agent pane open": "Panel del agente abierto",
+  "Working when last seen": "Trabajando la última vez que se vio",
   "Agent pane open, not reported working": "Panel del agente abierto, sin trabajo reportado",
   "No live agent": "Sin agente activo",
   "Agent presence not reported": "Presencia del agente no reportada",

@@ -17,6 +17,9 @@ The header and the Underway heading count only agents whose own pane Firstmate r
 Up next separates work ready to start from work blocked by another task, held, or deferred to a date.
 Validation job progress does not establish live native worker activity.
 Firstmate's endpoint probe shows only that an agent's pane exists, not that an agent runs in it; hold and pause end dates appear only when Firstmate exports them as fields, never from reason text.
+The hold, pause and crew-state source fields come from a companion Firstmate change and stay absent until it lands.
+Until that crew-state source export lands, a working crew whose backlog row carries a hold or a blocked-by note is not counted as working; its card says only that the agent pane is open.
+A card built from a snapshot kept after a failed or offline refresh never claims work now; it reads "Working when last seen" with the snapshot's age.
 Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
 Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
 Deliveries open a readable summary with a separate Report view and optional technical details.
