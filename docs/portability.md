@@ -70,3 +70,11 @@ This repository never installs services or changes an existing proxy automatical
 Keep receipts, owner data, configuration, runtime tokens and logs outside the public checkout.
 Preserve them when replacing code.
 Test a new export using a different temporary runtime directory and port before upgrading a live deployment.
+
+## Terminal controls and remote homes
+
+| Terminal shortcut | Action |
+| --- | --- |
+| `m` | Open Message Firstmate; Enter sends and Esc closes. |
+
+Remote second mates use `fm-on.sh` for terminal snapshots; remote web capabilities depend on the backend.

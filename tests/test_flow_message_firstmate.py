@@ -224,9 +224,9 @@ def test_render_shows_the_box_and_its_target():
     assert "enter send" in text
 
 
-def test_readme_lists_the_m_key():
-    readme = (ROOT / "README.md").read_text()
-    assert "| `m` |" in readme
+def test_platform_docs_list_the_m_key():
+    docs = (ROOT / "docs" / "portability.md").read_text()
+    assert "| `m` |" in docs
 
 
 if __name__ == "__main__":
