@@ -1,3 +1,3 @@
-# Copy to ~/.config/herdr/plugins/config/herdr-firstmate-flow/fm_home
+# Copy to fm_home in the directory `herdr plugin config-dir herdr-firstmate-flow` prints
 # (one line, absolute path to your Firstmate operational home)
 /home/you/path/to/firstmate
