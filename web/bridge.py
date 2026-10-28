@@ -35,7 +35,7 @@ from deck_platform import endpoint_path, private_directory, safe_file_reads, she
 
 STATIC = HERE / 'static'
 COLUMNS = [('charted', 'Up next'), ('underway', 'Underway'),
-           ('captains_call', 'Your decision'), ('landed', 'Delivered')]
+           ('captains_call', 'Needs you'), ('landed', 'Delivered')]
 MAX_BODY = 16384
 # The fixed line the Deck's message-Firstmate path sends after a main-owned
 # answer is recorded. It points at the record and never carries the answer.
@@ -184,6 +184,8 @@ class Board:
                 'time': self.event_json(getattr(card, 'event_time', None)),
                 'summary': excerpt(getattr(card, 'delivery_summary', '') or ''),
                 'answered': bool(getattr(card, 'answered_hidden', False)),
+                # A structured Captain's Call leads its card with the short question.
+                'question': (getattr(card, 'call', None) or {}).get('question', ''),
                 'agent': fm.UI.card_agent_line(card), 'herdr_url': link}
 
     def board(self, selected=''):
@@ -382,8 +384,8 @@ class Board:
             error = '' if guarded else 'This home’s intake needs an occurrence guard for web answers.'
         except Refusal as exc:
             identity, error = '', str(exc)
-        result['call'] = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'options',
-                                                   'recommend', 'freeform', 'freeform_hint', 'close')}
+        result['call'] = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'background', 'link',
+                                                   'options', 'recommend', 'freeform', 'freeform_hint', 'close')}
         result['call']['identity'] = identity
         result['call']['occurrence'] = digest(home_id(home), card.task, identity, content['stamp'],
                                             fm.flow_context(card, translate=CANONICAL_TEXT)['reason'], result['call'])
@@ -451,9 +453,9 @@ class Board:
             # The installed keyed intake bounds each field to 512 bytes. Reject
             # rather than silently truncate the captain's words.
             if any(ch in value + note for ch in ('\x00', '\t', '\n', '\r')):
-                raise Refusal('The answer must be a single line; it has not been sent.', 400)
+                raise Refusal('Keep the answer on one line. Nothing was sent.', 400)
             if len(note.encode()) > min(fm.ANSWER_LIMIT, 512):
-                raise Refusal('The answer exceeds 512 bytes; shorten it before sending.', 400)
+                raise Refusal('That answer is too long. Shorten it and send again.', 400)
             options = call['options']
             if value and value not in [o['value'] for o in options]:
                 raise Refusal('That option is no longer available.')
@@ -471,7 +473,7 @@ class Board:
                 fields[2] = fm._flatten_field(card.title)[:80]
                 line = '\t'.join(fields)
             if any(len(field.encode()) > 512 for field in line.split('\t')):
-                raise Refusal('The option and text together exceed the intake limit.', 400)
+                raise Refusal('Your choice plus note is too long. Shorten the note and send again.', 400)
             # No write until all checks pass. The pending marker is deliberately
             # durable: after an interrupted call retry cannot submit twice.
             receipt_dir.mkdir(parents=True, exist_ok=True, mode=0o700)

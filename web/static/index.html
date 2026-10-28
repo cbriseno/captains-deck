@@ -20,7 +20,7 @@
 </header>
 <main id="workspace">
   <section class="intro" aria-labelledby="heading">
-    <div><p class="eyebrow" data-i18n="COMMAND BRIDGE">COMMAND BRIDGE</p><h1 id="heading"><span data-i18n="Your crew,">Your crew,</span><br class="phone-break"><span data-i18n=" in view."> in view.</span></h1><p class="intro-copy" id="overview" data-i18n="Reading Firstmate’s retained state…">Reading Firstmate’s retained state…</p></div>
+    <div><p class="eyebrow" data-i18n="COMMAND BRIDGE">COMMAND BRIDGE</p><h1 id="heading"><span data-i18n="Your crew,">Your crew,</span><br class="phone-break"><span data-i18n=" in view."> in view.</span></h1><p class="intro-copy" id="overview" data-i18n="Loading…">Loading…</p></div>
     <div class="connection"><span id="connection" role="status" data-i18n="Connecting…">Connecting…</span><span id="updated" data-i18n="No read yet.">No read yet.</span><button id="refresh" type="button" data-i18n="↻ Refresh">↻ Refresh</button></div>
   </section>
   <div id="notice" class="notice" role="status" hidden></div>
@@ -33,20 +33,20 @@
     <nav id="columns-nav" class="columns-nav" aria-label="Work states" data-i18n-aria-label="Work states"></nav>
     <div class="board-filter"><label for="board-search" data-i18n="Search board">Search board</label><input id="board-search" aria-label="Search board" data-i18n-aria-label="Search board" type="search" placeholder="Title, reason or owner…" data-i18n-placeholder="Title, reason or owner…" autocomplete="off"></div>
     <div id="board" class="board"><p class="placeholder" data-i18n="Loading board…">Loading board…</p></div>
-    <p class="footnote" data-i18n="Underway includes waits and pending integration. Each card retains its owner’s declared state.">Underway includes waits and pending integration. Each card retains its owner’s declared state.</p>
+    <p class="footnote" data-i18n="Underway includes tasks that are waiting or finishing up.">Underway includes tasks that are waiting or finishing up.</p>
   </section>
   <section id="history-panel" aria-labelledby="history-heading" hidden>
-    <div class="history-intro"><div><p class="eyebrow" data-i18n="CREW MEMORY">CREW MEMORY</p><h2 id="history-heading" data-i18n="What has been delivered">What has been delivered</h2><p data-i18n="Search beyond Recent by name, initiative or task.">Search beyond Recent by name, initiative or task.</p></div><label><span data-i18n="Search deliveries">Search deliveries</span><input id="history-search" type="search" placeholder="Name, initiative or task…" data-i18n-placeholder="Name, initiative or task…" autocomplete="off"></label></div>
+    <div class="history-intro"><div><p class="eyebrow" data-i18n="CREW MEMORY">CREW MEMORY</p><h2 id="history-heading" data-i18n="What has been delivered">What has been delivered</h2><p data-i18n="Search older work by name or task.">Search older work by name or task.</p></div><label><span data-i18n="Search deliveries">Search deliveries</span><input id="history-search" type="search" placeholder="Name, initiative or task…" data-i18n-placeholder="Name, initiative or task…" autocomplete="off"></label></div>
     <p id="history-status" class="muted" role="status"></p><div id="history-results" class="history-results"></div>
-    <details class="source-details"><summary data-i18n="History retention and sources">History retention and sources</summary><div id="history-sources"></div></details>
+    <details class="source-details"><summary data-i18n="Where history comes from">Where history comes from</summary><div id="history-sources"></div></details>
   </section>
-  <section class="supervision" aria-labelledby="supervision-heading"><div class="supervision-heading"><span class="compass" aria-hidden="true">◎</span><div><h2 id="supervision-heading" data-i18n="From Firstmate">From Firstmate</h2><p data-i18n="Supervisor declarations and source freshness.">Supervisor declarations and source freshness.</p></div></div><div id="supervisors"><p class="muted" data-i18n="Waiting for the first read.">Waiting for the first read.</p></div></section>
-  <details id="receipts-panel" class="source-details" hidden><summary data-i18n="Your answer receipts">Your answer receipts</summary><p data-i18n="Saving, notification, ACK and consumption are confirmed separately.">Saving, notification, ACK and consumption are confirmed separately.</p><div id="receipts"></div></details>
+  <section class="supervision" aria-labelledby="supervision-heading"><div class="supervision-heading"><span class="compass" aria-hidden="true">◎</span><div><h2 id="supervision-heading" data-i18n="From Firstmate">From Firstmate</h2><p data-i18n="What Firstmate says it’s doing, and how fresh that is.">What Firstmate says it’s doing, and how fresh that is.</p></div></div><div id="supervisors"><p class="muted" data-i18n="Waiting for the first read.">Waiting for the first read.</p></div></section>
+  <details id="receipts-panel" class="source-details" hidden><summary data-i18n="Your answers">Your answers</summary><p data-i18n="What happened to each answer you sent.">What happened to each answer you sent.</p><div id="receipts"></div></details>
 </main>
-<footer><span class="private-mark">●</span><span data-i18n="Private view · Firstmate retains tasks and answers.">Private view · Firstmate retains tasks and answers.</span><span id="timezone"></span></footer>
+<footer><span class="private-mark">●</span><span data-i18n="Private view. Firstmate keeps your tasks and answers.">Private view. Firstmate keeps your tasks and answers.</span><span id="timezone"></span></footer>
 </div>
 <dialog id="detail" aria-labelledby="detail-title">
-  <div class="dialog-top"><span id="detail-kicker" class="eyebrow" data-i18n="TASK CONTEXT">TASK CONTEXT</span><button id="detail-close" class="close" type="button" aria-label="Close details" data-i18n-aria-label="Close details">✕</button></div>
+  <div class="dialog-top"><span id="detail-kicker" class="eyebrow" data-i18n="DETAILS">DETAILS</span><button id="detail-close" class="close" type="button" aria-label="Close details" data-i18n-aria-label="Close details">✕</button></div>
   <h2 id="detail-title" tabindex="-1"></h2><div id="detail-meta" class="muted"></div>
   <div id="detail-content"></div>
 </dialog>

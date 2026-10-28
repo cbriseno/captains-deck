@@ -3,6 +3,7 @@ import http.client
 import json
 import os
 import pickle
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -41,6 +42,31 @@ class LocaleTests(unittest.TestCase):
         self.assertEqual(es.t('{label}: {path}\n{text}', label='x', path='url', text=payload), 'x: url\n' + payload)
         self.assertEqual(en.receipt_message('Respuesta guardada por Firstmate.'), 'Answer saved by Firstmate.')
         self.assertEqual(es.receipt_message('Answer saved by Firstmate.'), 'Respuesta guardada por Firstmate.')
+
+    def test_card_and_call_copy_is_short_plain_and_translated(self):
+        # Primary card, drawer and Captain's Call copy: one short line, no
+        # internal plumbing words, and a real Spanish version of each.
+        primary = ['Needs you', 'Waiting on your answer', 'Recommended', 'Pick one', 'Answer in my own words',
+                   'Your answer', 'Send', 'Check again first', 'Answer saved', 'See answer status',
+                   'Firstmate saves your answer and lifts the hold.', 'Firstmate saves your answer and takes it from there.',
+                   'Firstmate looks at the latest state again. Nothing is decided yet.',
+                   'Firstmate has your answer and will pick it up next.', 'Read the full report ↗', 'Read more',
+                   'The question changed since you started. Your draft is still here: pick an option or edit it to send.',
+                   'Answer in your own words, or ask Firstmate to check again first.', 'Pick one below, or answer in your own words.',
+                   'Agent: {name}', 'No summary yet.', 'Waiting on another task', 'In progress', 'Finishing up',
+                   'Checks running', 'Agent is working', 'Done, not closed yet', 'Nothing needs you right now.',
+                   'Answer →', 'Details →', 'See result →', 'Who’s on it', 'Waiting for', 'No next step yet.',
+                   'Not sure it was sent', 'Couldn’t reach Firstmate right now. It will see your answer on its next check.']
+        en, es = Localization('en'), Localization('es')
+        jargon = re.compile(r'intake|reconcil|\bACK\b|bytes|occurrence|ocurrencia|declarad|retenid', re.I)
+        for key in primary:
+            with self.subTest(key=key):
+                self.assertIn(key, en.messages)
+                for text in (en.messages[key], es.messages[key]):
+                    self.assertLessEqual(len(text), 110, text)
+                    self.assertIsNone(jargon.search(text), text)
+                if key not in ('Send', 'Answer →') and not key.startswith('Agent:'):
+                    self.assertNotEqual(es.messages[key], key)
 
     def test_native_config_persistence_precedence_and_independent_servers(self):
         with tempfile.TemporaryDirectory(prefix='deck locale ') as tmp:
@@ -120,7 +146,7 @@ class LocalizedOwnerTests(unittest.TestCase):
         for field in ('options', 'recommend', 'occurrence', 'identity', 'decide', 'close'):
             self.assertEqual(a[field], b[field])
         self.assertEqual(b['presentation']['options'][-1]['value'], 'reconcile')
-        self.assertEqual(b['presentation']['options'][-1]['label'], 'Reconciliar')
+        self.assertEqual(b['presentation']['options'][-1]['label'], 'Revisar otra vez primero')
         self.assertEqual(a['presentation']['options'][0], b['presentation']['options'][0])
         self.assertEqual(pickle.dumps(self.en.collector.snap), before)
         with patch.object(bridge.Board, 'guarded_intake', return_value=False):

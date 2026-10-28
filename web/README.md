@@ -23,6 +23,7 @@ A card built from a snapshot kept after a failed or offline refresh never claims
 Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
 Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
 Deliveries open a readable summary with a separate Report view and optional technical details.
+Cards and dialogs use short, plain wording; long authored text leads with its first sentence and keeps the rest one click away.
 History searches the retained current/archive export, including deliveries beyond the recent cap.
 Relative event time is primary and updates while the view stays open without replacing focused controls or announcing a timer.
 The date disclosure opens with touch or keyboard and shows exact browser-local time.
@@ -203,6 +204,11 @@ One durable receipt per occurrence prevents double submission across browsers an
 Interrupted calls remain explicitly uncertain; a retry reads that receipt rather than automatically invoking the intake again.
 Conflicts preserve the session draft and require reviewing the current question.
 The keyed intake currently accepts a single-line answer of up to 512 bytes; over-limit answers are rejected before submission, never silently truncated.
+
+A Firstmate captain call row can carry a structured `call` object: `question`, `options` (each `id`, `label` and optional `detail`), `recommended`, `context` and `link`.
+Its options become one-click choices with the recommended one marked; answering in your own words and the re-check request stay available as secondary paths.
+The chosen option id goes through the same keyed-answer intake, and `link` opens the full report.
+Options are never inferred from prose: a row without the object keeps the own-words flow.
 
 Intake acceptance confirms a saved answer or review request.
 Notice, ACK and consumption are separate fields and remain unconfirmed without owner evidence.

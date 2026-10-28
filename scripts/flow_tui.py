@@ -89,12 +89,13 @@ DECISION_SOURCE = "herdr-firstmate-flow captain's deck"
 ANSWER_LIMIT = 512  # bytes, the board's own bound
 RECONCILE_OPTION = {
     "value": "reconcile",
-    "label": "Reconcile",
-    "hint": (
-        "Re-check the latest state, then close this with evidence "
-        "or keep it open with a note"
-    ),
+    "label": "Check again first",
+    "hint": "Firstmate looks at the latest state again. Nothing is decided yet.",
 }
+# Bounds for the structured `call` object Firstmate exports on a captain call
+# row. The producer bounds these too; the board never trusts it to.
+CALL_LIMITS = {"question": 160, "label": 40, "detail": 120, "context": 200, "link": 500}
+CALL_OPTION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
 
 # The intake's own key bound. A key outside it is skipped there without word,
 # so the dialog refuses it visibly instead.
@@ -1861,6 +1862,46 @@ def _presentation_text(message, **values):
 tr = _presentation_text
 
 
+def structured_call(raw) -> dict:
+    """The row's ``call`` object, bounded and validated, or {} when absent.
+
+    Options are only ever read from this object, never inferred from prose.
+    An id must be a short slug and unique; ``reconcile`` stays reserved for
+    the board's own re-check choice.
+    """
+    if not isinstance(raw, dict):
+        return {}
+
+    def text(key: str) -> str:
+        value = raw.get(key)
+        return _trunc(_flatten_field(value), CALL_LIMITS[key]) if isinstance(value, str) else ""
+
+    options: list[dict[str, str]] = []
+    for opt in raw.get("options") or []:
+        if not isinstance(opt, dict) or not isinstance(opt.get("id"), str):
+            continue
+        oid = opt["id"].strip()
+        if (not CALL_OPTION_ID_RE.fullmatch(oid) or oid == RECONCILE_OPTION["value"]
+                or any(o["id"] == oid for o in options)):
+            continue
+        label = opt.get("label") if isinstance(opt.get("label"), str) else ""
+        detail = opt.get("detail") if isinstance(opt.get("detail"), str) else ""
+        options.append({
+            "id": oid,
+            "label": _trunc(_flatten_field(label), CALL_LIMITS["label"]) or oid,
+            "detail": _trunc(_flatten_field(detail), CALL_LIMITS["detail"]),
+        })
+    recommended = raw.get("recommended")
+    call = {
+        "question": text("question"),
+        "options": options,
+        "recommended": recommended if any(o["id"] == recommended for o in options) else "",
+        "context": text("context"),
+        "link": text("link"),
+    }
+    return call if call["question"] or options else {}
+
+
 def decision_card_content(
     card: Card, homes: list[Home] | None, active: Home | None, *, translate=None
 ) -> dict:
@@ -1869,7 +1910,8 @@ def decision_card_content(
     With no composed card (no board yet, or a card not composed for this key),
     the ticket's durable title and hold reason become the title and about line,
     and the captain answers in their own words - or sends Reconcile to have the
-    call re-checked.
+    call re-checked. A structured ``call`` on the row supplies the question,
+    its one-line context and the options, ahead of a composed card.
     """
     tr = translate or _presentation_text
     owner_home = resolve_owner_home(homes, card.owner, active)
@@ -1877,8 +1919,12 @@ def decision_card_content(
         card.task, *_decision_lookup_homes(homes, owner_home, active)
     )
     ctype = (str(raw.get("type") or "decision").strip() or "decision")
-    options: list[dict[str, str]] = []
-    for opt in raw.get("options") or []:
+    call = getattr(card, "call", None) or {}
+    options: list[dict[str, str]] = [
+        {"value": o["id"], "label": o["label"], "hint": o["detail"]}
+        for o in call.get("options") or []
+    ]
+    for opt in [] if options else raw.get("options") or []:
         if not isinstance(opt, dict):
             continue
         value = opt.get("value")
@@ -1896,7 +1942,7 @@ def decision_card_content(
     # card; do the same for a raw payload or a card-less ticket.
     if ctype == "decision" and all(o["value"] != "reconcile" for o in options):
         options.append({k: tr(v) if k in ('label', 'hint') else v for k, v in RECONCILE_OPTION.items()})
-    recommend = raw.get("recommend_value")
+    recommend = call["recommended"] if call.get("options") else raw.get("recommend_value")
     repo = str(raw.get("repo") or "")
     if not repo and card.owner and card.owner != "(main)":
         repo = card.owner
@@ -1924,11 +1970,19 @@ def decision_card_content(
         # a truncated reason stub is noise, not context
         if about.endswith("\u2026") and len(about) < 24:
             about = ""
-        decide = tr('Answer in your own words, or send Reconcile to re-check the latest state.')
+        if not call.get("options"):
+            decide = tr('Answer in your own words, or ask Firstmate to check again first.')
     elif not title:
         title = str(card.title or card.task)
+    # The structured call's short wording leads; the longer prose it replaces
+    # stays available as background, never parsed for options.
+    background = ""
+    if call.get("context") and _flatten_field(call["context"]) != _flatten_field(about):
+        background, about = about, call["context"]
+    if call.get("question"):
+        decide = call["question"]
     if not decide:
-        decide = tr('Pick an option below, or answer in your own words.')
+        decide = tr('Pick one below, or answer in your own words.')
     home_path = answer_home_path(card, homes, active)
     return {
         "key": card.task,
@@ -1938,6 +1992,8 @@ def decision_card_content(
         "about": _flatten_field(about),
         "decide": _flatten_field(decide),
         "detail": _flatten_field(raw.get("detail")),
+        "background": _flatten_field(background),
+        "link": call.get("link", ""),
         "options": options,
         "recommend": recommend if isinstance(recommend, str) else "",
         "freeform": bool(raw.get("allow_freeform")) if raw else True,
@@ -2615,6 +2671,9 @@ class Card:
         "wait_until",
         # Receipt time of a snapshot kept after its refresh failed; 0 if fresh.
         "retained_at",
+        # The row's structured Captain's Call ({question, options, recommended,
+        # context, link}), normalized by structured_call(); {} on legacy rows.
+        "call",
     )
 
 
@@ -2686,6 +2745,7 @@ def make_cards(
         card.delivery_summary = ""
         card.delivery_problem = ""
         card.flow = entry.get("flow") if isinstance(entry.get("flow"), dict) else {}
+        card.call = structured_call(entry.get("call"))
         if isinstance(card.flow.get('title'), str) and card.flow['title'].strip():
             card.title = card.flow['title']
         supervisor = entry.get('supervisor', snap.get('supervisor') if owner_path == home.path else None)
@@ -4131,11 +4191,11 @@ def flow_context(card: Card, *, translate=None) -> dict[str, str]:
             phase = 'reported'
         else:
             phase = 'unknown'
-    labels = {'human': tr('Waiting for a human answer'), 'dependency': tr('Waiting for a dependency'),
-              'integration': tr('Integration pending'), 'technical': tr('Technical hold'),
-              'active': tr('Declared activity'), 'unknown': tr('Unconfirmed state'),
-              'waiting': tr('Declared wait'),
-              'reported': tr('Work reported') if report_state == 'done' else tr('Last report')}
+    labels = {'human': tr('Waiting for a human answer'), 'dependency': tr('Waiting on another task'),
+              'integration': tr('Finishing up'), 'technical': tr('On hold'),
+              'active': tr('In progress'), 'unknown': tr('Status unclear'),
+              'waiting': tr('Waiting'),
+              'reported': tr('Reported done') if report_state == 'done' else tr('Last report')}
     if phase == 'integration' and flow.get('state') == 'ready':
         labels['integration'] = tr('Ready for integration')
     actions = {'human': tr('Answer the question in Captain’s Call.'),
@@ -4710,7 +4770,7 @@ class UI:
         if not self.delivery_views:
             controls = [('back', tr('Back'))]
         if self.delivery_context:
-            controls += [('explain', 'e ' + tr('Ask Firstmate for an explanation')), ('status', 's ' + tr('Status'))]
+            controls += [('explain', 'e ' + tr('Ask Firstmate to explain')), ('status', 's ' + tr('Status'))]
         self.delivery_actions = [action for action, _ in controls]
         self.delivery_action_focus = min(self.delivery_action_focus, len(controls) - 1)
         action_rows, hits = [''], []
@@ -5927,7 +5987,7 @@ class UI:
             body += [mid(context['label'], card.badge_color)]
             body += [mid(row, C_WARN) for row in excerpt(context['reason'], 2)]
             dependency = dependency_caption(card)
-            relation = tr('Depends on: {dependency}', dependency=dependency) if dependency else context['waiting_for'] or context['next_action']
+            relation = tr('Waiting on: {dependency}', dependency=dependency) if dependency else context['waiting_for'] or context['next_action']
             relation = 'Firstmate · ' + (getattr(card, 'owner_label', '') or tr('owner not recorded')) + ': ' + relation
             body += [mid(row) for row in excerpt(relation, 2)]
             # The workflow report and native observation are independent.

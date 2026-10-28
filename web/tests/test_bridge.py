@@ -347,5 +347,30 @@ class WebTests(unittest.TestCase):
         self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertNotIn('primary',receipt)
         self.assertEqual(self.sends(log),[])
 
+    def test_structured_call_options_reach_the_ticket_and_an_option_id_answers(self):
+        # A row with a structured call and no composed card: the options come
+        # from the row, never from the prose reason beside it.
+        (Path(self.home.path)/'state/decision-cards/ask.json').unlink()
+        card=self.board.collector.snap.cols['captains_call'][0]
+        card.call=bridge.fm.structured_call({'question':'¿Entregamos ahora?','context':'El tablero está listo.',
+            'options':[{'id':'ship','label':'Entregar ahora','detail':'La validación queda pendiente'},{'id':'wait','label':'Esperar'}],
+            'recommended':'ship','link':'https://example.com/informe'})
+        board=self.init()
+        listed=next(c for c in board['columns'] if c['id']=='captains_call')['cards'][0]
+        self.assertEqual(listed['question'],'¿Entregamos ahora?')
+        status,ticket=self.req('/api/ticket/'+listed['key']);self.assertEqual(status,200)
+        call=ticket['call']
+        self.assertEqual([o['value'] for o in call['options']],['ship','wait','reconcile'])
+        self.assertEqual((call['recommend'],call['decide'],call['about'],call['link']),
+                         ('ship','¿Entregamos ahora?','El tablero está listo.','https://example.com/informe'))
+        self.assertTrue(call['background'])
+        status,_=self.req('/api/ticket/'+listed['key']+'/answer',dict(value='other',note='',occurrence=call['occurrence'],request_id='t'*32))
+        self.assertEqual(status,409);self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
+        status,receipt=self.req('/api/ticket/'+listed['key']+'/answer',dict(value='ship',note='',occurrence=call['occurrence'],request_id='s'*32))
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True)
+        mutation=json.loads((Path(self.home.path)/'mutations.jsonl').read_text())
+        self.assertEqual(mutation['args'][0],'answers')
+        self.assertEqual(mutation['input'].split('\t')[:2],['ask','ship'])
+
 
 if __name__=='__main__':unittest.main()

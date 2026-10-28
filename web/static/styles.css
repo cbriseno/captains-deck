@@ -854,51 +854,50 @@ dialog::backdrop {
   font-size:15px
 }
 
+.call-context {
+  font-size:14px;
+  line-height:1.6;
+  color:var(--muted);
+  margin:14px 0 0
+}
+
 .option-list {
-  border:0;
   margin:20px 0;
-  padding:0;
   display:grid;
   gap:9px
 }
 
-.option-list legend {
-  font-size:12px;
-  font-weight:650;
-  margin-bottom:12px
-}
-
-.choice {
+.option-choice {
   border:1px solid var(--line);
   border-radius:12px;
-  display:flex;
-  gap:11px;
+  background:var(--surface);
+  color:var(--ink);
+  display:block;
+  width:100%;
+  min-height:48px;
   padding:14px;
-  align-items:start;
+  text-align:left;
   cursor:pointer
 }
 
-.choice:has(input:checked) {
+.option-choice:hover:enabled,
+.option-choice[aria-pressed="true"] {
   background:var(--selected-surface);
+  border-color:var(--selected-border)
+}
+
+.option-choice.recommended-choice {
   border-color:var(--selected-border);
   box-shadow:inset 0 0 0 1px var(--selected-border)
 }
 
-.choice input {
-  margin:4px 0 0;
-  min-height:16px;
-  min-width:18px;
-  width:18px;
-  accent-color:var(--blue)
-}
-
-.choice strong {
-  font-size:13px;
+.option-choice strong {
+  font-size:14px;
   color:var(--ink);
   font-weight:650
 }
 
-.choice small {
+.option-choice small {
   display:block;
   font-size:12px;
   line-height:1.6;
@@ -908,10 +907,41 @@ dialog::backdrop {
 }
 
 .recommended {
-  font-size:9px;
+  font-size:10px;
   font-weight:650;
   color:var(--blue);
-  margin-left:6px
+  margin-left:8px
+}
+
+.own-words {
+  display:grid;
+  gap:10px;
+  margin:12px 0
+}
+
+.own-words button {
+  justify-self:end
+}
+
+.recheck {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:6px 12px;
+  margin:16px 0
+}
+
+.recheck .secondary-choice {
+  width:auto;
+  min-height:44px;
+  padding:9px 14px;
+  font-size:13px
+}
+
+.recheck small {
+  font-size:12px;
+  color:var(--muted);
+  min-width:0
 }
 
 .answer-label {
@@ -926,33 +956,13 @@ dialog::backdrop {
 }
 
 .answer-help {
-  font-size:10px;
+  font-size:12px;
   color:var(--muted);
   margin:7px 0 17px
 }
 
-.action-bar {
-  position:sticky;
-  bottom:-25px;
-  background:var(--surface);
-  border-top:1px solid var(--line);
-  padding:15px 0 2px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  margin-top:20px
-}
 
-.action-bar p {
-  font-size:10px;
-  color:var(--muted);
-  max-width:300px
-}
 
-.action-bar button {
-  white-space:nowrap
-}
 
 .receipt {
   border:1px solid var(--receipt-border);
@@ -1291,19 +1301,6 @@ dialog::backdrop {
     font-size: 11px;
     margin-bottom: 18px;
   }
-  .action-bar {
-    bottom: -17px;
-    padding: 13px 0 0;
-    display: block;
-  }
-  .action-bar p {
-    max-width: none;
-    margin-bottom: 10px;
-  }
-  .action-bar button {
-    width: 100%;
-    min-height: 48px;
-  }
   .question {
     font-size: 16px;
   }
@@ -1313,8 +1310,12 @@ dialog::backdrop {
   .receipt dl {
     font-size: 11px;
   }
-  .choice {
+  .option-choice {
     padding: 12px;
+  }
+  .own-words button {
+    width: 100%;
+    min-height: 48px;
   }
   footer {
     font-size: 9px;

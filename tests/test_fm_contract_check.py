@@ -70,6 +70,26 @@ def test_contract_flags_missing_snapshot_field():
         assert "in_flight[0].doing" in _fail_details(report)
 
 
+def test_contract_accepts_a_structured_call_and_warns_on_a_malformed_one():
+    with tempfile.TemporaryDirectory() as tmp:
+        dst = _copy_fixtures(Path(tmp))
+        snap_path = dst / "bearings_snapshot.json"
+        data = json.loads(snap_path.read_text())
+        data["decisions_open"][0]["call"] = {"question": "Ship it?", "recommended": "yes",
+                                             "options": [{"id": "yes", "label": "Ship it", "detail": ""}]}
+        snap_path.write_text(json.dumps(data))
+        report = checker.check_home(str(dst / "home"))
+        assert report.is_ok(), _fail_details(report)
+        assert not any(c["check"] == "snapshot.decisions_open.call" for c in report.checks)
+        data["decisions_open"][0]["call"] = {"options": [{"id": 3}], "recommended": "no"}
+        snap_path.write_text(json.dumps(data))
+        report = checker.check_home(str(dst / "home"))
+        assert report.is_ok(), _fail_details(report)
+        warned = [c for c in report.checks if c["check"] == "snapshot.decisions_open.call"]
+        assert warned and warned[0]["status"] == "warn"
+        assert "options[0]" in warned[0]["detail"]
+
+
 def test_contract_flags_missing_meta_harness():
     with tempfile.TemporaryDirectory() as tmp:
         dst = _copy_fixtures(Path(tmp))

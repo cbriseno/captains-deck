@@ -6,13 +6,13 @@ const $ = (id) => document.getElementById(id);
 const S = { board: null, home: '', column: 'underway', online: false, view: 'board', query: '',
   busy: false, csrf: '', modal: null, opener: null, generation: 0, historyGeneration: 0,
   lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false };
-const labels = { charted: t("Up next"), underway: t("Underway"), captains_call: t("Your decision"), landed: t("Delivered") };
-const notes = { captains_call: t("Your answer is needed"), landed: t("Recent deliveries") };
-const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waiting for a dependency"), integration: t("Integration pending"), technical: t("Technical hold"), active: t("Declared activity"), unknown: t("Unconfirmed state"), waiting: t("Declared wait"), reported: t("Work reported") };
-const runLabels = { running: t('Validation running'), fixing: t('Validation fixes in progress'), passed: t('Validation passed'), failed: t('Validation failed') };
+const labels = { charted: t("Up next"), underway: t("Underway"), captains_call: t("Needs you"), landed: t("Delivered") };
+const notes = { captains_call: t("Waiting on your answer"), landed: t("Recently finished") };
+const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waiting on another task"), integration: t("Finishing up"), technical: t("On hold"), active: t("In progress"), unknown: t("Status unclear"), waiting: t("Waiting"), reported: t("Reported done") };
+const runLabels = { running: t('Checks running'), fixing: t('Fixing failed checks'), passed: t('Checks passed'), failed: t('Checks failed') };
 // Firstmate's crew state and endpoint probe, as projected by the bridge.
-const agentLines = { working: t('Agent working now'), validation: t('Validation run active for this task'), open: t('Agent pane open'), present: t('Agent pane open, not reported working'), none: t('No live agent'), unknown: t('Agent presence not reported') };
-const gapLines = { hold_until: t('Firstmate does not export when this hold ends.'), wait_until: t('Firstmate does not export when this pause ends.') };
+const agentLines = { working: t('Agent is working'), validation: t('Checks are running'), open: t('Agent is open'), present: t('Agent is open but idle'), none: t('No agent running'), unknown: t('Agent status unknown') };
+const gapLines = { hold_until: t('No end time given for this hold.'), wait_until: t('No end time given for this pause.') };
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 $('timezone').textContent = t("Times in ") + zone;
 function node(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
@@ -23,7 +23,7 @@ function prose(text) {
   const headings = new Set(['Result', 'Scope', 'Why', 'Evidence', 'Pending', 'Checks', 'Limits', 'What changed', 'Next step', 'Resultado', 'Alcance', 'Por qué', 'Evidencia', 'Pendiente', 'Comprobaciones', 'Límites', 'Qué cambió', t("Next step")]);
   let lines = [], list = null;
   const flush = () => { if (lines.join('\n').trim()) root.append(node('p', '', lines.join('\n').trim())); lines = []; };
-  for (const line of (text || t("No content is retained for this view.")).split('\n')) {
+  for (const line of (text || t("Nothing to show here yet.")).split('\n')) {
     const heading = line.match(/^#{1,6}\s+(.+)/), item = line.match(/^\s*(?:[-*]|\d+[.)])\s+(.+)/);
     if (heading || headings.has(line.trim())) { flush(); list = null; root.append(node('h3', '', heading ? heading[1] : line.trim())); }
     else if (item) {
@@ -52,24 +52,24 @@ function refreshTimes() {
 function executorText(card) {
   const p = card.presentation || {};
   const harness = p.executor?.harness;
-  return harness ? t('Registered executor: {name}', {name: {codex: 'Codex', claude: 'Claude Code', pi: 'Pi'}[harness] || harness}) : t('Executor not recorded');
+  return harness ? t('Agent: {name}', {name: {codex: 'Codex', claude: 'Claude Code', pi: 'Pi'}[harness] || harness}) : t('Agent not set');
 }
-function summaryText(card, compact = false) { return card.presentation?.summary || t(compact ? 'Summary pending from Firstmate.' : 'A human summary is missing. Firstmate needs to record the result or current situation.'); }
+function summaryText(card, compact = false) { return card.presentation?.summary || t(compact ? 'No summary yet.' : 'No summary yet. Firstmate hasn’t written one.'); }
 function activityText(card) {
   const a = card.activity || {}, until = a.until ? untilText(a.until) : '';
   if (a.kind === 'paused') return until ? t('Paused until {date}', {date: until}) : t('Paused');
   if (a.kind === 'deferred') return until ? t('Deferred until {date}', {date: until}) : t('Deferred');
-  if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting for a decision') : '';
+  if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting on a decision') : '';
   if (a.kind === 'last_seen_working') return t('Working when last seen') + (a.seen_at ? ' · ' + relative(a.seen_at) : '');
-  return { working: t('Working now'), validating: t('Validation running'), validation_gate: t('Validation awaiting approval'), blocked: t('Waiting on another task'),
-    held: t('On hold'), finished: t('Reported done · still open'), stopped: t('Stopped'), ready: t('Ready to start'), queued: t('Queued') }[a.kind] || '';
+  return { working: t('Working now'), validating: t('Checks running'), validation_gate: t('Checks need approval'), blocked: t('Waiting on another task'),
+    held: t('On hold'), finished: t('Done, not closed yet'), stopped: t('Stopped'), ready: t('Ready to start'), queued: t('Queued') }[a.kind] || '';
 }
 function phaseText(card) {
-  if (card.answered) return t('Answer recorded');
-  if (card.bucket === 'landed') return t('Retained delivery');
+  if (card.answered) return t('Answer saved');
+  if (card.bucket === 'landed') return t('Delivered');
   const run = card.presentation?.run_step;
   if (run) return runLabels[run.state];
-  return activityText(card) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : card.context.label || phaseLabels[card.context.phase]);
+  return activityText(card) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : phaseLabels[card.context.phase] || card.context.label);
 }
 function agentLine(card) {
   const agent = card.activity?.agent || 'unknown', line = node('p', 'activity-note', agentLines[agent] || agentLines.unknown);
@@ -78,15 +78,19 @@ function agentLine(card) {
 function activityCount(columns, id, kind) { return (columns.find(c => c.id === id)?.cards || []).filter(x => !x.answered && x.activity?.kind === kind).length; }
 function dependencyText(card) {
   return card.dependencies.map(d => (d.title || d.id) + ' · ' + (d.owner === '(main)' ? card.owner : d.owner || t('owner not recorded')) +
-    (d.reconciliation_required ? t(' · needs reconciliation') : d.unresolved === false ? t(' · resolved') : '')).join('; ');
+    (d.reconciliation_required ? t(' · needs a check') : d.unresolved === false ? t(' · resolved') : '')).join('; ');
 }
 function notice(text, error = false) { $('notice').hidden = !text; $('notice').className = 'notice' + (error ? ' error' : ''); $('notice').textContent = text; }
 function syncSubmit() {
-  const submit = $('answer-submit'), call = S.modal?.ticket?.call;
-  if (!submit || !call) return;
-  const choice = document.querySelector('input[name="answer"]:checked')?.value;
-  const hasAnswer = !!choice || (call.freeform && !!$('answer-note')?.value.trim());
-  submit.disabled = S.busy || !S.online || !!call.error || !!S.receipt || !!S.modal.draftNeedsReview || !hasAnswer;
+  const call = S.modal?.type === 'call' ? S.modal.ticket?.call : null;
+  if (!call) return;
+  const blocked = S.busy || !S.online || !!call.error || !!S.receipt;
+  for (const b of $('detail-content').querySelectorAll('.option-choice')) {
+    b.disabled = blocked;
+    b.setAttribute('aria-pressed', String(b.dataset.value === S.modal.value));
+  }
+  const submit = $('answer-submit');
+  if (submit) submit.disabled = blocked || !!S.modal.draftNeedsReview || !$('answer-note')?.value.trim();
 }
 async function api(path, body) {
   const controller = new AbortController();
@@ -123,13 +127,13 @@ function sourceStatus() {
   const stale = at && Date.now() / 1000 - at > Math.max(60, S.board.source_ttl * 2);
   const failed = S.board.error || sources.some(s => s.error);
   const disconnected = !S.online || Date.now() - S.lastRead > 30000;
-  const connectionText = disconnected ? t("Offline") : failed ? t("Source error") : stale ? t("Stale data") : S.board.loading ? t("Loading sources") : t("Connected to Deck");
+  const connectionText = disconnected ? t("Offline") : failed ? t("Update failed") : stale ? t("Out of date") : S.board.loading ? t("Loading…") : t("Connected to Deck");
   if ($('connection').textContent !== connectionText) $('connection').textContent = connectionText;
   $('connection').dataset.level = disconnected || failed ? 'error' : stale ? 'warning' : 'ok';
   renderUpdated(S.lastRead / 1000);
-  if (disconnected) notice(t("Deck is offline. The last view and your draft are preserved. Review the question before sending after reconnecting."));
-  else if (failed) notice(t("A source could not be refreshed. Retained data may be stale; check the sources below."));
-  else if (stale) notice(t("The Firstmate read is old. The current state is not yet confirmed."));
+  if (disconnected) notice(t("You’re offline. Your draft is safe. Check the question again once you’re back."));
+  else if (failed) notice(t("Couldn’t refresh one source. Some cards may be out of date."));
+  else if (stale) notice(t("This view is a bit old. Waiting for a fresh update."));
   else notice('');
   syncSubmit();
 }
@@ -171,7 +175,7 @@ function renderBoard() {
   for (const c of columns) {
     let section = existing.get(c.id);
     if (!section) { section = node('section', 'column'); section.dataset.kind = c.id; $('board').append(section); }
-    const cards = c.cards.filter(card => (S.query === '' || [card.title, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
+    const cards = c.cards.filter(card => (S.query === '' || [card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
       ...card.dependencies.map(d => d.title || d.id)].join(' ').toLocaleLowerCase(locale).includes(S.query)));
     const sub = c.id === 'underway' ? t('{count} working now', {count: activityCount([{id: c.id, cards}], c.id, 'working')})
       : c.id === 'charted' ? t('{count} ready to start', {count: activityCount([{id: c.id, cards}], c.id, 'ready')}) : '';
@@ -201,7 +205,7 @@ function renderBoard() {
         focused?.focus({preventScroll: true});
       }
     }
-    if (!cards.length) list.replaceChildren(node('p', 'empty', S.query ? t("No tasks match your search.") : c.id === 'captains_call' ? t("No pending questions. Firstmate is keeping course.") : c.id === 'landed' ? t("No deliveries in this recent view. Search history for retained deliveries.") : t("No tasks in this state.")));
+    if (!cards.length) list.replaceChildren(node('p', 'empty', S.query ? t("No tasks match your search.") : c.id === 'captains_call' ? t("Nothing needs you right now.") : c.id === 'landed' ? t("Nothing finished recently. Try History for older work.") : t("Nothing here.")));
   }
   for (const n of [...$('board').children]) if (!n.dataset.kind) n.remove();
   selectColumn(S.column); renderSupervisors(); sourceStatus();
@@ -212,23 +216,26 @@ function renderCard(card) {
   const phase = node('span', 'phase', phaseText(card)); phase.dataset.phase = card.bucket === 'landed' ? 'delivered' : card.presentation?.run_step ? 'waiting' : card.context.phase;
   phase.dataset.activity = card.answered ? '' : card.activity?.kind || '';
   const p = card.presentation || {};
-  append(b, node('div', 'card-top', card.bucket === 'landed' ? t('Coordinated by {owner}', {owner: card.owner}) : executorText(card)), node('h3', '', card.title), phase,
-    node('p', 'card-reason', card.bucket === 'landed' ? card.summary || t('Open the delivery to read the retained result.') : summaryText(card, true)));
-  if (card.dependencies.length) b.append(node('p', 'dependency', t('Depends on: {dependency}', {dependency: dependencyText(card)})));
-  else if (p.waiting_for) b.append(node('p', 'dependency', t('Waiting: ') + p.waiting_for));
-  if (card.bucket !== 'landed' && p.next_action && p.next_action !== p.waiting_for && p.next_action !== p.summary) b.append(node('p', 'card-next', t('Next: {action}', {action: p.next_action})));
+  // A card leads with one short line; the full text is one click away.
+  // An unknown agent is a drawer fact, not a line on every card.
+  const top = card.bucket === 'landed' ? t('Coordinated by {owner}', {owner: card.owner}) : p.executor?.harness ? executorText(card) : '';
+  append(b, top && node('div', 'card-top', top), node('h3', '', shortLine(card.title, 100)), phase,
+    node('p', 'card-reason', shortLine(card.bucket === 'landed' ? card.summary || t('Open it to see what was delivered.') : card.question || summaryText(card, true))));
+  if (card.dependencies.length) b.append(node('p', 'dependency', t('Waiting on: {dependency}', {dependency: dependencyText(card)})));
+  else if (p.waiting_for) b.append(node('p', 'dependency', t('Waiting: ') + shortLine(p.waiting_for, 100)));
+  if (card.bucket !== 'landed' && p.next_action && p.next_action !== p.waiting_for && p.next_action !== p.summary) b.append(node('p', 'card-next', t('Next: {action}', {action: shortLine(p.next_action, 100)})));
   if (card.bucket === 'underway') b.append(agentLine(card));
-  b.append(node('span', 'card-link', card.bucket === 'captains_call' ? t('View question →') : card.bucket === 'landed' ? t('Read delivery →') : t('View context →')));
+  b.append(node('span', 'card-link', card.bucket === 'captains_call' ? t('Answer →') : card.bucket === 'landed' ? t('See result →') : t('Details →')));
   return append(cardNode, b, timeView(card.time));
 }
 function supervisorText(s) {
-  if (!s || !s.observed_at) return t("Current activity is unknown. There is no supervisor declaration.");
+  if (!s || !s.observed_at) return t("Firstmate hasn’t said what it’s doing.");
   const epoch = Date.parse(s.observed_at) / 1000;
   const ttl = Number(s.ttl || s.ttl_seconds || 0);
   const stale = s.freshness === 'stale' || (ttl > 0 && Date.now() / 1000 - epoch > ttl);
   const state = { coordinating: t("coordination"), waiting: t("waiting"), idle: t("idle") }[s.state] || t("unknown state");
   const unknown = !Number.isFinite(epoch) || ttl <= 0 || s.freshness === 'unknown' || epoch > Date.now() / 1000 + 5;
-  return t('{declaration} {summary} {time} Current model activity is unknown.', {declaration: stale ? t("Declaration expired; current activity is unknown.") : unknown ? t("Freshness unconfirmed; current activity is unknown.") : t("Declared ") + state + '.', summary: s.summary || t("No purpose recorded."), time: Number.isFinite(epoch) ? dateFmt.format(new Date(epoch * 1000)) + ' · ' + relative(epoch) + '.' : t("Time cannot be verified.")});
+  return t('{declaration} {summary} {time} Current model activity is unknown.', {declaration: stale ? t("Firstmate’s last update expired.") : unknown ? t("Freshness unconfirmed; current activity is unknown.") : t("Declared ") + state + '.', summary: s.summary || t("No purpose recorded."), time: Number.isFinite(epoch) ? dateFmt.format(new Date(epoch * 1000)) + ' · ' + relative(epoch) + '.' : t("Time cannot be verified.")});
 }
 function renderSupervisors() {
   const current = new Map([...$('supervisors').children].map(n => [n.dataset.home, n]));
@@ -243,7 +250,7 @@ function renderSupervisors() {
     const receipt = source.error ? node('small', '', t(source.error)) : source.received_at ? timeView({label: 'Source received', epoch: source.received_at}) : node('small', '', t('No confirmed read'));
     receipt.dataset.role = 'receipt';
     const title = append(node('div'), node('strong', '', source.label), receipt);
-    const status = !s?.observed_at ? t('Current activity is unknown. There is no supervisor declaration.') : expired ? t('Declaration expired; current activity is unknown.') : t('Coordination is declared separately from worker activity.');
+    const status = !s?.observed_at ? t('Firstmate hasn’t said what it’s doing.') : expired ? t('Firstmate’s last update expired.') : t('Firstmate posted an update.');
     const snapshot = timeView({label: 'Snapshot generated', epoch: Date.parse(source.generated) / 1000});
     snapshot.dataset.role = 'snapshot';
     const detailsView = disclosure(t('Source details'), prose(supervisorText(s)), snapshot);
@@ -295,7 +302,7 @@ function setView(view) {
 }
 async function loadHistory() {
   const generation = ++S.historyGeneration;
-  $('history-status').textContent = t("Searching retained records…");
+  $('history-status').textContent = t("Searching…");
   try {
     const query = new URLSearchParams({ home: S.home, q: $('history-search').value });
     const data = await api('api/history?' + query);
@@ -303,10 +310,10 @@ async function loadHistory() {
     $('history-status').textContent = t('{count} deliveries{omitted}. {scope}', {count: data.records.length, omitted: data.omitted ? t(' · {count} more results; refine your search', {count: data.omitted}) : '', scope: data.scope});
     $('history-results').replaceChildren(...data.records.map(row => {
       const b = button('', () => openDelivery(row.home, row.task, b), 'card-open');
-      append(b, node('p', 'card-top', t('Coordinated by {owner}', {owner: row.owner})), node('h3', '', row.title), node('span', 'card-link', t("Read delivery →")));
+      append(b, node('p', 'card-top', t('Coordinated by {owner}', {owner: row.owner})), node('h3', '', row.title), node('span', 'card-link', t("See result →")));
       return append(node('article', 'task-card'), b, timeView(row.time));
     }));
-    if (!data.records.length) $('history-results').append(node('p', 'empty', t("No retained deliveries match your search.")));
+    if (!data.records.length) $('history-results').append(node('p', 'empty', t("No matches.")));
     $('history-sources').replaceChildren(...data.details.map(d => contextRow(d.home, d.source)));
   } catch (err) { if (generation === S.historyGeneration) $('history-status').textContent = t("Could not refresh history. ") + err.message; }
 }
@@ -314,7 +321,7 @@ function showDetail(title, meta, kicker, opener) {
   S.opener = opener || document.activeElement; S.receipt = null;
   S.openerKey = S.opener?.dataset?.key;
   $('detail-title').textContent = title; $('detail-meta').textContent = meta; $('detail-kicker').textContent = kicker;
-  $('detail-content').replaceChildren(node('p', 'muted', t("Loading context…")));
+  $('detail-content').replaceChildren(node('p', 'muted', t("Loading…")));
   if (!$('detail').open) $('detail').showModal();
   $('detail-title').focus();
 }
@@ -322,14 +329,14 @@ function readDraft(key) { try { return JSON.parse(sessionStorage.getItem('deck-d
 function saveDraft(event) {
   if (S.modal?.type !== 'call' || !$('answer-note') || S.receipt?.saved) return;
   if (event && ['input', 'change'].includes(event.type)) S.modal.draftNeedsReview = false;
-  const draft = { note: $('answer-note').value, value: document.querySelector('input[name="answer"]:checked')?.value || '', request: S.modal.request || crypto.randomUUID().replaceAll('-', ''), occurrence: S.modal.draftNeedsReview ? S.modal.previousOccurrence : S.modal.ticket.call.occurrence };
+  const draft = { note: $('answer-note').value, value: S.modal.value || '', request: S.modal.request || crypto.randomUUID().replaceAll('-', ''), occurrence: S.modal.draftNeedsReview ? S.modal.previousOccurrence : S.modal.ticket.call.occurrence };
   S.modal.request = draft.request; S.drafts.set(S.modal.key, draft);
   try { sessionStorage.setItem('deck-draft-' + S.modal.key, JSON.stringify(draft)); } catch { /* In-memory draft remains available. */ }
   syncSubmit();
 }
 async function openTicket(key, opener) {
   const gen = ++S.generation;
-  showDetail(t("Task context"), '', t("DECLARED STATE"), opener);
+  showDetail(t("Task"), '', t("DETAILS"), opener);
   S.modal = { type: 'loading', key };
   try {
     const ticket = await api('api/ticket/' + encodeURIComponent(key));
@@ -340,14 +347,14 @@ async function openTicket(key, opener) {
       S.modal = { type: 'task', key, ticket };
       const c = ticket.context, p = ticket.presentation || {};
       $('detail-kicker').textContent = phaseText(ticket);
-      $('detail-content').replaceChildren(prose(summaryText(ticket)), contextRow(t('Who is involved'), executorText(ticket)));
+      $('detail-content').replaceChildren(prose(summaryText(ticket)), contextRow(t('Who’s on it'), executorText(ticket)));
       const a = ticket.activity || {}, until = a.until ? untilText(a.until) : '';
       if (ticket.bucket === 'underway') $('detail-content').append(contextRow(t('Agent'), agentLines[a.agent] || agentLines.unknown));
-      if (ticket.dependencies.length) $('detail-content').append(contextRow(t('Dependencies'), dependencyText(ticket)));
+      if (ticket.dependencies.length) $('detail-content').append(contextRow(t('Waiting on'), dependencyText(ticket)));
       const waits = ['paused', 'deferred', 'held', 'blocked', 'validation_gate', 'stopped'].includes(a.kind);
-      if (!['ready', 'queued'].includes(a.kind) && (p.waiting_for || waits || ['waiting', 'technical', 'dependency', 'unknown'].includes(c.phase))) $('detail-content').append(contextRow(t('What it is waiting for'), p.waiting_for || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('An approval at its validation gate.') : t('The condition for resuming is missing. Firstmate needs to record what will allow this task to continue.'))));
+      if (!['ready', 'queued'].includes(a.kind) && (p.waiting_for || waits || ['waiting', 'technical', 'dependency', 'unknown'].includes(c.phase))) $('detail-content').append(contextRow(t('Waiting for'), p.waiting_for || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('Someone to approve its checks.') : t('Not recorded. Firstmate hasn’t said what it needs to continue.'))));
       if (gapLines[a.gap]) $('detail-content').append(node('p', 'activity-note', gapLines[a.gap]));
-      $('detail-content').append(contextRow(t('Next step'), p.next_action || t('No concrete next step is recorded. Firstmate needs to update the task.')));
+      $('detail-content').append(contextRow(t('Next step'), p.next_action || t('No next step yet.')));
       addTechnical(ticket); addHerdr(ticket);
     }
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
@@ -355,7 +362,7 @@ async function openTicket(key, opener) {
 function addTechnical(ticket, ...extra) {
   const evidence = node('pre', 'technical-evidence', JSON.stringify({task: ticket.task, native: ticket.native, context: ticket.context}, null, 2));
   const report = ticket.report?.text ? contextRow(t('Full recorded report'), ticket.report.text) : null;
-  const details = disclosure(t('Technical details and original report'), report,
+  const details = disclosure(t('Technical details'), report,
     contextRow(t('Recorded agent'), ticket.agent || t('Not recorded.')),
     contextRow(t('Firstmate declaration'), supervisorText(ticket.supervisor)),
     contextRow(t('Date provenance'), ticket.time?.detail || t('Time not recorded')),
@@ -368,7 +375,7 @@ function addHerdr(ticket) { if (!ticket.herdr_url) return; const a = node('a', '
 function addStableLink(home, task, view) {
   if (!home) return;
   const url = new URL(location.href); url.search = new URLSearchParams({ home, task, view }).toString(); url.hash = '';
-  const a = node('a', 'herdr-link', t("Permanent link to this task ↗")); a.href = url.href;
+  const a = node('a', 'herdr-link', t("Link to this task ↗")); a.href = url.href;
   $('detail-content').append(a);
 }
 async function openStableLink(params) {
@@ -388,47 +395,82 @@ async function openStableLink(params) {
     $('detail-content').append(button(t("Find this task in history"), () => { $('history-search').value = task; $('detail').close(); setView('history'); }));
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
+// Long authored text leads with one short line; the rest opens on demand.
+function shortLine(text, limit = 140) {
+  const flat = String(text || '').replace(/\s+/g, ' ').trim();
+  if (flat.length <= limit) return flat;
+  const first = flat.match(/^.+?[.!?](?=\s|$)/)?.[0] || flat;
+  return first.length <= limit ? first : first.slice(0, limit - 1).replace(/\s+\S*$/, '') + '…';
+}
+function leadText(cls, text) {
+  const lead = shortLine(text), full = String(text || '').trim();
+  if (lead === full.replace(/\s+/g, ' ')) return node('p', cls, full);
+  return append(node('div', cls), node('p', '', lead), disclosure(t('Read more'), prose(full)));
+}
+function reportLink(link) {
+  if (!link) return null;
+  if (!/^https?:\/\//i.test(link)) return contextRow(t('Full report'), link);
+  const a = node('a', 'herdr-link', t('Read the full report ↗')); a.href = link; a.target = '_blank'; a.rel = 'noopener noreferrer';
+  return a;
+}
+function choose(value) {
+  if (S.busy || S.receipt || S.modal?.type !== 'call') return;
+  S.modal.value = value; S.modal.draftNeedsReview = false; $('call-change').hidden = !S.modal.ticket.call.error;
+  saveDraft(); submitAnswer();
+}
 function renderCall(ticket, draftOverride) {
   const key = ticket.key, c = ticket.call, draft = draftOverride || readDraft(key);
   const staleDraft = !!draft.occurrence && draft.occurrence !== c.occurrence && !!(draft.note || draft.value);
-  S.modal = { type: 'call', key, ticket, request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence };
+  S.modal = { type: 'call', key, ticket, value: staleDraft ? '' : draft.value || '', request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence };
   $('detail-kicker').textContent = t('CAPTAIN’S CALL'); $('detail-title').textContent = ticket.title;
   const content = $('detail-content'); content.replaceChildren();
   if (c.title && ![ticket.title, ticket.original_title].includes(c.title)) content.append(node('h3', 'call-question-title', c.title));
-  const instructions = c.detail ? contextRow(t('Instructions to answer'), c.detail) : null;
+  const instructions = c.detail ? contextRow(t('How to answer'), c.detail) : null;
   if (instructions) instructions.className += ' call-instructions';
+  const technical = [contextRow(t('Answer limits'), t('One line, up to 512 bytes. Typing saves a draft; only Send submits it.'))];
+  if (c.background) technical.unshift(contextRow(t('Original question text'), c.background));
   if (ticket.answered) {
-    $('detail-kicker').textContent = t('Answer recorded');
-    content.append(prose(c.presentation?.decide || c.decide), contextRow(t('What happens next'), t('The recorded answer is waiting for owner handling. This does not confirm that work resumed.')),
-      button(t('Check receipts'), async () => { await loadReceipts(); $('receipts-panel').open = true; $('detail').close(); }));
+    $('detail-kicker').textContent = t('Answer saved');
+    content.append(prose(c.presentation?.decide || c.decide), contextRow(t('What happens next'), t('Firstmate has your answer and will pick it up next.')),
+      button(t('See answer status'), async () => { await loadReceipts(); $('receipts-panel').open = true; $('detail').close(); }));
     if (instructions) content.append(instructions);
-    addTechnical(ticket); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); return;
+    addTechnical(ticket, ...technical); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); return;
   }
-  const error = node('p', 'notice', c.error || (staleDraft ? t("This draft belongs to an earlier question. It is preserved here: select a current option or edit your answer to enable sending.") : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
-  if (c.presentation?.about || c.about) content.append(prose(c.presentation?.about || c.about));
+  const error = node('p', 'notice', c.error || (staleDraft ? t("The question changed since you started. Your draft is still here: pick an option or edit it to send.") : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
+  const about = c.presentation?.about || c.about;
+  if (about) content.append(leadText('call-context', about));
   content.append(node('p', 'question', (c.presentation?.decide || c.decide)));
+  const link = reportLink(c.link); if (link) content.append(link);
   if (instructions) content.append(instructions);
-  const form = node('fieldset', 'option-list'); form.append(node('legend', '', t("Choose an option or answer in your own words")));
-  for (const option of c.options) {
-    const choice = node('label', 'choice'), input = node('input'); input.type = 'radio'; input.name = 'answer'; input.value = option.value; input.checked = !staleDraft && draft.value === option.value;
-    const text = append(node('span'), node('strong', '', c.presentation?.options?.find(o => o.value === option.value)?.label || option.label));
-    if (option.value === c.recommend) text.append(node('span', 'recommended', t("Suggested")));
-    if (option.hint) text.append(node('small', '', c.presentation?.options?.find(o => o.value === option.value)?.hint || option.hint));
-    input.addEventListener('change', saveDraft); append(choice, input, text); form.append(choice);
+  const label = (option) => c.presentation?.options?.find(o => o.value === option.value) || option;
+  const choices = c.options.filter(o => o.value !== 'reconcile'), recheck = c.options.find(o => o.value === 'reconcile');
+  if (choices.length) {
+    const list = node('div', 'option-list'); list.setAttribute('role', 'group'); list.setAttribute('aria-label', t('Pick one'));
+    for (const option of choices) {
+      const b = button('', () => choose(option.value), 'option-choice'); b.dataset.value = option.value;
+      const text = append(node('span', 'option-text'), node('strong', '', label(option).label));
+      if (option.value === c.recommend) { b.className += ' recommended-choice'; text.append(' ', node('span', 'recommended', t('Recommended'))); }
+      if (option.hint) text.append(node('small', '', label(option).hint || option.hint));
+      b.append(text); list.append(b);
+    }
+    content.append(list);
   }
-  if (c.freeform) {
-    const choice = node('label', 'choice'), input = node('input'); input.type = 'radio'; input.name = 'answer'; input.value = ''; input.checked = !staleDraft && !draft.value;
-    input.addEventListener('change', saveDraft); append(choice, input, append(node('span'), node('strong', '', t("Answer in my own words")), node('small', '', c.presentation?.freeform_hint || c.freeform_hint))); form.append(choice);
+  const note = node('textarea'); note.id = 'answer-note'; note.rows = 3; note.value = draft.note || ''; note.placeholder = t('Write here…'); note.addEventListener('input', saveDraft);
+  const noteLabel = append(node('label', 'answer-label', c.freeform ? t('Your answer') : t('Add a note (optional)')), note);
+  const send = c.freeform ? button(t('Send'), () => { S.modal.value = ''; saveDraft(); submitAnswer(); }, 'primary') : null;
+  if (send) send.id = 'answer-submit';
+  const ownWords = append(node('div', 'own-words'), noteLabel, send);
+  if (choices.length) {
+    const fold = disclosure(c.freeform ? t('Answer in my own words') : t('Add a note first (optional)'), ownWords);
+    fold.className += ' own-words-fold'; fold.open = !!draft.note; content.append(fold);
+  } else content.append(ownWords);
+  if (recheck) {
+    const b = button(t('Check again first'), () => choose('reconcile'), 'option-choice secondary-choice'); b.dataset.value = 'reconcile';
+    content.append(append(node('div', 'recheck'), b, node('small', '', t('Firstmate looks at the latest state again. Nothing is decided yet.'))));
   }
-  content.append(form);
-  const noteLabel = node('label', 'answer-label', c.freeform ? t("Your answer or additional context") : t("Additional context (optional)"));
-  const note = node('textarea'); note.id = 'answer-note'; note.rows = 3; note.value = draft.note || ''; note.placeholder = t("Write here…"); note.addEventListener('input', saveDraft); noteLabel.append(note); content.append(noteLabel);
-  content.append(node('p', 'answer-help', t("Maximum 512 bytes, one line. Selecting or typing saves the draft; only Send submits it.")));
   const state = node('div'); state.id = 'answer-status'; state.setAttribute('role', 'status'); content.append(state);
-  const actions = node('div', 'action-bar');
-  append(actions, node('p', '', c.close === 'release' ? t("Firstmate will save your answer and release this hold. This does not confirm that the agent has resumed.") : t("Firstmate will record your selection through this task’s intake. Reconcile requests a review; it does not resolve the call.")), button(t("Send answer"), submitAnswer, 'primary'));
-  actions.lastChild.id = 'answer-submit'; actions.lastChild.disabled = !!c.error || !S.online;
-  content.append(actions); addTechnical(ticket); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); syncSubmit();
+  content.append(node('p', 'answer-help', c.close === 'release' ? t('Firstmate saves your answer and lifts the hold.') : t('Firstmate saves your answer and takes it from there.')));
+  addTechnical(ticket, ...technical); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); syncSubmit();
 }
 async function checkCall() {
   const modal = S.modal;
@@ -440,22 +482,21 @@ async function checkCall() {
     if (!latest.call || latest.call.occurrence !== modal.ticket.call.occurrence || latest.call.error) {
       const warning = $('call-change'); if (!warning) return;
       warning.hidden = false; warning.replaceChildren(document.createTextNode(latest.call?.error || t("The question changed. Your draft is still here.")));
-      $('answer-submit').disabled = true;
-      if (latest.call) warning.append(button(t("Review current question"), () => { saveDraft(); renderCall(latest); }));
-      modal.ticket.call.error = t("Review the current question before sending.");
+      if (latest.call) warning.append(button(t("See the new question"), () => { saveDraft(); renderCall(latest); }));
+      modal.ticket.call.error = t("Check the new question before sending.");
+      syncSubmit();
     }
-  } catch (err) { if (S.modal === modal && $('call-change')) { $('call-change').hidden = false; $('call-change').textContent = t("Could not verify the question. Your draft is preserved."); $('answer-submit').disabled = true; } }
+  } catch (err) { if (S.modal === modal && $('call-change')) { $('call-change').hidden = false; $('call-change').textContent = t("Couldn’t check the question. Your draft is safe."); modal.ticket.call.error = $('call-change').textContent; syncSubmit(); } }
   finally { modal.checking = false; }
 }
 function receiptView(receipt) {
   const box = node('div', 'receipt'); box.setAttribute('role', 'status');
-  append(box, node('h3', '', receipt.saved ? t("Answer recorded") : receipt.saved === false ? t("Answer not sent") : t("Submission needs verification")), node('p', '', t(receipt.message)));
-  const dl = node('dl');
-  for (const [label, text] of [[t("Saved"), receipt.saved === true ? t("Confirmed by intake") : t("Unconfirmed")], [t("Owner notification"), receipt.primary === 'sent' ? t("Sent to Firstmate") : receipt.notice === 'queued' ? t("Queued") : t("Unconfirmed")], [t("Owner ACK"), receipt.ack === 'acknowledged' ? t("Received") : t("Unconfirmed")], [t("Answer consumption"), receipt.consumed === 'consumed' ? t("Confirmed") : t("Unconfirmed")]]) append(dl, node('dt', '', label), node('dd', '', text));
-  append(box, dl);
-  if (receipt.primary === 'unreachable') append(box, node('p', 'notice', t("Firstmate could not be reached now; it will see this answer at its next turn.")));
-  append(box, node('p', '', t("Saving and ACK are separate facts. This receipt does not confirm that the agent resumed.")));
-  if (receipt.detail) append(box, append(node('details', 'source-details'), node('summary', '', t("Receipt details")), prose(receipt.detail)));
+  append(box, node('h3', '', receipt.saved ? t("Answer saved") : receipt.saved === false ? t("Answer not sent") : t("Not sure it was sent")), node('p', '', t(receipt.message)));
+  if (receipt.primary === 'unreachable') append(box, node('p', 'notice', t("Couldn’t reach Firstmate right now. It will see your answer on its next check.")));
+  // Each step is a separate fact; none of them proves the agent resumed.
+  const dl = node('dl'), no = t("Not yet");
+  for (const [label, text] of [[t("Saved"), receipt.saved === true ? t("Yes") : no], [t("Firstmate told"), receipt.primary === 'sent' ? t("Sent to Firstmate") : receipt.notice === 'queued' ? t("Queued") : no], [t("Firstmate got it"), receipt.ack === 'acknowledged' ? t("Yes") : no], [t("Firstmate used it"), receipt.consumed === 'consumed' ? t("Yes") : no]]) append(dl, node('dt', '', label), node('dd', '', text));
+  append(box, disclosure(t("Details"), dl, node('p', '', t("Saved doesn’t mean the agent has started again.")), receipt.detail ? prose(receipt.detail) : null));
   return box;
 }
 async function loadReceipts() {
@@ -479,27 +520,26 @@ async function loadReceipts() {
 async function submitAnswer() {
   if (S.busy || !S.online || S.receipt || S.modal?.type !== 'call') return;
   saveDraft(); const modal = S.modal, draft = readDraft(modal.key);
-  S.busy = true; $('answer-submit').disabled = true; $('answer-submit').textContent = t("Sending…");
+  S.busy = true; syncSubmit(); $('answer-status').replaceChildren(node('p', 'muted', t("Sending…")));
   try {
     const receipt = await api('api/ticket/' + encodeURIComponent(modal.key) + '/answer', { value: draft.value || '', note: draft.note || '', occurrence: modal.ticket.call.occurrence, request_id: modal.request });
     if (S.modal !== modal) return;
     S.receipt = receipt; $('answer-status').replaceChildren(receiptView(receipt));
-    $('answer-submit').textContent = receipt.saved ? t("Recorded") : receipt.saved === false ? t("Not sent") : t("Unconfirmed");
-    $('answer-status').append(button(t("Check receipts"), async () => {
+    $('answer-status').append(button(t("See answer status"), async () => {
       await loadReceipts(); $('receipts-panel').open = true; $('detail').close();
       $('receipts-panel').scrollIntoView({ block: 'start' });
     }));
-    if (receipt.state === 'conflict') $('answer-status').append(button(t("Review current question"), () => openTicket(modal.key, S.opener)));
+    if (receipt.state === 'conflict') $('answer-status').append(button(t("See the new question"), () => openTicket(modal.key, S.opener)));
     if (receipt.saved) { S.drafts.delete(modal.key); try { sessionStorage.removeItem('deck-draft-' + modal.key); } catch {} }
   } catch (err) {
     if (S.modal !== modal) return;
-    $('answer-status').replaceChildren(node('p', 'notice error', err.message + t(" Your draft is preserved.")));
-    $('answer-submit').textContent = t("Retry the same submission");
+    // The same request id goes out again, so a retry can never answer twice.
+    $('answer-status').replaceChildren(node('p', 'notice error', err.message + t(" Your draft is safe. Pick the same answer again to retry.")));
   } finally { S.busy = false; syncSubmit(); }
 }
 async function openDelivery(home, task, opener) {
   const gen = ++S.generation;
-  showDetail(t("Crew delivery"), '', t("RETAINED DELIVERY"), opener);
+  showDetail(t("Delivered work"), '', t("DELIVERED"), opener);
   S.modal = { type: 'loading' };
   try {
     const data = await api('api/delivery/' + encodeURIComponent(home) + '/' + encodeURIComponent(task));
@@ -515,20 +555,20 @@ function renderDelivery() {
   const tabs = node('nav', 'detail-tabs'); tabs.setAttribute('aria-label', t("Delivery content"));
   for (const [id, label] of [['summary', t("Summary")], ['report', t("Report")]]) { const b = button(label, () => { modal.tab = id; renderDelivery(); [...content.querySelectorAll('.detail-tabs button')].find(n => n.getAttribute('aria-pressed') === 'true')?.focus({preventScroll: true}); }); b.setAttribute('aria-pressed', String(modal.tab === id)); tabs.append(b); }
   append(content, tabs, prose(data[modal.tab]));
-  content.append(disclosure(t('Technical details and sources'), prose(data.details), contextRow(t('History sources'), data.sources), contextRow(t('Date provenance'), data.time?.detail)));
+  content.append(disclosure(t('Technical details'), prose(data.details), contextRow(t('History sources'), data.sources), contextRow(t('Date provenance'), data.time?.detail)));
   const actions = node('div', 'explain-actions');
-  const ask = button(t("Ask Firstmate for an explanation"), requestExplanation); ask.id = 'explain-request';
+  const ask = button(t("Ask Firstmate to explain"), requestExplanation); ask.id = 'explain-request';
   const status = button(t("Check status"), refreshExplanation);
-  const text = node('p', 'explain-status', t("Checking does not send a request.")); text.id = 'explain-status'; text.setAttribute('role', 'status');
+  const text = node('p', 'explain-status', t("Checking doesn’t send anything.")); text.id = 'explain-status'; text.setAttribute('role', 'status');
   append(actions, ask, status, text); content.append(actions);
   if (modal.explanation) explanationView(modal.explanation);
   addStableLink(modal.home, modal.task, 'delivery');
 }
 function explanationView(data) {
   if (!$('explain-status')) return;
-  const meanings = { absent: t("No explanation has been requested yet."), queued: t("Request saved and notification queued. Firstmate has not acknowledged receipt yet."), saved_unannounced: t("Request saved; notification to Firstmate is unconfirmed."), acknowledged: t("Firstmate acknowledged receipt (ACK). This does not confirm that a reply is being prepared."), answered: t("Firstmate left a reply."), unsupported: t("This home does not offer the explanation intake yet."), error: t("Could not verify the request status.") };
+  const meanings = { absent: t("You haven’t asked yet."), queued: t("Asked. Firstmate hasn’t seen it yet."), saved_unannounced: t("Asked, but not sure Firstmate was told."), acknowledged: t("Firstmate got your request."), answered: t("Firstmate left a reply."), unsupported: t("This space can’t take explanation requests yet."), error: t("Couldn’t check the request.") };
   const reply = data.receipt?.reply;
-  const text = (meanings[data.state] || t("State unconfirmed.")) + (data.message ? '\n' + data.message : '') + (reply?.body ? t('\n\nReply from Firstmate:\n') + reply.body + (reply.at ? '\n' + dateFmt.format(new Date(reply.at)) : '') : '');
+  const text = (meanings[data.state] || t("Not sure yet.")) + (data.message ? '\n' + data.message : '') + (reply?.body ? t('\n\nReply from Firstmate:\n') + reply.body + (reply.at ? '\n' + dateFmt.format(new Date(reply.at)) : '') : '');
   if ($('explain-status').textContent !== text) $('explain-status').textContent = text;
   $('explain-request').disabled = S.busy || !S.online || ['queued', 'acknowledged', 'answered', 'unsupported'].includes(data.state);
 }

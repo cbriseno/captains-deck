@@ -156,7 +156,7 @@ class PTYTests(unittest.TestCase):
                     first = expect(lambda f: age in f['text'], 'two-minutes')
                     self.assertIn('? help', first['text'])
                     self.assertIn('d details', first['text'])
-                    self.assertIn('Technical hold', first['text'])
+                    self.assertIn('On hold', first['text'])
                     (root / 'clock-next.json').write_text(json.dumps({'now': CLOCK_EVENT + 180}))
                     (root / 'clock-next.json').replace(root / 'clock.json')
                     age = '3 min'

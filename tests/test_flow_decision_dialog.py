@@ -485,7 +485,7 @@ def main() -> int:
             ui.render(snap)
         text = ANSI.sub("", frame.getvalue())
         for needle in ("DECISION", "demo-repo", "Draft the release checklist for #29",
-                       "ABOUT", "DECIDE", "Hold it", "REC", "Reconcile",
+                       "ABOUT", "DECIDE", "Hold it", "REC", "Check again first",
                        "Queue answer", "typed note", "esc close"):
             check(needle in text, f"dialog renders {needle!r}")
 

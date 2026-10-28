@@ -367,7 +367,7 @@ class CardTimeTests(unittest.TestCase):
                 lines = [flow._ANSI_RE.sub("", s) for s in ui.render_card(card, width, True, snap)]
             self.assertEqual(len(lines), flow.CARD_ROWS)
             self.assertTrue(all(flow.display_width(s) <= width for s in lines))
-            self.assertIn("Technical hold", lines[3])
+            self.assertIn("On hold", lines[3])
             self.assertIn("2 min", lines[9])
             self.assertIn("Enter:", lines[10])
         flow.parse_input(b"d", ui)
