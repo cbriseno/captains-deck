@@ -1907,10 +1907,12 @@ def decision_card_content(
                 "hint": _flatten_field(opt.get("hint")),
             }
         )
+    display_options = [dict(option) for option in options]
     # The board's build injects the standard reconcile choice on every decision
     # card; do the same for a raw payload or a card-less ticket.
     if ctype == "decision" and all(o["value"] != "reconcile" for o in options):
-        options.append({k: tr(v) if k in ('label', 'hint') else v for k, v in RECONCILE_OPTION.items()})
+        options.append(dict(RECONCILE_OPTION))
+        display_options.append({k: tr(v) if k in ('label', 'hint') else v for k, v in RECONCILE_OPTION.items()})
     recommend = raw.get("recommend_value")
     repo = str(raw.get("repo") or "")
     if not repo and card.owner and card.owner != "(main)":
@@ -1939,12 +1941,12 @@ def decision_card_content(
         # a truncated reason stub is noise, not context
         if about.endswith("\u2026") and len(about) < 24:
             about = ""
-        decide = tr('Answer in your own words, or send Reconcile to re-check the latest state.')
+        decide = 'Answer in your own words, or send Reconcile to re-check the latest state.'
     elif not title:
         title = str(card.title or card.task)
     if not decide:
-        decide = tr('Pick an option below, or answer in your own words.')
-    return {
+        decide = 'Pick an option below, or answer in your own words.'
+    content = {
         "key": card.task,
         "title": _flatten_field(title),
         "type": ctype,
@@ -1956,7 +1958,7 @@ def decision_card_content(
         "recommend": recommend if isinstance(recommend, str) else "",
         "freeform": bool(raw.get("allow_freeform")) if raw else True,
         "freeform_hint": _flatten_field(
-            raw.get("freeform_hint") or tr('or answer in your own words…')
+            raw.get("freeform_hint") or 'or answer in your own words…'
         ),
         "close": raw.get("close") if raw.get("close") in ("done", "release") else "",
         "home_path": home_path,
@@ -1967,6 +1969,12 @@ def decision_card_content(
         "intake_reconcile_wakes": intake_wakes_owner(home_path, reconcile=True),
         "stamp": stamp,
     }
+    content["presentation"] = {key: content[key] for key in ("about", "decide", "freeform_hint")}
+    content["presentation"]["options"] = display_options
+    for key in ("decide", "freeform_hint"):
+        if not raw.get(key):
+            content["presentation"][key] = _flatten_field(tr(content[key]))
+    return content
 
 
 class DecisionDialog:

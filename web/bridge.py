@@ -358,15 +358,16 @@ class Board:
         env['FM_HOME'] = home.path
         return env
 
-    def content(self, card, home, *, translate=None):
+    def content(self, card, home):
         # The confirmed owning home is the active context, never aggregate All.
         snap = self.collector.snapshot()
-        content = fm.decision_card_content(card, snap.homes, home, translate=translate, bearings=snap.bearings)
+        content = fm.decision_card_content(card, snap.homes, home, translate=self.t, bearings=snap.bearings)
         if os.path.realpath(content['home_path']) != fm.delivery_home_identity(home):
             raise Refusal('The intake does not match the owning home.')
-        context = fm.flow_context(card, translate=translate)
+        context = fm.flow_context(card)
         if context['phase'] == 'human' and not content.get('about'):
             content['about'] = context['reason']
+            content['presentation']['about'] = fm.flow_context(card, translate=self.t)['reason']
         return content
 
     def ticket(self, key):
@@ -376,23 +377,25 @@ class Board:
             return result
         home = self.owner(card)
         content = self.content(card, home)
+        result['call'] = self.call_json(card, home, content)
+        return result
+
+    def call_json(self, card, home, content):
         try:
             identity = self.call_identity(home, card.task)
             guarded = self.guarded_intake(home)
             error = '' if guarded else 'This home’s intake needs an occurrence guard for web answers.'
         except Refusal as exc:
             identity, error = '', str(exc)
-        result['call'] = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'options',
-                                                   'recommend', 'freeform', 'freeform_hint', 'close')}
-        result['call']['identity'] = identity
-        result['call']['occurrence'] = digest(home_id(home), card.task, identity, content['stamp'],
-                                            fm.flow_context(card)['reason'], result['call'])
-        result['call']['error'] = error
-        display = self.content(card, home, translate=self.t)
-        result['call']['presentation'] = {k: display[k] for k in ('about', 'decide', 'freeform_hint', 'options')}
-        result['call']['error'] = self.t(error)
-        result['call']['answer_limit'] = min(fm.ANSWER_LIMIT, 512)
-        return result
+        call = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'options',
+                                      'recommend', 'freeform', 'freeform_hint', 'close')}
+        call['identity'] = identity
+        call['occurrence'] = digest(home_id(home), card.task, identity, content['stamp'],
+                                    fm.flow_context(card)['reason'], call)
+        call['presentation'] = content['presentation']
+        call['error'] = self.t(error)
+        call['answer_limit'] = min(fm.ANSWER_LIMIT, 512)
+        return call
 
     @staticmethod
     def guarded_intake(home):
@@ -439,8 +442,8 @@ class Board:
             if card.bucket != 'captains_call':
                 raise Refusal('The task is no longer waiting for a human answer.')
             home = self.owner(card)
-            ticket = self.ticket(key)
-            call = ticket['call']
+            content = self.content(card, home)
+            call = self.call_json(card, home, content)
             if call['error']:
                 raise Refusal(call['error'])
             if not secrets.compare_digest(call['occurrence'], occurrence):
@@ -452,12 +455,13 @@ class Board:
                 raise Refusal('The answer must be a single line; it has not been sent.', 400)
             if len(note.encode()) > min(fm.ANSWER_LIMIT, 512):
                 raise Refusal('The answer exceeds 512 bytes; shorten it before sending.', 400)
-            options = call['options']
+            options = content['options']
             if value and value not in [o['value'] for o in options]:
                 raise Refusal('That option is no longer available.')
             if (not value and (not call['freeform'] or not note)):
                 raise Refusal('Choose an option or write an answer.', 400)
-            content = self.content(card, home)
+            if self.content(card, home) != content:
+                raise Refusal('The question changed. Review the current version; your draft is preserved.')
             dialog = fm.DecisionDialog(content)
             dialog.selected = next((i for i, opt in enumerate(options) if opt['value'] == value), -1)
             dialog.note = note
