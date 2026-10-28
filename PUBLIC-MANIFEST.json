@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "505385dd20c992c77e17f9663fc45f4b52d854ec31f6cd9d984ea56c7a1127fb"
+      "sha256": "8fd0e7bb92e54740cf69318719b2ff31f2764c0a2b909c5cd8f9658a03d84973"
     },
     {
       "mode": "100755",
@@ -237,7 +237,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_clarity.py",
-      "sha256": "92e2e43e9d621c93289bcf4056d56d85e15791629e1cc6e2d6aadaa79f1c1683"
+      "sha256": "9d0a144c7288f9a971de499f2b6ea5ae6da249368f256d9a66def1177bc1acc1"
     },
     {
       "mode": "100644",
@@ -347,22 +347,22 @@
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "2646e1a87c6ac998f0cd83a7e10c01d54d2d74c128eec9ac82c76205e4e867b5"
+      "sha256": "1a007ece9130dc38b41d42be0195df8af25c11016c5843be0c7660ef2c251114"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "cf812837604be4d75a57002b759cc0de24c0dba08ffa55aa9394dbc16882c1b6"
+      "sha256": "ddadcc7d7761e596bb5c52d33658bd1dd086153036db8fedd3b1e8a576434d70"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "1a89e058653ee59ff482933089b7fd609842e10b273af3962363484886be3372"
+      "sha256": "f4b8186c9974768b77dd94914e8df54208004a56d662564d67d9dd80c1ac0448"
     },
     {
       "mode": "100644",
       "path": "web/localization.py",
-      "sha256": "b284b127bc577fb7d00b83d7aee3320bcbf1e950605a9189a1312d904fb8e059"
+      "sha256": "b34ce840a6747078458fa39c8e6a0a6f4c6e33883d91fa3750527c229bc2b5fc"
     },
     {
       "mode": "100644",
@@ -392,7 +392,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "93dd0a00c317bd5c20788b5c913e7f14975c19a39728c76dcd407d88087f3e03"
+      "sha256": "ca4b494fb50d2733d0988629bd023c839ab35daa3bd3d805a8363cb76268bb07"
     },
     {
       "mode": "100644",
@@ -432,7 +432,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "88bca1aec9749fc7158e89424a040784dfa44c3dee06e35fea9f57aecbb0f45e"
+      "sha256": "a2b5e16505545cbc84928c196a30d0b9ea9a0b46571867dd0d1b83a561d33589"
     },
     {
       "mode": "100644",
@@ -457,12 +457,12 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "ccbf769f9d7b924c86573f019e2d7d893e36651473b47f723652151bc01e0627"
+      "sha256": "1201d80caef0be3cc5ae67d93ced7139dd21434fd5c8a9976cef56162f558bd1"
     },
     {
       "mode": "100644",
       "path": "web/tests/test_localization.py",
-      "sha256": "1891942ca16db87791617d4e048b2d7c93694d156aae96eb4552f9970e698dfb"
+      "sha256": "5774502d73f434ca050f8d3fc6a7bb6e4e7cc48b67631538640d14b859a6db58"
     },
     {
       "mode": "100644",
