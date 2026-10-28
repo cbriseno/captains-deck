@@ -159,6 +159,50 @@ class LocalizedOwnerTests(unittest.TestCase):
         self.assertIn('No summary is retained.', self.en.delivery(home, 'demo-research')['summary'])
         self.assertIn('No hay un resumen retenido.', self.es.delivery(home, 'demo-research')['summary'])
 
+    def test_language_restart_preserves_drafts_and_receipts_with_generated_content(self):
+        from fixtures import fixture
+        self.addCleanup(setattr, bridge.fm, '_LOCALIZATION', None)
+        for initial, following in [('en', 'es'), ('es', 'en')]:
+            for kind in ('composed', 'defaults', 'cardless'):
+                with self.subTest(initial=initial, following=following, kind=kind), patch.dict(
+                    os.environ, CD_WEB_LANGUAGE=initial,
+                    HERDR_PLUGIN_CONFIG_DIR=str(self.root / 'config')
+                ):
+                    bridge.fm._LOCALIZATION = None
+                    board, home = fixture(self.root / (initial + '-' + kind))
+                    card = board.collector.snap.cols['captains_call'][0]
+                    path = Path(home.path) / 'state/decision-cards/ask.json'
+                    if kind != 'composed':
+                        card.flow = {}
+                        card.doing = ''
+                        card.title = 'Review fixture scope'
+                        if kind == 'defaults':
+                            data = json.loads(path.read_text())
+                            data['card']['about'] = data['card']['decide'] = ''
+                            path.write_text(json.dumps(data))
+                        else:
+                            path.unlink()
+                    key = board.key(card)
+                    before = board.ticket(key)['call']
+                    draft = dict(value='scope' if kind != 'cardless' else '', note='Fixture answer',
+                                 occurrence=before['occurrence'], request_id='r' * 32)
+                    os.environ['CD_WEB_LANGUAGE'] = following
+                    bridge.fm._LOCALIZATION = None
+                    restarted = bridge.Board(board.data_dir, collector=board.collector)
+                    after = restarted.ticket(key)['call']
+                    for field in ('occurrence', 'identity', 'about', 'decide', 'options', 'freeform_hint'):
+                        self.assertEqual(before[field], after[field])
+                    self.assertNotEqual(before['presentation']['options'][-1]['label'],
+                                        after['presentation']['options'][-1]['label'])
+                    self.assertTrue(restarted.submit(key, draft, 'local')['saved'])
+                    os.environ['CD_WEB_LANGUAGE'] = initial
+                    bridge.fm._LOCALIZATION = None
+                    replayed = bridge.Board(board.data_dir, collector=board.collector)
+                    self.assertTrue(replayed.submit(key, draft, 'local')['replay'])
+                    with self.assertRaises(bridge.Refusal):
+                        replayed.submit(key, dict(draft, note='Different answer'), 'local')
+                    self.assertEqual(len((Path(home.path) / 'mutations.jsonl').read_text().splitlines()), 1)
+
     def test_errors_are_localized_at_the_same_http_guard(self):
         server = bridge.Server(('127.0.0.1', 0), self.es, bridge.Security(1))
         server.security = bridge.Security(server.server_port)

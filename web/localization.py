@@ -30,7 +30,7 @@ class Localization:
             self.messages.update(json.loads((CATALOGS / (self.language + '.json')).read_text(encoding='utf-8')))
 
     def t(self, message, legacy=None, **values):
-        """legacy preserves shared TUI wording; only web calls use catalogs."""
+        """legacy is accepted for older callers and ignored; the TUI reads these catalogs too."""
         text = self.messages.get(message, message)
         return text.format_map(values) if values else text
 

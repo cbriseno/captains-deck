@@ -41,9 +41,13 @@ class DeliveryTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.home = fixture(self.root)
-        self.env = patch.dict(os.environ, {'HERDR_PLUGIN_STATE_DIR': str(self.root / 'plugin-state'), 'FM_FLOW_SHOW_LANDED': '1'})
+        self.env = patch.dict(os.environ, {'HERDR_PLUGIN_STATE_DIR': str(self.root / 'plugin-state'),
+                                          'HERDR_PLUGIN_CONFIG_DIR': str(self.root / 'plugin-config'), 'FM_FLOW_SHOW_LANDED': '1'})
         self.env.start()
         self.addCleanup(self.env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
 
     def ui(self):
         snap = snapshot(self.home)
@@ -63,7 +67,8 @@ class DeliveryTests(unittest.TestCase):
 
     def test_archive_uses_canonical_grammar_beyond_recent_limits_without_writes(self):
         before = {p: p.read_bytes() for p in (self.root / '.tasks.toml', self.root / 'data/backlog.md', self.root / 'data/done-archive.md')}
-        rows, note = flow.delivery_records(self.home)
+        rows, note, complete = flow.delivery_records(self.home)
+        self.assertTrue(complete)
         self.assertEqual(len(rows), 32)
         old = next(r for r in rows if r['id'] == 'old')
         self.assertEqual((old['source'], old['closed'], old['verb']), ('archive', '2026-10-21', 'done'))
@@ -75,11 +80,11 @@ class DeliveryTests(unittest.TestCase):
         path = self.root / 'data/backlog.md'
         with path.open('a') as out:
             out.write('- [x] question - Chose scope (kind: captain) (done 2026-10-23)\n- [x] held-question - Chose scope (hold-kind: captain) (done 2026-10-23)\n- [x] reportless - SCOUT No report (done 2026-10-23)\n## In flight\n- [ ] old - Reopened task\n')
-        rows, _ = flow.delivery_records(self.home)
+        rows, _, _ = flow.delivery_records(self.home)
         self.assertFalse({'question', 'held-question', 'old', 'reportless'} & {r['id'] for r in rows})
 
     def test_curated_recap_full_report_and_linked_receipt_are_plain_text(self):
-        rows, _ = flow.delivery_records(self.home)
+        rows, _, _ = flow.delivery_records(self.home)
         text = flow.delivery_content(next(r for r in rows if r['id'] == 'old'), self.home)
         for part in ('Curated recap', 'Only the skill authoring', 'Evals not run', 'END_OF_REPORT', 'RECEIPT_END', '2026-10-21', 'broader intent is not inferred'):
             self.assertIn(part, text)
@@ -118,15 +123,18 @@ class DeliveryTests(unittest.TestCase):
 
     def test_missing_backend_reader_and_unsupported_backend_are_explicit(self):
         with patch.object(flow.shutil, 'which', return_value=None):
-            rows, note = flow.delivery_records(self.home)
+            rows, note, complete = flow.delivery_records(self.home)
+        self.assertFalse(complete)
         self.assertEqual(rows, [])
         self.assertIn('tasks-axi', note)
         (self.root / '.tasks.toml').write_text('backend = "beads"\n')
-        rows, note = flow.delivery_records(self.home)
+        rows, note, complete = flow.delivery_records(self.home)
+        self.assertFalse(complete)
         self.assertEqual(rows, [])
         self.assertIn('read-only completed-record/archive export', note)
         remote = flow.Home('remote', self.home.path, 'secondmate', route='remote')
-        rows, note = flow.delivery_records(remote)
+        rows, note, complete = flow.delivery_records(remote)
+        self.assertFalse(complete)
         self.assertIn('Remote history', note)
         self.assertIn('Remote report/recap unavailable', flow.delivery_content({'id': 'old'}, remote))
 
@@ -134,11 +142,13 @@ class DeliveryTests(unittest.TestCase):
         (self.root / 'data/retained.md').write_text((self.root / 'data/done-archive.md').read_text())
         config = self.root / '.tasks.toml'
         config.write_text(config.read_text().replace('data/done-archive.md', 'data/retained.md'))
-        rows, note = flow.delivery_records(self.home)
+        rows, note, complete = flow.delivery_records(self.home)
+        self.assertTrue(complete)
         self.assertEqual(len(rows), 32)
         self.assertIn('retained.md', note)
         config.write_text(config.read_text().replace('data/retained.md', '../escape.md'))
-        rows, note = flow.delivery_records(self.home)
+        rows, note, complete = flow.delivery_records(self.home)
+        self.assertFalse(complete)
         self.assertEqual(len(rows), 1)
         self.assertIn('unsafe traversal', note)
         self.assertIn('incomplete', note)
@@ -226,7 +236,7 @@ class DeliveryTests(unittest.TestCase):
         ui, snap = self.ui()
         (self.root / '.tasks.toml').write_text('backend = "beads"\n')
         flow.parse_input(b'H', ui)
-        self.assertIn('fuentes incompletas', self.frame(ui, snap))
+        self.assertIn('incomplete sources', self.frame(ui, snap))
         flow.parse_input(b'\t', ui)
         self.assertIn('read-only completed-record/archive export', ui.delivery)
         self.assertFalse(flow.delivery_seen(self.home.path, 'old'))
@@ -240,7 +250,7 @@ class DeliveryTests(unittest.TestCase):
         ui, snap = self.ui()
         (self.root / 'data/backlog.md').write_text('## In flight\n- [ ] old - Reopened task (kind: ship)\n')
         ui.activate()
-        self.assertIn('histórica', ui.delivery)
+        self.assertIn('historical', ui.delivery)
         flow.parse_input(b'd', ui)
         self.assertIn('State: in_flight', ui.delivery)
         self.assertIn('Title: Reopened task', ui.delivery)
@@ -251,7 +261,7 @@ class DeliveryTests(unittest.TestCase):
         ui, snap = self.ui()
         ui.activate()
         snap.cols['landed'] = []
-        self.assertIn('Entrega', self.frame(ui, snap))
+        self.assertIn('Delivery', self.frame(ui, snap))
         self.assertIsNotNone(ui.delivery)
 
     def test_stale_pane_cannot_focus_a_retired_tab(self):

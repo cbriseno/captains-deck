@@ -77,6 +77,7 @@ class OutcomePTYTests(unittest.TestCase):
                 root = Path(directory)
                 env = dict(os.environ, FM_FLOW_SHOW_LANDED='1', PYTHONDONTWRITEBYTECODE='1',
                            HERDR_PLUGIN_STATE_DIR=str(root / 'plugin-state'), HERDR_PLUGIN_CONFIG_DIR=str(root / 'plugin-config'))
+                env.pop('CD_WEB_LANGUAGE', None)
                 master, slave = pty.openpty()
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', height, width, 0, 0))
                 proc = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()), '--fixture', directory],
@@ -127,10 +128,10 @@ class OutcomePTYTests(unittest.TestCase):
                     summary = expect(lambda f: f['delivery'] and 'Study only; apps unchanged.' in f['text'], 'all-first-screen')
                     self.assertNotIn('Task: old', summary['text'])
                     send(b'e')
-                    queued = expect(lambda f: 'En cola para Firstmate' in f['text'], 'explanation-queued')
+                    queued = expect(lambda f: 'Queued for Firstmate' in f['text'], 'explanation-queued')
                     x, _, y, _ = next(hit for hit in queued['hits'] if hit[3] == 'explain')
                     click(x, y)
-                    expect(lambda f: 'En cola para Firstmate' in f['text'], 'explanation-deduplicated')
+                    expect(lambda f: 'Queued for Firstmate' in f['text'], 'explanation-deduplicated')
                     send(b'r')
                     report = expect(lambda f: 'FULL_REPORT_mate' in f['text'], 'all-keyboard-report')
                     previous = report['scroll']

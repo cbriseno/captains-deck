@@ -31,6 +31,15 @@ ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 FAILURES: list[str] = []
 
 
+@contextlib.contextmanager
+def english_installation():
+    with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ):
+        os.environ["HERDR_PLUGIN_CONFIG_DIR"] = config
+        os.environ.pop("CD_WEB_LANGUAGE", None)
+        with mock.patch.object(flow, "_LOCALIZATION", None):
+            yield
+
+
 def check(cond: bool, msg: str) -> None:
     if cond:
         print(f"ok - {msg}")
@@ -108,6 +117,7 @@ def make_card(task: str = "demo-issue-29", owner: str = "(main)", title: str = "
     return card
 
 
+@english_installation()
 def test_reconcile_intake_owns_wake() -> None:
     """Drive actual run_submit; the fake intake records one observable send."""
     with tempfile.TemporaryDirectory() as root:
@@ -146,6 +156,7 @@ def test_reconcile_intake_owns_wake() -> None:
         check(ok and calls == [dialog.key], "old intake preserves the Deck wake fallback")
 
 
+@english_installation()
 def test_submit_wake_compatibility() -> None:
     """Observe submits and rendered consent against executable temporary intakes."""
     with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ, {"FM_FLOW_WAKE": "1"}):
@@ -240,6 +251,7 @@ def test_submit_wake_compatibility() -> None:
                   f"unreadable intake preserves the lane fallback, reconcile={reconcile}")
 
 
+@english_installation()
 def main() -> int:
     test_reconcile_intake_owns_wake()
     test_submit_wake_compatibility()
@@ -815,20 +827,14 @@ def main() -> int:
                 else:
                     os.environ["FM_FLOW_HOMES_ONLY"] = old_only
 
-            old_cfg = os.environ.get("HERDR_CONFIG_DIR")
-            os.environ["HERDR_CONFIG_DIR"] = tmp
-            try:
+            with mock.patch.dict(os.environ, {"HERDR_CONFIG_DIR": tmp}):
+                os.environ.pop("HERDR_PLUGIN_CONFIG_DIR", None)
                 ui2 = flow.UI()
                 check(not ui2.show_landed, "show_landed file 0 hides Landed on startup")
                 flow.parse_input(b"L", ui2)
                 check(ui2.show_landed, "Shift+L toggles Landed on")
                 with open(os.path.join(cfg, "show_landed")) as fh:
                     check(fh.read().strip() == "1", "L toggle persists show_landed=1")
-            finally:
-                if old_cfg is None:
-                    os.environ.pop("HERDR_CONFIG_DIR", None)
-                else:
-                    os.environ["HERDR_CONFIG_DIR"] = old_cfg
 
     if FAILURES:
         print(f"\n{len(FAILURES)} check(s) failed")

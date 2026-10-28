@@ -106,6 +106,7 @@ class PTYTests(unittest.TestCase):
                 (root / 'clock.json').write_text(json.dumps({'now': CLOCK_EVENT + 120}))
                 env = dict(os.environ, FM_FLOW_SHOW_LANDED='1', HERDR_PLUGIN_STATE_DIR=str(root / 'plugin-state'),
                            HERDR_PLUGIN_CONFIG_DIR=str(root / 'plugin-config'), PYTHONDONTWRITEBYTECODE='1')
+                env.pop('CD_WEB_LANGUAGE', None)
                 master, slave = pty.openpty()
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', height, width, 0, 0))
                 proc = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()), '--fixture-time-board', directory],
@@ -155,7 +156,7 @@ class PTYTests(unittest.TestCase):
                     first = expect(lambda f: age in f['text'], 'two-minutes')
                     self.assertIn('? help', first['text'])
                     self.assertIn('d details', first['text'])
-                    self.assertIn('Retención técnica', first['text'])
+                    self.assertIn('Technical hold', first['text'])
                     (root / 'clock-next.json').write_text(json.dumps({'now': CLOCK_EVENT + 180}))
                     (root / 'clock-next.json').replace(root / 'clock.json')
                     age = '3 min'
@@ -177,8 +178,8 @@ class PTYTests(unittest.TestCase):
                     send(b'history-29')
                     expect(lambda f: 'history-29' in f['text'] and '1 matches' in f['text'], 'archive-search')
                     send(b'\r')
-                    delivery = expect(lambda f: 'Entrega ·' in f['text'], 'archive-open')
-                    self.assertIn('[Volver]', delivery['text'])
+                    delivery = expect(lambda f: 'Delivery ·' in f['text'], 'archive-open')
+                    self.assertIn('[Back]', delivery['text'])
                     retained = delivery['text']
                     while delivery['delivery_scroll'] < delivery['delivery_max']:
                         previous = delivery['delivery_scroll']
@@ -187,7 +188,7 @@ class PTYTests(unittest.TestCase):
                         retained += '\n' + delivery['text']
                     self.assertIn('Historical delivery 29', retained)
                     send(b'd')
-                    expect(lambda f: 'Detalles y fuentes' in f['text'], 'archive-details')
+                    expect(lambda f: 'Details and sources' in f['text'], 'archive-details')
                     send(b'\x1b\x1bq')
                     proc.wait(timeout=4)
                     self.assertEqual(proc.returncode, 0)
@@ -215,6 +216,7 @@ class PTYTests(unittest.TestCase):
                        HERDR_PLUGIN_STATE_DIR=str(root / 'plugin-state'),
                        HERDR_PLUGIN_CONFIG_DIR=str(root / 'plugin-config'),
                        PYTHONDONTWRITEBYTECODE='1')
+            env.pop('CD_WEB_LANGUAGE', None)
             proof = Path(os.environ['DECK_DELIVERY_PROOF_DIR']) if os.environ.get('DECK_DELIVERY_PROOF_DIR') else None
             saved = []
             for width, height in ((130, 15), (60, 12)):
@@ -275,10 +277,10 @@ class PTYTests(unittest.TestCase):
                     # in this process or the fixture collector.
                     x1, y1, _, _, _ = next(r for r in board['cards'] if r[-1] == 'landed')
                     click(x1 + 1, y1 + 1)
-                    summary = expect(lambda f: 'Entrega ·' in f['text'], 'delivery-click')
+                    summary = expect(lambda f: 'Delivery ·' in f['text'], 'delivery-click')
                     self.assertIn('Only the skill authoring', summary['text'])
                     send(b'r')
-                    delivery = expect(lambda f: 'Informe completo · data/old/report.md' in f['text'], 'full-report')
+                    delivery = expect(lambda f: 'Full report · data/old/report.md' in f['text'], 'full-report')
                     retained = delivery['text']
                     while delivery['delivery_scroll'] < delivery['delivery_max']:
                         previous = delivery['delivery_scroll']
@@ -287,7 +289,7 @@ class PTYTests(unittest.TestCase):
                         retained += '\n' + delivery['text']
                     self.assertIn('END_OF_REPORT', retained)
                     send(b'd')
-                    delivery = expect(lambda f: 'Detalles y fuentes' in f['text'], 'delivery-details')
+                    delivery = expect(lambda f: 'Details and sources' in f['text'], 'delivery-details')
                     retained = delivery['text']
                     while delivery['delivery_scroll'] < delivery['delivery_max']:
                         previous = delivery['delivery_scroll']
@@ -302,11 +304,11 @@ class PTYTests(unittest.TestCase):
                     send(b'history-29')
                     expect(lambda f: 'history-29' in f['text'] and '1 matches' in f['text'], 'archive-search')
                     send(b'\r')
-                    expect(lambda f: 'Entrega ·' in f['text'], 'archive-enter')
+                    expect(lambda f: 'Delivery ·' in f['text'], 'archive-enter')
                     send(b'\x1b\x15old\r')
                     expect(lambda f: 'Only the skill authoring' in f['text'], 'recap-enter')
                     send(b'r')
-                    expect(lambda f: 'Informe completo · data/old/report.md' in f['text'], 'report-and-receipt')
+                    expect(lambda f: 'Full report · data/old/report.md' in f['text'], 'report-and-receipt')
                     send(b'\x1b\t')
                     expect(lambda f: 'Retained delivery history' in f['text'], 'source-info')
                     send(b'\x1b\x1bq')

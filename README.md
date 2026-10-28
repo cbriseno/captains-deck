@@ -10,7 +10,7 @@ Changes explored in this fork:
 - Guarded decision replies with durable receipts, duplicate-submission protection, and separate saved-answer and owner-acknowledgment states.
 - Concise delivery summaries, full report/detail views, searchable retained history, and local read markers.
 - Clearer task phases, blockers, dependencies, next actions, and activity provenance, with timestamps that preserve recorded precision and identify unknown times.
-- Per-installation English/Spanish web localization, English by default, and System/Light/Dark themes.
+- Per-installation English/Spanish localization for the web and terminal boards, English by default, and System/Light/Dark web themes.
 - Portable web launch/control with documented [platform limits](docs/portability.md); the full Windows backend still requires WSL2, with [reviewed exports](docs/public-export.md) for public updates.
 
 ## Install
@@ -35,6 +35,15 @@ printf '%s\n' /absolute/path/to/firstmate > "$(herdr plugin config-dir herdr-fir
 
 The `fm_home` reader skips blank lines and `#` comments and uses the first remaining line as the home path.
 For several homes, write one `label=/absolute/path` line per home to `homes.conf` in that same directory instead.
+
+The board is in English by default.
+To show it in Spanish, write a language to `language` in that same directory, or set `CD_WEB_LANGUAGE` in the environment Herdr runs plugins with, which takes precedence:
+
+```sh
+printf '%s\n' es-MX > "$(herdr plugin config-dir herdr-firstmate-flow)/language"
+```
+
+It accepts the same values as the [web language setting](web/README.md#language-and-appearance) and applies the next time the board opens.
 
 Open the board with the plugin's **Open captain's deck** (full workspace) or **Open flow board** (overlay) action.
 From a shell inside Herdr that is:

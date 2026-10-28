@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import os
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,11 @@ class StatusFollowupTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name)
+        env = patch.dict(os.environ, HERDR_PLUGIN_CONFIG_DIR=str(self.path / 'plugin-config'))
+        env.start(); self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
         (self.path / "state").mkdir()
         self.home = flow.Home("captain", str(self.path), "captain")
         self.status = self.path / "state/task.status"
@@ -55,8 +61,8 @@ class StatusFollowupTests(unittest.TestCase):
             lines = self.render(card, width)
             assert len(lines) == flow.CARD_ROWS
             assert all(flow.display_width(line) <= width for line in lines)
-            assert "Último reporte" in lines[3] and "Checking" in lines[4]
-            assert "nativo" in lines[8]
+            assert "Last report" in lines[3] and "Checking" in lines[4]
+            assert "native" in lines[8]
             assert not any("[key=" in line or "unconfirmed" in line for line in lines)
         assert "[key=demo-component-review]" in card.status_text
 
@@ -76,7 +82,7 @@ class StatusFollowupTests(unittest.TestCase):
         card = self.card(bucket="decisions_open", title="Review storage", reason="Choose how to retain results")
         card.run_elapsed, card.run_tokens = "10m", "20k"
         lines = self.render(card, 80)
-        assert "Espera respuesta humana" in lines[3]
+        assert "Waiting for a human answer" in lines[3]
         assert "Choose how to retain results" in lines[4]
         assert not any("codex" in line or "20k" in line or "10m" in line for line in lines)
 

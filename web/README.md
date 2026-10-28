@@ -152,6 +152,7 @@ Missing translation keys fall back to English.
 There is no automatic browser, OS or agent-conversation language detection.
 An agent selects the desired language by reading or updating this explicit installation preference.
 All browsers of that server see the same language; independent servers with separate configurations remain independent.
+The terminal board follows the same `CD_WEB_LANGUAGE` values from its own environment or the `language` file in its plugin config directory; see the [install notes](../README.md#install).
 
 Only presentation changes: task titles, authored questions/options, reports, answers, URLs and protocol/state identifiers retain their content.
 Exact times use the selected locale and the browser’s timezone; date-only events keep their calendar date without inventing a time or shifting across timezones.
@@ -169,7 +170,7 @@ Theme is independent of the server language and does not write tasks or configur
 English source messages are stable keys; preserve named placeholders such as `{count}` and `{date}`.
 To add a language, copy the English catalog, translate its values, and extend the language pattern in `normalize_language` in `web/localization.py` (currently the bounded `en|es` match); without that change the new code normalizes to `en`.
 No translation framework or service is needed.
-The shared TUI helpers accept an optional presentation callback; their default terminal wording remains unchanged.
+The terminal board reads these same catalogs; its shared helpers accept an optional presentation callback, which the web uses to supply its own language.
 Never run a translator over authored task content or decision payloads.
 Use `t(...)` for new UI chrome and `data-i18n`, `data-i18n-aria-label` or `data-i18n-placeholder` for static document text.
 Catalog values enter the page through `textContent` and safe attribute setters.

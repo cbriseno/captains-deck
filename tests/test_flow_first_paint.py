@@ -5,8 +5,10 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -28,6 +30,15 @@ flow = load_module("flow_tui", FLOW)
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 
 
+@contextlib.contextmanager
+def isolated_language():
+    with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ):
+        os.environ["HERDR_PLUGIN_CONFIG_DIR"] = config
+        os.environ.pop("CD_WEB_LANGUAGE", None)
+        with mock.patch.object(flow, "_LOCALIZATION", None):
+            yield
+
+
 def _render(snap) -> str:
     ui = flow.UI()
     with contextlib.redirect_stdout(io.StringIO()):
@@ -35,6 +46,7 @@ def _render(snap) -> str:
     return "\n".join(ANSI.sub("", line) for line in ui.last_frame or [])
 
 
+@isolated_language()
 def test_first_paint_before_any_collection_says_loading():
     snap = flow.Collector().snapshot()
     assert snap.loading is True
@@ -43,6 +55,7 @@ def test_first_paint_before_any_collection_says_loading():
     assert "(empty)" not in text
 
 
+@isolated_language()
 def test_first_paint_uses_the_spanish_catalog():
     es = load_module("_deck_localization_es", LOCALIZATION).Localization("es")
     with mock.patch.object(flow, "_presentation_text", lambda message, legacy=None, **v: es.t(message, **v)):
@@ -51,6 +64,7 @@ def test_first_paint_uses_the_spanish_catalog():
     assert "(empty)" not in text
 
 
+@isolated_language()
 def test_a_crew_still_loading_names_the_crew_wait():
     home = flow.Home("captain", "/fm", "captain")
     snap = flow.Collector()._snapshot([home], home, {k: [] for k, _ in flow.COLUMNS}, {}, {}, loading=True)
@@ -59,6 +73,7 @@ def test_a_crew_still_loading_names_the_crew_wait():
     assert "(empty)" not in text
 
 
+@isolated_language()
 def test_a_collected_home_without_work_shows_empty():
     home = flow.Home("captain", "/fm", "captain")
     snap = flow.Collector()._snapshot([home], home, {k: [] for k, _ in flow.COLUMNS}, {}, {})

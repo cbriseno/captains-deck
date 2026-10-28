@@ -34,8 +34,12 @@ class ClarityTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.home = fixture.fixture(self.root)
-        self.env = patch.dict(os.environ, FM_FLOW_SHOW_LANDED='1', HERDR_PLUGIN_STATE_DIR=str(self.root/'plugin-state'))
+        self.env = patch.dict(os.environ, FM_FLOW_SHOW_LANDED='1', HERDR_PLUGIN_STATE_DIR=str(self.root/'plugin-state'),
+                              HERDR_PLUGIN_CONFIG_DIR=str(self.root/'plugin-config'))
         self.env.start(); self.addCleanup(self.env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        f._LOCALIZATION = None
+        self.addCleanup(setattr, f, '_LOCALIZATION', None)
 
     def ui(self, payload=None):
         snap = fixture.snapshot(self.home)
@@ -61,8 +65,8 @@ class ClarityTests(unittest.TestCase):
         self.assertFalse(snap.cols['awaiting_merge'])
         frame=self.render(ui,snap)
         self.assertNotIn('Awaiting Merge',frame)
-        self.assertIn('Retención técnica',frame)
-        self.assertIn('Integración pendiente',frame)
+        self.assertIn('Technical hold',frame)
+        self.assertIn('Integration pending',frame)
         ui.col_idx=1; f.parse_input(b'\r',ui)
         self.assertIsNotNone(ui.details)
         self.assertIn('FINAL_RAZON',str(f.UI.detail_fields(ui.details)))
@@ -82,11 +86,11 @@ class ClarityTests(unittest.TestCase):
         self.assertIn('Comprobar atención en el teléfono · fixture',f.dependency_caption(card))
         self.assertEqual(f.flow_context(card)['phase'],'dependency')
         card.dependencies[0]['reconciliation_required']=True
-        self.assertIn('por conciliar',f.dependency_caption(card))
+        self.assertIn('pending reconciliation',f.dependency_caption(card))
         card.blocked_by='';card.dependencies=[];card.live_status='working'
         self.assertEqual(f.flow_context(card)['phase'],'unknown')
         card.flow={'phase':'human','reason':'Elegir el alcance','waiting_for':'Respuesta de la persona','firstmate_action':'Coordinar opciones'}
-        self.assertEqual(f.flow_context(card)['label'],'Espera respuesta humana')
+        self.assertEqual(f.flow_context(card)['label'],'Waiting for a human answer')
         self.assertIn('Coordinar opciones',str(f.UI.detail_fields(card)))
 
     def test_small_terminal_keeps_selected_column_and_mouse_context(self):
@@ -110,7 +114,7 @@ class ClarityTests(unittest.TestCase):
         self.assertEqual(ui.current_key(),'underway')
         self.assertIn('Trabajo relevante',narrow)
         self.assertIn('Next 0 · Work 1 · Calls 0',narrow)
-        self.assertIn('Estado de Firstmate: paused',narrow)
+        self.assertIn('Firstmate state: paused',narrow)
         f.parse_input(b'\x1b[D',ui)
         self.assertIn('Charted Next',self.render(ui,snap,60,18))
         self.assertEqual(ui.current_key(),'charted')
@@ -119,23 +123,23 @@ class ClarityTests(unittest.TestCase):
         (self.root/'data/old/delivery.md').write_text('# Entrega\n\n## Resultado\n**Skill instalada** para conexión local.\n\n## Por qué\nEvita pedir ayuda antes de intentar Wi-Fi.\n\n## Verificado\nPruebas dirigidas pasaron.\n\n## Pendiente\nLa aceptación móvil sigue pendiente.\n[Informe](report.md)\n[Receipt](receipt.json)\n')
         ui,snap=self.ui();ui.open_delivery(snap.cols['landed'][0])
         text=self.render(ui,snap,126,46)
-        self.assertIn('Skill instalada',text);self.assertIn('Pedir explicación a Firstmate',text)
+        self.assertIn('Skill instalada',text);self.assertIn('Ask Firstmate for an explanation',text)
         self.assertNotIn('END_OF_REPORT',ui.delivery)
         self.assertNotIn('##',ui.delivery);self.assertNotIn('**',ui.delivery);self.assertNotIn('](report.md)',ui.delivery)
-        self.assertIn('sólo fecha; hora no registrada',text)
+        self.assertIn('date only; time not recorded',text)
         f.parse_input(b'r',ui);self.assertIn('END_OF_REPORT',ui.delivery)
         f.parse_input(b'd',ui);self.assertIn('RECEIPT_END',ui.delivery)
         (self.root/'data/old/delivery.md').write_text('# Entrega\n## Resultado\nResultado conservado.\n\n'+('Datos técnicos.\n'*500)+'FINAL_RESUMEN')
         ui.open_delivery(snap.cols['landed'][0])
         self.assertLess(len(ui.delivery),1200)
-        self.assertIn('abreviado',ui.delivery)
+        self.assertIn('Abbreviated',ui.delivery)
         ui.delivery_set_view('details');self.assertIn('FINAL_RESUMEN',ui.delivery)
 
     def test_technical_receipt_does_not_become_the_initial_delivery_brief(self):
         receipt='Ready in branch fm/example; HEAD abc123.\n\n'+('Technical transport receipt.\n'*200)
         (self.root/'data/old/delivery.md').write_text(receipt)
         ui,snap=self.ui();ui.open_delivery(snap.cols['landed'][0])
-        self.assertIn('no un resumen breve',ui.delivery)
+        self.assertIn('no brief result summary',ui.delivery)
         self.assertNotIn('Ready in branch',ui.delivery)
         self.assertNotIn('Technical transport',ui.delivery)
         ui.delivery_set_view('details')
@@ -145,16 +149,16 @@ class ClarityTests(unittest.TestCase):
     def test_timestamp_refresh_does_not_create_precision_or_model_activity(self):
         event=f.CardTime('Delivered','2026-10-25T14:00:00+00:00')
         a=f.local_time_caption(event,event.epoch+120);b=f.local_time_caption(event,event.epoch+180)
-        self.assertIn('hace 2 min',a);self.assertIn('hace 3 min',b)
+        self.assertIn('2 min ago',a);self.assertIn('3 min ago',b)
         self.assertIn('2026-10-25',a)
         self.assertNotIn('00:00',f.local_time_caption(f.CardTime('Delivered','2026-10-25')))
-        self.assertIn('no registradas',f.local_time_caption(f.CardTime('Delivered')))
+        self.assertIn('not recorded',f.local_time_caption(f.CardTime('Delivered')))
         with patch.object(f.time,'time',return_value=event.epoch+30):
             fresh=f.supervisor_caption({'state':'coordinating','summary':'Integrar los dos frentes','observed_at':event.epoch,'ttl':60})
         with patch.object(f.time,'time',return_value=event.epoch+61):
             stale=f.supervisor_caption({'state':'coordinating','summary':'Integrar los dos frentes','observed_at':event.epoch,'ttl':60})
-        self.assertIn('Actividad del modelo desconocida',fresh)
-        self.assertIn('declaración vencida',stale)
+        self.assertIn('Model activity unknown',fresh)
+        self.assertIn('declaration expired',stale)
 
     def endpoint(self):
         install_explanation_endpoint(self.root)
@@ -165,7 +169,7 @@ class ClarityTests(unittest.TestCase):
         # Keyboard focus and Enter are equivalent to the visible action.
         ui.delivery_action_focus=4;f.parse_input(b'\r',ui)
         self.assertEqual(ui.explanation['state'],'queued')
-        frame=self.render(ui,snap,60,18);self.assertIn('En cola para Firstmate',frame)
+        frame=self.render(ui,snap,60,18);self.assertIn('Queued for Firstmate',frame)
         self.assertIn('fixture · old',frame)
         hit=next(hit for hit in ui.reader_hits if hit[3]=='explain');ui.click(hit[0],hit[2],0)
         ui.open_delivery(snap.cols['landed'][0]);f.parse_input(b'e',ui)
@@ -200,9 +204,9 @@ class ClarityTests(unittest.TestCase):
         self.assertEqual(f.flow_context(card)['phase'],'unknown')
         with patch.object(f.time,'time',return_value=event.epoch+60):
             self.assertIn('Unir los cambios',str(f.UI.detail_fields(card)))
-            self.assertIn('Actividad del modelo desconocida',str(f.UI.detail_fields(card)))
+            self.assertIn('Model activity unknown',str(f.UI.detail_fields(card)))
         with patch.object(f.time,'time',return_value=event.epoch+301):
-            self.assertIn('declaración vencida',str(f.UI.detail_fields(card)))
+            self.assertIn('declaration expired',str(f.UI.detail_fields(card)))
 
     def test_installed_intake_partial_exit_retains_saved_unannounced_receipt(self):
         self.endpoint()
@@ -225,8 +229,8 @@ class ClarityTests(unittest.TestCase):
                                                         'complete':True,'sources':[],'retention':{},'records':[]}))
         (self.root/'data/backlog.md').write_text('## In flight\n- [ ] old - Tarea reabierta (kind: ship)\n')
         ui,snap=self.ui();ui.open_delivery(snap.cols['landed'][0])
-        self.assertIn('se reabrió',ui.delivery)
-        self.assertIn('histórica',ui.delivery)
+        self.assertIn('was reopened',ui.delivery)
+        self.assertIn('historical',ui.delivery)
         ui.delivery_set_view('details')
         self.assertIn('State: in_flight',ui.delivery)
         self.assertIn('Tarea reabierta',ui.delivery)
@@ -245,7 +249,8 @@ class ClarityTests(unittest.TestCase):
               'records':[{'id':'old','title':'Entrega pública','state':'done','source':'archive',
                           'completion':{'date':'2026-10-21','verb':'done'},'card_time':event}]}
         (self.root/'history.json').write_text(json.dumps(data))
-        rows,note=f.delivery_records(self.home)
+        rows,note,complete=f.delivery_records(self.home)
+        self.assertTrue(complete)
         self.assertEqual(rows[0]['closed'],'2026-10-21')
         self.assertEqual(rows[0]['card_time'],event)
         self.assertIn('done_keep',note)
@@ -253,7 +258,8 @@ class ClarityTests(unittest.TestCase):
         self.assertIsNotNone(ui.delivery_event.epoch)
         self.assertEqual(ui.delivery_event.source,'backlog.owner.done')
         data['home']='/foreign';(self.root/'history.json').write_text(json.dumps(data))
-        rows,note=f.delivery_records(self.home)
+        rows,note,complete=f.delivery_records(self.home)
+        self.assertTrue(complete)
         self.assertNotIn('Entrega pública',[row['title'] for row in rows])
         self.assertIn('export unavailable',note)
 

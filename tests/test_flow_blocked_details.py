@@ -22,6 +22,11 @@ class BlockedDetailsTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name)
+        env = patch.dict(os.environ, HERDR_PLUGIN_CONFIG_DIR=str(self.path / 'plugin-config'))
+        env.start(); self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
         (self.path / "state").mkdir()
         self.status = self.path / "state/task.status"
         self.home = flow.Home("crew", str(self.path), "captain")
@@ -122,7 +127,7 @@ class BlockedDetailsTests(unittest.TestCase):
         assert "END_OF_REASON" in seen
         assert "Owner: Firstmate · crew" in seen
         assert "Worker: task" in seen
-        assert "Dependency: No registrada" in seen and "Next:" in seen
+        assert "Dependency: None recorded" in seen and "Next:" in seen
         assert "Blocker key: identity" in seen
         assert "Queue answer" not in seen
 
@@ -150,7 +155,7 @@ class BlockedDetailsTests(unittest.TestCase):
             assert "verify task status" in dict(flow.UI.detail_fields(card))["Routing detail"]
         card, _ = self.board(native="blocked")
         assert card.badge == "⛔ Herdr blocked"
-        assert dict(flow.UI.detail_fields(card))["Reason"] == "No se registró un motivo concreto."
+        assert dict(flow.UI.detail_fields(card))["Reason"] == "No specific reason was recorded."
 
     def test_details_owns_input_and_preserves_agent_open_action(self):
         card, snap = self.board("blocked [at=101]: Missing identity\n")
@@ -192,7 +197,7 @@ class BlockedDetailsTests(unittest.TestCase):
         assert dict(flow.UI.detail_fields(card))["Reason"] == reason
         fields = dict(flow.UI.detail_fields(card))
         assert "may be abbreviated" in fields["Evidence"]
-        assert fields["Dependency"].startswith("No registrada")
+        assert fields["Dependency"].startswith("None recorded")
 
 
 if __name__ == "__main__":

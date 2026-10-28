@@ -5,10 +5,12 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("flow_activity", ROOT / "scripts/flow_tui.py")
@@ -46,6 +48,11 @@ class ActivityProvenanceTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name)
+        env = patch.dict(os.environ, HERDR_PLUGIN_CONFIG_DIR=str(self.path / 'plugin-config'))
+        env.start(); self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
 
     def card(self, **kwargs):
         return card_for(self.path, **kwargs)
@@ -164,8 +171,8 @@ class ActivityProvenanceTests(unittest.TestCase):
                 plain = [flow._ANSI_RE.sub("", line) for line in lines]
                 assert len(lines) == flow.CARD_ROWS
                 assert all(flow.display_width(line) <= width for line in plain)
-                assert "Último reporte" in plain[3]
-                assert "nativo" in plain[8]
+                assert "Last report" in plain[3]
+                assert "native" in plain[8]
                 assert "editing" in plain[4]
                 assert "harness state unavailable" not in "\n".join(plain)
 
