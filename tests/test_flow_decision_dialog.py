@@ -287,9 +287,11 @@ def main() -> int:
         mate_only_board = make_home(root, "mate-tab", label="2ndmate-demo-lane")
         write_board(main_home, [BOARD_CARD])
         mate_tab_card = make_card(owner="demo-lane")
-        mate_tab_content = flow.decision_card_content(
-            mate_tab_card, [main_home, mate_only_board], mate_only_board
-        )
+        homes = [main_home, mate_only_board]
+        with mock.patch.object(flow, "bearings_snapshot", return_value={
+            "decisions_open": [{"id": BOARD_CARD["key"], "owner": "demo-lane"}]
+        }):
+            mate_tab_content = flow.decision_card_content(mate_tab_card, homes, mate_only_board)
         check(
             mate_tab_content["title"] == "Draft the release checklist for #29",
             "captain fleet board is found when a mate crew tab is active",
@@ -299,6 +301,13 @@ def main() -> int:
             == ["hold", "drop", "reconcile"],
             "authored options survive when only the mate tab is on screen",
         )
+        for owners in (["(main)"], ["(main)", "demo-lane"], ["vanished-mate"]):
+            with mock.patch.object(flow, "bearings_snapshot", return_value={
+                "decisions_open": [{"id": BOARD_CARD["key"], "owner": owner} for owner in owners]
+            }):
+                unowned = flow.decision_card_content(mate_tab_card, homes, mate_only_board)
+            check(unowned["title"] == "summary" and unowned["home_path"] == mate_only_board.path,
+                  f"a parent card needs unambiguous ownership: {owners}")
 
         # main-home rows route to the active home
         main_card = make_card(owner="(main)")
