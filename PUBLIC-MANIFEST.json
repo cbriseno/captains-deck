@@ -82,7 +82,7 @@
     {
       "mode": "100644",
       "path": "herdr-plugin.toml",
-      "sha256": "a5b3280bf9e3f82446bfe5e19805b1900cb51a6aea5dbdbe9772b32cd88d99df"
+      "sha256": "7a5a361037e955e43e9de423c68c6c584f5b2755ef77d2ce85aa9dffee4a633f"
     },
     {
       "mode": "100644",
@@ -327,22 +327,22 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "1629d8be49e2cd1ca72dc980bfd3f23f165c43c419d59739665a8cbba3629f85"
+      "sha256": "87546579fe7a3484e5cc2a95dbca8d27c9c379e5576332d8afc0e91b3dddc704"
     },
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "60bed8f6a2e18356c8d8ca2b17dcdb9984640490644af49ccd6d5160b4dc15df"
+      "sha256": "b6c5ba6aa2909dd2692502bc5a2884b5f46ec92ee6773b7d9a55df9333f50e93"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "a49be3defb8bbbcd9beecc914306b2b65ce71ade59c8d23657a745a9b9e830e5"
+      "sha256": "63e68465f0babc4ecda1e29f1b065d0ef2e5f7f8e4df7f89170bacb13088d895"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "3587265f2b3c7f031e8fa02137be992ffe71adb2bbfe0906c4d871fcbc1d8d4c"
+      "sha256": "719f8eb22dea6a78be663bbae667ca3eb5ee90b7de139099281ffc290cdf432f"
     },
     {
       "mode": "100644",
@@ -377,7 +377,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "a35bbbbd39374f0b339199ee2c1d4f37a9399695fdc3847aa21ef0601ce518b4"
+      "sha256": "35419fa1b48cfcfe97a8f78aa140834478a994ae5407be445b0636949bf138d3"
     },
     {
       "mode": "100644",
@@ -417,7 +417,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "9b4ea5a3b790c4449f0cd432efab046d6e4e4be905ad0595a8696bad560042e8"
+      "sha256": "532b2ccaaf4df96c4fbf09df13791e60e306427e0a8d63dd0de4eebd68462b7e"
     },
     {
       "mode": "100644",
@@ -442,7 +442,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "0bfc2d19162e2a88f95f4685d319faf336038905efd8247c2d8efee73c5cf5f9"
+      "sha256": "d5327bd5a67b5f4a57957044b93b55473fa0be21855e02fa9757a2dc98cf19a1"
     },
     {
       "mode": "100644",
