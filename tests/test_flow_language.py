@@ -64,7 +64,7 @@ class LanguageTests(unittest.TestCase):
         text = self.board_text()
         leaked = sorted(label for label in SPANISH_LABELS if label in text)
         self.assertEqual(leaked, [])
-        for label in ('Technical hold', 'Firstmate state: paused', '[Back]', 'Request: Queued for Firstmate',
+        for label in ('On hold', 'Firstmate state: paused', '[Back]', 'Request: Queued for Firstmate',
                       'Details and sources', 'Retained: ', ' · H history', 'Enter: full text · o agent',
                       '(resolved)', 'r report; d details', 'Firstmate: current activity unknown'):
             self.assertIn(label, text)
@@ -79,7 +79,7 @@ class LanguageTests(unittest.TestCase):
                 configure()
                 f._LOCALIZATION = None
                 text = self.board_text()
-                for label in ('Retención técnica', 'Estado de Firstmate: paused', '[Volver]', 'Solicitud: En cola para Firstmate',
+                for label in ('En espera', 'Estado de Firstmate: paused', '[Volver]', 'Solicitud: En cola para Firstmate',
                               'Detalles y fuentes', 'Retenido: ', ' · H historial', 'Enter: texto completo · o agente',
                               '(resuelta)', 'r informe; d detalles', 'Firstmate: actividad actual desconocida'):
                     self.assertIn(label, text)
