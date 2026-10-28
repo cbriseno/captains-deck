@@ -78,7 +78,10 @@ async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = 
     requests.push({url, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null});
     if (url.startsWith('api/locale')) return { ok: true, json: async () => ({ locale: Object.keys(messages).length ? 'es' : 'en', messages }) };
     if (url.startsWith('api/board')) return { ok: true, json: async () => JSON.parse(JSON.stringify(current)) };
-    if (url.startsWith('api/ticket/')) return { ok: true, json: async () => JSON.parse(JSON.stringify(tickets[decodeURIComponent(url.slice('api/ticket/'.length))])) };
+    if (url.startsWith('api/ticket/')) {
+      const entry = tickets[decodeURIComponent(url.slice('api/ticket/'.length))];
+      return typeof entry === 'function' ? entry() : { ok: true, json: async () => JSON.parse(JSON.stringify(entry)) };
+    }
     return { ok: true, json: async () => ({ receipts: [] }) };
   };
   const context = vm.createContext({ document: doc, fetch, navigator: {}, location: { href: 'http://localhost/', search: '' },
@@ -489,6 +492,24 @@ test('structured options are one-click choices with the recommended one marked',
   assert.equal(view.requests.filter(r => r.method === 'POST').length, 1);
 });
 
+test('a failed send offers a retry only when the request itself failed', async () => {
+  const tickets = {pick: structuredTicket('pick', [{value: 'staged', label: 'Staged rollout', hint: ''}, reconcile])};
+  const view = await questionView(tickets); await view.open('pick');
+  const nodes = descendants(view.doc.getElementById('detail-content'));
+  const staged = nodes.find(n => n.tagName === 'BUTTON' && n.dataset.value === 'staged');
+  const status = () => view.doc.getElementById('answer-status').textContent;
+  tickets['pick/answer'] = () => { throw Object.assign(new Error('aborted'), {name: 'AbortError'}); };
+  staged.listeners.click[0](); await view.flush();
+  assert.equal(status(), 'Deck took too long to answer. Your draft is safe. Try the same answer again.');
+  assert.equal(staged.disabled, false);
+  const refusal = 'That answer is too long. Shorten it and send again.';
+  tickets['pick/answer'] = () => ({ok: false, status: 400, json: async () => ({error: refusal})});
+  staged.listeners.click[0](); await view.flush();
+  assert.equal(status(), refusal + ' Your draft is safe.');
+  const posts = view.requests.filter(r => r.method === 'POST');
+  assert.equal(posts.length, 2); assert.equal(posts[0].body.request_id, posts[1].body.request_id);
+});
+
 test('a call without options keeps the plain own-words flow and the re-check choice', async () => {
   const tickets = {free: structuredTicket('free', [reconcile], {recommend: ''})};
   const view = await questionView(tickets); await view.open('free');
@@ -598,7 +619,7 @@ test('a failed question check blocks sending only until a later check confirms t
 });
 
 test('a server error on the same question blocks sending only until a clean check', async () => {
-  const error = 'This home’s intake needs an occurrence guard for web answers.';
+  const error = 'This Firstmate can’t take answers from the web yet. Update Firstmate or answer there.';
   const tickets = {guard: structuredTicket('guard', [{value: 'staged', label: 'Staged rollout', hint: ''}, reconcile], {error})};
   const ticket = tickets.guard;
   const view = await questionView(tickets); await view.open('guard');

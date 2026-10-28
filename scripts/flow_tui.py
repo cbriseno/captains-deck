@@ -3395,11 +3395,11 @@ def concise_delivery(text: str, title: str, *, translate=None) -> str:
     tr = translate or _presentation_text
     plain = readable_markdown(re.sub(r'\A\s*# [^\n]*\n+', '', text))
     if not plain:
-        return readable_markdown(title) + '\n\n' + tr('No summary is retained. Read the report or ask Firstmate for an explanation.')
+        return readable_markdown(title) + '\n\n' + tr('No summary yet. Read the report or ask Firstmate to explain.')
     explicit_result = re.search(r'^#{1,6}\s+(?:Result|Resultado)\s*:?', text, re.M | re.I)
     technical_receipt = re.match(r'^(ready in branch|(?:para|for) (?:root|firstmate)\b|owner application status|head\s*:|commit\s*:)', plain, re.I)
     if not explicit_result and (len(plain) > 1500 or technical_receipt):
-        return readable_markdown(title) + '\n\n' + tr('The delivery retains a technical report but no brief result summary. Read Details or ask Firstmate for an explanation.')
+        return readable_markdown(title) + '\n\n' + tr('There’s only a technical report here, no short summary. See Details or ask Firstmate to explain.')
     if len(plain) <= 1500:
         return plain
     # A technical recap can be hundreds of lines. Preserve it in Details, and
@@ -3408,7 +3408,7 @@ def concise_delivery(text: str, title: str, *, translate=None) -> str:
     excerpt = readable_markdown(excerpt)
     if len(excerpt) > 900:
         excerpt = excerpt[:900].rsplit(' ', 1)[0] + '…'
-    return excerpt + '\n\n' + tr('Abbreviated summary of retained content. Details retains the full text.')
+    return excerpt + '\n\n' + tr('Short version. Details has the full text.')
 
 
 def _time_age(seconds: float) -> str:

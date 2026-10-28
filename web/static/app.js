@@ -93,6 +93,7 @@ function syncSubmit() {
   const submit = $('answer-submit');
   if (submit) submit.disabled = blocked || !!S.modal.draftNeedsReview || !$('answer-note')?.value.trim();
 }
+const retryable = (message) => Object.assign(new Error(message), {retry: true});
 async function api(path, body) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), body ? 100000 : 20000);
@@ -104,9 +105,9 @@ async function api(path, body) {
     if (!response.ok) throw new Error(data.error || t('Request failed ({status}).', {status: response.status}));
     return data;
   } catch (err) {
-    if (err.name === 'AbortError') throw new Error(t('Request timed out. Your draft is preserved.'));
-    if (err instanceof TypeError) throw new Error(t('Could not connect to Deck. Your draft is preserved.'));
-    if (err instanceof SyntaxError) throw new Error(t('Deck returned an unreadable response. Your draft is preserved.'));
+    if (err.name === 'AbortError') throw retryable(t('Deck took too long to answer.'));
+    if (err instanceof TypeError) throw retryable(t('Couldn’t reach Deck.'));
+    if (err instanceof SyntaxError) throw retryable(t('Couldn’t read Deck’s reply.'));
     throw err;
   } finally { clearTimeout(timer); }
 }
@@ -432,7 +433,7 @@ function renderCall(ticket, draftOverride) {
   if (c.title && ![ticket.title, ticket.original_title].includes(c.title)) content.append(node('h3', 'call-question-title', c.title));
   const instructions = c.detail ? contextRow(t('How to answer'), c.detail) : null;
   if (instructions) instructions.className += ' call-instructions';
-  const technical = [contextRow(t('Answer limits'), t('One line, up to 512 bytes. Typing saves a draft; only Send submits it.'))];
+  const technical = [contextRow(t('Answer limits'), t('One line, up to 512 bytes. Typing only saves a draft. Picking an option sends it right away; Send sends a written answer.'))];
   if (c.background) technical.unshift(contextRow(t('Original question text'), c.background));
   if (ticket.answered) {
     $('detail-kicker').textContent = t('Answer saved');
@@ -542,7 +543,7 @@ async function submitAnswer() {
   } catch (err) {
     if (S.modal !== modal) return;
     // The same request id goes out again, so a retry can never answer twice.
-    $('answer-status').replaceChildren(node('p', 'notice error', err.message + t(" Your draft is safe. Pick the same answer again to retry.")));
+    $('answer-status').replaceChildren(node('p', 'notice error', err.message + (err.retry ? t(" Your draft is safe. Try the same answer again.") : t(" Your draft is safe."))));
   } finally { S.busy = false; syncSubmit(); }
 }
 async function openDelivery(home, task, opener) {

@@ -241,7 +241,7 @@ class Board:
         if view == 'delivery':
             try:
                 return {'view': 'delivery', 'delivery': self.delivery(identity, task),
-                        'notice': self.t('The delivery is identified by home and task. History cannot verify the original notification identifier.') if item else ''}
+                        'notice': self.t('This is the delivery for this task. Deck can’t confirm it’s the one from your notification.') if item else ''}
             except Refusal as exc:
                 return {'view': 'unavailable', 'task': task, 'owner': home.label, 'message': self.t(str(exc)), 'receipts': []}
         matches = []
@@ -251,7 +251,7 @@ class Board:
                     matches.append(card)
             except Refusal:
                 continue
-        message = 'This task is no longer among current questions. It may have been resolved, reopened or changed state; this link does not prove which. Check the board or its receipts.'
+        message = 'This question isn’t waiting anymore. It may be done or changed; check the board.'
         current_key = self.key(matches[0]) if len(matches) == 1 else ''
         occurrence = re.fullmatch(r'hold:([1-9][0-9]{0,8})', item)
         if current_key:
@@ -262,8 +262,7 @@ class Board:
                 ordinal = int(current.rsplit('#', 1)[1]) + 1
                 if occurrence and int(occurrence[1]) == ordinal:
                     return {'view': 'call', 'key': current_key}
-                message = ('The notification refers to an earlier question or an unverifiable identity. '
-                           'The current question is not presented as the notification’s question. You can explicitly open it for review.')
+                message = 'This link may be for an earlier version of the question. You can open the current one below.'
             except Refusal:
                 pass
         if occurrence and not fm.is_remote_home(home):
@@ -273,7 +272,7 @@ class Board:
                                         capture_output=True, text=True, timeout=15,
                                         stdin=subprocess.DEVNULL)
                 if result.returncode == 0:
-                    message = 'The question from this notification is resolved according to Firstmate’s canonical intake. This link does not resend an answer.'
+                    message = 'This question is already closed. Opening this link doesn’t send anything again.'
             except (OSError, subprocess.SubprocessError):
                 pass
         return {'view': 'unavailable', 'task': task, 'owner': home.label,
@@ -306,7 +305,7 @@ class Board:
                                'time': self.event_json(event), 'closed': row.get('closed') or ''})
         result.sort(key=lambda row: (row['closed'], row['task'], row['home']), reverse=True)
         return {'records': result[:1000], 'omitted': max(0, len(result) - 1000),
-                'details': details, 'scope': self.t('Deliveries retained by Firstmate. Recent has a separate limit; searching does not change retention.')}
+                'details': details, 'scope': self.t('Includes everything Firstmate still keeps, not just recent ones.')}
 
     def delivery(self, identity, task):
         home = self.home(identity)
@@ -336,17 +335,17 @@ class Board:
 
     def call_identity(self, home, task):
         if fm.is_remote_home(home) or not fm.KEY_RE.fullmatch(task):
-            raise Refusal('This home does not offer verifiable web answers.')
+            raise Refusal('You can’t answer this one from the web. Answer it in Firstmate.')
         script = Path(endpoint_path(home.path, 'fm-captain-hold.sh'))
         try:
             result = subprocess.run(shell_command(script, 'open', task, '--identity'),
                                     env=self.child_env(home), capture_output=True, text=True,
                                     stdin=subprocess.DEVNULL, timeout=15)
         except (OSError, subprocess.SubprocessError):
-            raise Refusal('Could not check the current question. Your draft is preserved.')
+            raise Refusal('Couldn’t check this question right now. Try again in a moment.')
         identity = result.stdout.strip()
         if result.returncode != 0 or not re.fullmatch(r'[^\s#]+#\d+', identity):
-            raise Refusal('The question is no longer open or its occurrence cannot be verified.')
+            raise Refusal('This question isn’t open anymore, or it changed. Refresh the board to check.')
         return identity
 
     @staticmethod
@@ -381,7 +380,7 @@ class Board:
         try:
             identity = self.call_identity(home, card.task)
             guarded = self.guarded_intake(home)
-            error = '' if guarded else 'This home’s intake needs an occurrence guard for web answers.'
+            error = '' if guarded else 'This Firstmate can’t take answers from the web yet. Update Firstmate or answer there.'
         except Refusal as exc:
             identity, error = '', str(exc)
         result['call'] = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'background', 'link',
@@ -435,9 +434,9 @@ class Board:
                 try:
                     previous = json.loads(fm.delivery_read(str(self.data_dir), str(path), 65536))
                 except (OSError, ValueError):
-                    raise Refusal('Unverifiable receipt; Firstmate must review this submission.')
+                    raise Refusal('Deck can’t read its record of this answer. Ask Firstmate to check it.')
                 if previous.get('payload_hash') != payload_hash or previous.get('actor') != actor:
-                    raise Refusal('This occurrence already has another submission. Your draft is preserved.')
+                    raise Refusal('Another answer was already sent for this question.')
                 return self.present_receipt(dict(previous, replay=True))
             card = self.card(key)
             if card.bucket != 'captains_call':
@@ -448,7 +447,7 @@ class Board:
             if call['error']:
                 raise Refusal(call['error'])
             if not secrets.compare_digest(call['occurrence'], occurrence):
-                raise Refusal('The question changed. Review the current version; your draft is preserved.')
+                raise Refusal('The question changed. Look at the new version first.')
             value, note = body.get('value', '').strip(), body.get('note', '').strip()
             # The installed keyed intake bounds each field to 512 bytes. Reject
             # rather than silently truncate the captain's words.
@@ -481,7 +480,7 @@ class Board:
                        'home': home_id(home), 'task': card.task, 'title': card.title, 'occurrence': occurrence,
                        'at': time.time(), 'saved': None, 'notice': 'unknown',
                        'ack': 'unknown', 'consumed': 'unknown', 'state': 'uncertain',
-                       'message': 'Submission started. If the connection drops, check this receipt before retrying.'}
+                       'message': 'Sending started. If the connection dropped, check the answer status before sending again.'}
             self.store_receipt(path, receipt, exclusive=True)
             try:
                 args = ['reconcile-requests', '--source-id', fm.DECISION_SOURCE_ID,
@@ -505,9 +504,9 @@ class Board:
                 output = (process.stdout + '\n' + process.stderr).strip()
                 receipt.update(state='saved' if process.returncode == 0 else 'uncertain',
                                saved=True if process.returncode == 0 else None,
-                               message=('Review request saved.' if value == 'reconcile' else
+                               message=('Saved. Firstmate will check again.' if value == 'reconcile' else
                                         'Answer saved by Firstmate.') if process.returncode == 0 else
-                                       'The intake did not confirm submission. Check the receipt; your draft is preserved.',
+                                       'Firstmate didn’t confirm it got your answer. Check the answer status; your draft is safe.',
                                detail=fm.delivery_text(output)[-4000:])
                 if process.returncode == 3:
                     try:
@@ -516,7 +515,7 @@ class Board:
                         conflict = {}
                     if conflict.get('error') == 'identity-conflict':
                         receipt.update(state='conflict', saved=False, notice='none',
-                                       message='The occurrence changed before saving. The answer was not sent; your draft is preserved.')
+                                       message='The question changed before saving, so nothing was sent. Your draft is safe.')
                 if process.returncode == 0 and value != 'reconcile':
                     # The answer is durable before anything points Firstmate at it.
                     self.store_receipt(path, receipt)
@@ -527,7 +526,7 @@ class Board:
                 # wake acknowledgement or consumption by the owning agent.
                 self.collector.refresh_now()
             except (OSError, subprocess.SubprocessError, Refusal) as exc:
-                receipt.update(message='Could not confirm submission. Your draft is preserved.', detail=str(exc))
+                receipt.update(message='Couldn’t confirm your answer was sent. Check the answer status; your draft is safe.', detail=str(exc))
             self.store_receipt(path, receipt)
             return self.present_receipt(receipt)
 
@@ -620,12 +619,12 @@ class Security:
             session = self.sessions.get(sid)
             if not session or session[0] != actor:
                 if unsafe:
-                    raise Refusal('The session expired. Refresh without losing your draft.', 403)
+                    raise Refusal('Your session expired. Refresh the page.', 403)
                 sid = secrets.token_urlsafe(32)
                 session = (actor, secrets.token_urlsafe(32), now)
                 self.sessions[sid] = session
             if unsafe and not secrets.compare_digest(handler.headers.get('X-Deck-CSRF', ''), session[1]):
-                raise Refusal('Invalid action token. Refresh without losing your draft.', 403)
+                raise Refusal('This page is out of date. Refresh it.', 403)
         return actor, session[1], sid, expected.startswith('https:')
 
 
@@ -724,7 +723,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         except Exception as exc:
             print(f'bridge request failed: {type(exc).__name__}: {exc}', file=sys.stderr)
-            self.respond(500, json.dumps({'error': self.server.i18n.t('Could not complete the request. Your draft is preserved.')}).encode())
+            self.respond(500, json.dumps({'error': self.server.i18n.t('Deck hit a problem and couldn’t finish.')}).encode())
 
     def read_binary(self, relative):
         # Icons are repo-owned static files, never a report path from a client.
