@@ -127,10 +127,10 @@ class OutcomePTYTests(unittest.TestCase):
                     summary = expect(lambda f: f['delivery'] and 'Study only; apps unchanged.' in f['text'], 'all-first-screen')
                     self.assertNotIn('Task: old', summary['text'])
                     send(b'e')
-                    queued = expect(lambda f: 'En cola para Firstmate' in f['text'], 'explanation-queued')
+                    queued = expect(lambda f: 'Queued for Firstmate' in f['text'], 'explanation-queued')
                     x, _, y, _ = next(hit for hit in queued['hits'] if hit[3] == 'explain')
                     click(x, y)
-                    expect(lambda f: 'En cola para Firstmate' in f['text'], 'explanation-deduplicated')
+                    expect(lambda f: 'Queued for Firstmate' in f['text'], 'explanation-deduplicated')
                     send(b'r')
                     report = expect(lambda f: 'FULL_REPORT_mate' in f['text'], 'all-keyboard-report')
                     previous = report['scroll']

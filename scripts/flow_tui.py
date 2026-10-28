@@ -1828,10 +1828,47 @@ def _decision_lookup_homes(
     return ordered
 
 
-def _presentation_text(message, legacy=None, **values):
-    """Default shared wording; web supplies a catalog without changing TUI text."""
-    text = legacy if legacy is not None else message
-    return text.format_map(values) if values else text
+class _EnglishCatalog:
+    """Source-message fallback for a checkout without the shared web catalogs."""
+
+    def t(self, message, **values):
+        return message.format_map(values) if values else message
+
+
+_LOCALIZATION = None
+
+
+def deck_language() -> str:
+    """The installation's explicit language, shared with the web.
+
+    CD_WEB_LANGUAGE wins, then a ``language`` file in the plugin config dir.
+    There is no OS or terminal language discovery: unset is English."""
+    return _cfg_or_env("language", "CD_WEB_LANGUAGE")
+
+
+def _localization():
+    """The web's catalogs and normalizer, loaded once per board process."""
+    global _LOCALIZATION
+    if _LOCALIZATION is None:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "localization.py")
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("_deck_localization", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            _LOCALIZATION = module.Localization(deck_language())
+        except (OSError, ImportError, AttributeError, ValueError):
+            _LOCALIZATION = _EnglishCatalog()
+    return _LOCALIZATION
+
+
+def _presentation_text(message, **values):
+    """Default shared wording in the installation's language; the web passes
+    its own catalog. English source messages are the keys."""
+    return _localization().t(message, **values)
+
+
+tr = _presentation_text
 
 
 def decision_card_content(
@@ -3063,11 +3100,11 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
                                     text=True, timeout=15, stdin=subprocess.DEVNULL)
             data = json.loads(result.stdout)
             if result.returncode or data.get('schema') != 'fm-delivery-history.v1' or os.path.realpath(data.get('home', '')) != os.path.realpath(home.path):
-                raise ValueError(tr('invalid history response or different home', 'respuesta de historial inválida o de otro home'))
+                raise ValueError(tr('invalid history response or different home'))
             rows = []
             for record in data.get('records', []):
                 if not isinstance(record, dict) or not isinstance(record.get('id'), str) or not KEY_RE.fullmatch(record['id']):
-                    raise ValueError(tr('invalid history record', 'registro de historial inválido'))
+                    raise ValueError(tr('invalid history record'))
                 row = dict(record, home_path=home.path, owner_label=home.label,
                            delivery_identity=delivery_home_identity(home))
                 completion = record.get('completion')
@@ -3080,18 +3117,18 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
                 row.setdefault('source', 'Firstmate history')
                 if not task_id or record['id'] == task_id:
                     rows.append(row)
-            note = tr('Retained Firstmate history. ', 'Historial retenido de Firstmate. ') + json.dumps(data.get('retention', {}), ensure_ascii=False)
-            note += tr(' · Sources: ', ' · Fuentes: ') + json.dumps(data.get('sources', []), ensure_ascii=False)
-            note += tr(' · Recent is limited; history includes retained records only and cannot recover deleted records.', ' · Recientes es una vista limitada; historial sólo incluye lo conservado, no recupera registros borrados.')
+            note = tr('Retained Firstmate history. ') + json.dumps(data.get('retention', {}), ensure_ascii=False)
+            note += tr(' · Sources: ') + json.dumps(data.get('sources', []), ensure_ascii=False)
+            note += tr(' · Recent is limited; history includes retained records only and cannot recover deleted records.')
             if not data.get('complete'):
                 note += tr(' · incomplete: ') + '; '.join(map(str, data.get('limitations') or []))
             if not task_id or rows:
                 return rows, note
             # History intentionally excludes reopened tasks. Preserve the
             # existing current-record check when opening a stale Landed card.
-            endpoint_warning = tr('Public history does not retain this delivery; checking the current canonical record for reopening.', 'El historial público no retiene esta entrega; se consulta el registro canónico actual para detectar reapertura.')
+            endpoint_warning = tr('Public history does not retain this delivery; checking the current canonical record for reopening.')
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-            endpoint_warning = tr('History export unavailable: {error}; local canonical reader fallback', 'History export unavailable: {error}; respaldo del lector canónico local', error=exc)
+            endpoint_warning = tr('History export unavailable: {error}; local canonical reader fallback', error=exc)
     notes, rows, active_ids = ([endpoint_warning] if endpoint_warning else []), {}, set()
     try:
         config = _tasks_read({'config': delivery_read(home.path, '.tasks.toml', 65536)})
@@ -3156,7 +3193,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
             notes.append(tr('{source} unavailable: {error}; retained history may be incomplete', source=source, error=exc))
     ordered = sorted(rows.values(), key=lambda r: (r.get('closed', ''), r['id']), reverse=True)
-    return ordered, '; '.join(notes) + tr('. Retained deliveries only; no retention changes. done_keep={count}: current backlog limit; archive retains existing records. Recent is not all history; deleted records cannot be recovered.', '. Retained deliveries only; no retention changes. done_keep={count}: límite del backlog actual; el archivo conserva los registros que aún existan. Recientes no es todo el historial; no se recuperan registros borrados.', count=cfg.get('done_keep', tr('not specified', 'no especificado')))
+    return ordered, '; '.join(notes) + tr('. Retained deliveries only; no retention changes. done_keep={count}: current backlog limit; archive retains existing records. Recent is not all history; deleted records cannot be recovered.', count=cfg.get('done_keep', tr('not specified')))
 
 
 def delivery_home_identity(home: Home) -> str:
@@ -3296,11 +3333,11 @@ def concise_delivery(text: str, title: str, *, translate=None) -> str:
     tr = translate or _presentation_text
     plain = readable_markdown(re.sub(r'\A\s*# [^\n]*\n+', '', text))
     if not plain:
-        return readable_markdown(title) + '\n\n' + tr('No summary is retained. Read the report or ask Firstmate for an explanation.', 'No hay un resumen retenido. Consulta el informe o pide una explicación a Firstmate.')
+        return readable_markdown(title) + '\n\n' + tr('No summary is retained. Read the report or ask Firstmate for an explanation.')
     explicit_result = re.search(r'^#{1,6}\s+(?:Result|Resultado)\s*:?', text, re.M | re.I)
     technical_receipt = re.match(r'^(ready in branch|(?:para|for) (?:root|firstmate)\b|owner application status|head\s*:|commit\s*:)', plain, re.I)
     if not explicit_result and (len(plain) > 1500 or technical_receipt):
-        return readable_markdown(title) + '\n\n' + tr('The delivery retains a technical report but no brief result summary. Read Details or ask Firstmate for an explanation.', 'La entrega conserva un informe técnico, pero no un resumen breve del resultado. Consulta Detalles o pide una explicación a Firstmate.')
+        return readable_markdown(title) + '\n\n' + tr('The delivery retains a technical report but no brief result summary. Read Details or ask Firstmate for an explanation.')
     if len(plain) <= 1500:
         return plain
     # A technical recap can be hundreds of lines. Preserve it in Details, and
@@ -3309,25 +3346,27 @@ def concise_delivery(text: str, title: str, *, translate=None) -> str:
     excerpt = readable_markdown(excerpt)
     if len(excerpt) > 900:
         excerpt = excerpt[:900].rsplit(' ', 1)[0] + '…'
-    return excerpt + '\n\n' + tr('Abbreviated summary of retained content. Details retains the full text.', 'Resumen abreviado del contenido retenido. Detalles conserva el texto completo.')
+    return excerpt + '\n\n' + tr('Abbreviated summary of retained content. Details retains the full text.')
+
+
+def _time_age(seconds: float) -> str:
+    if seconds < 0:
+        return tr('future date; check clock')
+    if seconds < 60:
+        return tr('now')
+    count, unit = next((int(seconds // step), unit) for step, unit in
+                       ((604800, tr('wk')), (86400, 'd'), (3600, 'h'), (60, 'min')) if seconds >= step)
+    return tr('{count} {unit} ago', count=count, unit=unit)
 
 
 def local_time_caption(event: CardTime, now: float | None = None) -> str:
     now = time.time() if now is None else now
     if event.day is not None:
-        return event.day.isoformat() + ' · sólo fecha; hora no registrada'
+        return event.day.isoformat() + tr(' · date only; time not recorded')
     if event.epoch is None:
-        return 'Fecha y hora no registradas' if event.problem == 'not recorded' else 'Fecha no disponible; consulta Detalles'
+        return tr('Date and time not recorded') if event.problem == 'not recorded' else tr('Date unavailable; see Details')
     stamp = datetime.fromtimestamp(event.epoch, timezone.utc).astimezone()
-    seconds = now - event.epoch
-    if seconds < 0:
-        age = 'fecha futura; revisar reloj'
-    elif seconds < 60:
-        age = 'ahora'
-    else:
-        age = next(f'hace {int(seconds // step)} {unit}' for step, unit in
-                   ((604800, 'sem'), (86400, 'd'), (3600, 'h'), (60, 'min')) if seconds >= step)
-    return stamp.strftime('%Y-%m-%d %H:%M %Z') + ' · ' + age
+    return stamp.strftime('%Y-%m-%d %H:%M %Z') + ' · ' + _time_age(now - event.epoch)
 
 
 def compact_time_caption(event: CardTime, width: int) -> str:
@@ -3336,12 +3375,14 @@ def compact_time_caption(event: CardTime, width: int) -> str:
         return full
     if event.epoch is not None:
         stamp = datetime.fromtimestamp(event.epoch, timezone.utc).astimezone()
-        age = full.split(' · ')[-1].replace('hace ', '')
+        # Drop the "ago" wording around the count, in whichever language.
+        before, _, after = tr('{count} {unit} ago').partition('{count} {unit}')
+        age = full.split(' · ')[-1].removeprefix(before).removesuffix(after)
         compact = stamp.strftime('%d/%m %H:%M') + ' · ' + age
         return compact if display_width(compact) <= width else clip(age, width)
     if event.day is not None:
         return event.day.isoformat() if width >= 10 else event.day.strftime('%d/%m')
-    return 'Sin fecha/hora' if width >= 14 else '?'
+    return tr('No date/time') if width >= 14 else '?'
 
 
 def delivery_content(record: dict, home: Home, board_time: CardTime | None = None, *, split_views: bool = False, translate=None, report_heading=True):
@@ -3441,9 +3482,9 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
     if split_views:
         summary = concise_delivery(curated[1] if curated else '', record.get('title') or record.get('what') or task, translate=translate)
         if record.get('state') and record['state'] != 'done':
-            summary = tr('The task was reopened; this delivery is historical.', 'La tarea se reabrió; esta entrega es histórica.') + '\n\n' + summary
+            summary = tr('The task was reopened; this delivery is historical.') + '\n\n' + summary
         return {'summary': summary,
-                'report': readable_markdown(tr('Full report · {path}\n\n{text}', 'Informe completo · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report is retained for this task.', 'No hay informe completo retenido para esta tarea.'),
+                'report': readable_markdown(tr('Full report · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report is retained for this task.'),
                 'details': readable_markdown(details + '\n\n' + (curated[1] if curated else '') + '\n\n' + '\n\n'.join(ordered[1:] if report else ordered) + '\n\n' + '\n\n'.join(sections))}
     return full
 
@@ -4033,15 +4074,16 @@ def ansi_width(text: str) -> int:
 
 def supervisor_caption(value: dict) -> str:
     if not value:
-        return 'Firstmate: actividad actual desconocida (sin declaración).'
+        return tr('Firstmate: current activity unknown (no declaration).')
     event = CardTime('Declared', value.get('observed_at'), value.get('source', ''))
     ttl = _float(value.get('ttl', value.get('ttl_seconds')), 0)
     stale = value.get('freshness') == 'stale' or bool(event.epoch and ttl > 0 and time.time() - event.epoch > ttl)
     age = local_time_caption(event)
     if stale:
-        return f"Firstmate: declaración vencida; actividad actual desconocida. {value.get('summary') or ''} · {age}"
-    declared = {'coordinating': 'coordinación', 'waiting': 'espera', 'idle': 'inactividad'}.get(value.get('state'), 'estado desconocido')
-    return f"Firstmate declaró {declared}: {value.get('summary') or 'sin propósito registrado'} · {age}. Actividad del modelo desconocida."
+        return tr('Firstmate: declaration expired; current activity unknown. {summary} · {age}', summary=value.get('summary') or '', age=age)
+    declared = {'coordinating': tr('coordination'), 'waiting': tr('waiting'), 'idle': tr('idle')}.get(value.get('state'), tr('unknown state'))
+    return tr('Firstmate declared {state}: {summary} · {age}. Model activity unknown.', state=declared,
+              summary=value.get('summary') or tr('no purpose recorded'), age=age)
 
 
 def durable_report(card: Card) -> tuple[str, str, CardTime]:
@@ -4096,21 +4138,21 @@ def flow_context(card: Card, *, translate=None) -> dict[str, str]:
             phase = 'reported'
         else:
             phase = 'unknown'
-    labels = {'human': tr('Waiting for a human answer', 'Espera respuesta humana'), 'dependency': tr('Waiting for a dependency', 'Espera dependencia'),
-              'integration': tr('Integration pending', 'Integración pendiente'), 'technical': tr('Technical hold', 'Retención técnica'),
-              'active': tr('Declared activity', 'Actividad declarada'), 'unknown': tr('Unconfirmed state', 'Estado sin confirmar'),
-              'waiting': tr('Declared wait', 'Espera declarada'),
-              'reported': tr('Work reported', 'Trabajo informado') if report_state == 'done' else tr('Last report', 'Último reporte')}
+    labels = {'human': tr('Waiting for a human answer'), 'dependency': tr('Waiting for a dependency'),
+              'integration': tr('Integration pending'), 'technical': tr('Technical hold'),
+              'active': tr('Declared activity'), 'unknown': tr('Unconfirmed state'),
+              'waiting': tr('Declared wait'),
+              'reported': tr('Work reported') if report_state == 'done' else tr('Last report')}
     if phase == 'integration' and flow.get('state') == 'ready':
-        labels['integration'] = tr('Ready for integration', 'Lista para integración')
-    actions = {'human': tr('Answer the question in Captain’s Call.', 'Responder la pregunta en Captain’s Call.'),
-               'dependency': tr('Firstmate reviews the dependency and resumes when it is released.', 'Firstmate revisa la dependencia y retoma al liberarse.'),
-               'integration': tr('Firstmate verifies and integrates pending work.', 'Firstmate verifica e integra el trabajo pendiente.'),
-               'technical': tr('Firstmate reviews the reason and condition for resuming.', 'Firstmate revisa el motivo y la condición para retomar.'),
-               'active': tr('Firstmate supervises the work and its results.', 'Firstmate supervisa el trabajo y sus resultados.'),
-               'unknown': tr('Firstmate must confirm the task’s state.', 'Firstmate debe confirmar el estado de la tarea.'),
-               'waiting': tr('Firstmate reviews the declared condition and coordinates the next step.', 'Firstmate revisa la condición declarada y coordina el siguiente paso.'),
-               'reported': tr('Firstmate reviews the result and outstanding work.', 'Firstmate revisa el resultado y los pendientes del encargo.')}
+        labels['integration'] = tr('Ready for integration')
+    actions = {'human': tr('Answer the question in Captain’s Call.'),
+               'dependency': tr('Firstmate reviews the dependency and resumes when it is released.'),
+               'integration': tr('Firstmate verifies and integrates pending work.'),
+               'technical': tr('Firstmate reviews the reason and condition for resuming.'),
+               'active': tr('Firstmate supervises the work and its results.'),
+               'unknown': tr('Firstmate must confirm the task’s state.'),
+               'waiting': tr('Firstmate reviews the declared condition and coordinates the next step.'),
+               'reported': tr('Firstmate reviews the result and outstanding work.')}
     supervisor = getattr(card, 'supervisor', {}) or {}
     supervision = supervisor_caption(supervisor)
     next_action = flow.get('next_action') or ''
@@ -4122,13 +4164,13 @@ def flow_context(card: Card, *, translate=None) -> dict[str, str]:
             and phase in ('waiting', 'reported', 'technical', 'dependency')
             and next_action == 'Firstmate necesita una observación actual; la última declaración se conserva como contexto.'):
         next_action = ''
-    return {'phase': phase, 'label': labels[phase], 'reason': reason or tr('No specific reason was recorded.', 'No se registró un motivo concreto.'),
+    return {'phase': phase, 'label': labels[phase], 'reason': reason or tr('No specific reason was recorded.'),
             'waiting_for': flow.get('waiting_for') or '',
             'next_action': next_action or actions[phase],
             'firstmate_action': supervision,
             'report_state': report_state,
-            'native_status': (tr('Unknown native state', 'Estado nativo desconocido') if getattr(card, 'activity_unconfirmed', False)
-                              else tr('Firstmate state: ', 'Estado de Firstmate: ') + (state or tr('unknown', 'desconocido')))}
+            'native_status': (tr('Unknown native state') if getattr(card, 'activity_unconfirmed', False)
+                              else tr('Firstmate state: ') + (state or tr('unknown')))}
 
 
 VALIDATION_RE = re.compile(r"validating \((?:running|fixing)\)")
@@ -4255,19 +4297,19 @@ def dependency_caption(card: Card) -> str:
         return card.blocked_by if card.blocked_by not in ('', '-') else ''
     def owner_label(dep):
         owner = dep.get('owner')
-        return (getattr(card, 'owner_label', '') or 'Firstmate') if owner == '(main)' else owner or 'responsable no registrado'
-    return '; '.join(f"{d.get('title') or d['id']} · {owner_label(d)}" + (' (resuelta)' if d.get('unresolved') is False else '') + (' (vínculo por conciliar)' if d.get('reconciliation_required') is True else '')
+        return (getattr(card, 'owner_label', '') or 'Firstmate') if owner == '(main)' else owner or tr('owner not recorded')
+    return '; '.join(f"{d.get('title') or d['id']} · {owner_label(d)}" + (tr(' (resolved)') if d.get('unresolved') is False else '') + (tr(' (link pending reconciliation)') if d.get('reconciliation_required') is True else '')
                      for d in deps)
 
 
 def explanation_request(home: Home, task: str, *, status: bool = False, translate=None) -> dict:
     """Identity-only intake. A stable key delegates deduplication to Firstmate."""
-    if is_remote_home(home) or not delivery_home_identity(home) or not KEY_RE.fullmatch(task):
-        return {'state': 'unsupported', 'message': 'Este home no permite solicitar explicaciones desde Deck.'}
     tr = translate or _presentation_text
+    if is_remote_home(home) or not delivery_home_identity(home) or not KEY_RE.fullmatch(task):
+        return {'state': 'unsupported', 'message': tr('This home does not allow explanation requests from Deck.')}
     script = endpoint_path(home.path, 'fm-delivery-explain.sh')
     if not os.path.isfile(script):
-        return {'state': 'unsupported', 'message': tr('This backend does not offer the explanation intake yet. Firstmate must update this home.', 'Este backend aún no ofrece el intake de explicación. Firstmate debe actualizar ese home.')}
+        return {'state': 'unsupported', 'message': tr('This backend does not offer the explanation intake yet. Firstmate must update this home.')}
     request_id = 'deck-explain-' + delivery_key(delivery_home_identity(home), task)[:32]
     command = [script, '--task', task, '--request-id', request_id, '--json']
     if status:
@@ -4282,10 +4324,10 @@ def explanation_request(home: Home, task: str, *, status: bool = False, translat
                 ('queued', 'acknowledged', 'answered', 'saved_unannounced', 'absent') or
                 data.get('request_id') != request_id or data.get('task') != task or
                 os.path.realpath(data.get('home', '')) != os.path.realpath(home.path)):
-            raise ValueError(tr('invalid response or different identity', 'respuesta inválida o identidad diferente'))
+            raise ValueError(tr('invalid response or different identity'))
         return data
     except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-        return {'state': 'error', 'request_id': request_id, 'message': tr('Could not verify the request: {error}. Retrying uses the same identifier.', 'No se pudo verificar la solicitud: {error}. Reintentar usa el mismo identificador.', error=exc)}
+        return {'state': 'error', 'request_id': request_id, 'message': tr('Could not verify the request: {error}. Retrying uses the same identifier.', error=exc)}
 
 
 class UI:
@@ -4590,7 +4632,7 @@ class UI:
         self.explanation = explanation_request(home, record['id'], status=True)
         if note:
             if self.delivery_views:
-                self.delivery_views['details'] += "\n\nFuentes del historial: " + delivery_text(note)
+                self.delivery_views['details'] += tr('\n\nHistory sources: ') + delivery_text(note)
         warning = delivery_mark_read(delivery_home_identity(home), record["id"])
         if warning:
             self.delivery += "\n\n" + warning
@@ -4652,7 +4694,9 @@ class UI:
         box = ["╭" + pad(clip(title, dw - 2), dw - 2) + "╮"]
         for row in rows[:budget]:
             body = pad(clip(row, inner), inner)
-            if row.casefold() in ('resultado', 'alcance', 'por qué', 'cómo', 'entregado', 'verificado', 'evidencia', 'pendiente'):
+            # Authored report headings, in either supported language.
+            if row.casefold() in ('result', 'scope', 'why', 'how', 'delivered', 'verified', 'evidence', 'pending',
+                                  'resultado', 'alcance', 'por qué', 'cómo', 'entregado', 'verificado', 'evidencia', 'pendiente'):
                 body = BOLD + fg(C_ACCENT) + body + RESET
             box.append('│ ' + body + ' │')
         while len(box) < budget + 1:
@@ -4667,11 +4711,11 @@ class UI:
 
     def render_delivery(self, lines, w, h):
         inner = max(4, min(122, w - 2) - 4)
-        controls = [('summary', 'Resumen'), ('report', 'r Informe'), ('details', 'd Detalles'), ('back', 'Volver')]
+        controls = [('summary', tr('Summary')), ('report', 'r ' + tr('Report')), ('details', 'd ' + tr('Details')), ('back', tr('Back'))]
         if not self.delivery_views:
-            controls = [('back', 'Volver')]
+            controls = [('back', tr('Back'))]
         if self.delivery_context:
-            controls += [('explain', 'e Pedir explicación a Firstmate'), ('status', 's Estado')]
+            controls += [('explain', 'e ' + tr('Ask Firstmate for an explanation')), ('status', 's ' + tr('Status'))]
         self.delivery_actions = [action for action, _ in controls]
         self.delivery_action_focus = min(self.delivery_action_focus, len(controls) - 1)
         action_rows, hits = [''], []
@@ -4690,16 +4734,16 @@ class UI:
                 heading.insert(0, f'{home.label} · {task}')
         status_rows = []
         if self.delivery_context and self.explanation and (self.explanation_notice or self.explanation.get('state') not in ('absent', 'unsupported')):
-            states = {'queued': 'En cola para Firstmate', 'acknowledged': 'Firstmate confirmó recepción',
-                      'answered': 'Firstmate respondió; consulta Detalles', 'saved_unannounced': 'Guardada; aviso a Firstmate no confirmado',
-                      'absent': 'Sin solicitud', 'unsupported': 'Explicación no disponible en este backend',
-                      'error': 'Solicitud sin verificar; s consulta el estado'}
+            states = {'queued': tr('Queued for Firstmate'), 'acknowledged': tr('Firstmate acknowledged receipt'),
+                      'answered': tr('Firstmate answered; see Details'), 'saved_unannounced': tr('Saved; Firstmate notice unconfirmed'),
+                      'absent': tr('No request'), 'unsupported': tr('Explanation unavailable on this backend'),
+                      'error': tr('Request unverified; s checks the status')}
             state = self.explanation.get('state', 'error')
-            status_rows += wrap_text('Solicitud: ' + states[state], inner)
+            status_rows += wrap_text(tr('Request: ') + states[state], inner)
             if state in ('error', 'unsupported', 'saved_unannounced'):
                 status_rows += wrap_text(delivery_text(self.explanation.get('message', '')), inner)
             if self.delivery_view == 'details':
-                self_detail = 'Solicitud verificable: ' + delivery_text(json.dumps(self.explanation, ensure_ascii=False))
+                self_detail = tr('Verifiable request: ') + delivery_text(json.dumps(self.explanation, ensure_ascii=False))
             else:
                 self_detail = ''
         else:
@@ -4710,8 +4754,8 @@ class UI:
         self.delivery_max = max(0, len(rows) - budget)
         self.delivery_scroll = min(self.delivery_scroll, self.delivery_max)
         start = self.delivery_scroll
-        label = {'summary': 'Resumen', 'report': 'Informe técnico', 'details': 'Detalles y fuentes'}.get(self.delivery_view, 'Historial')
-        title = f" Entrega · {label} · {start + 1}-{min(len(rows), start + budget)}/{len(rows)} "
+        label = {'summary': tr('Summary'), 'report': tr('Technical report'), 'details': tr('Details and sources')}.get(self.delivery_view, tr('History'))
+        title = f" {tr('Delivery')} · {label} · {start + 1}-{min(len(rows), start + budget)}/{len(rows)} "
         x, y, budget, _ = self.reader_frame(lines, w, h, title, rows[start:start + budget], action_rows)
         self.reader_hits = [(x + a, x + b, y + budget + 1 + row, action) for a, b, row, action in hits]
 
@@ -4731,7 +4775,7 @@ class UI:
         budget = max(1, h - 5)
         content = wrap_text("Search: " + state["query"] + "_", inner)
         limited = any(word in state["note"].lower() for word in ("unavailable", "incomplete", "missing"))
-        content += wrap_text("Retenido: " + ("fuentes incompletas" if limited else "actual + archivo") + " · Tab/Info: retención y fuentes", inner)
+        content += wrap_text(tr("Retained: ") + (tr("incomplete sources") if limited else tr("current + archive")) + tr(" · Tab/Info: retention and sources"), inner)
         content += wrap_text("Type search · Enter open · ↑↓ select · Esc back", inner)
         # Source details are fully scrollable through Tab/Info even when there
         # are no rows (offline/backend missing), without marking anything read.
@@ -5202,7 +5246,7 @@ class UI:
                 # Same mapping as the web: agents Firstmate reports working now.
                 label = f"{title} ({shown} · ●{activity_counts(cards).get('working', 0)} working)"
             if ckey == "landed":
-                label = f"Recent Landed ({shown}) · H historial"
+                label = f"Recent Landed ({shown})" + tr(" · H history")
             if len(display_columns) == 1:
                 label += f" · ←/→ {self.col_idx + 1}/{len(self.columns)}"
             blocked = sum(1 for c in cards if "blocked" in c.badge.lower())
@@ -5632,7 +5676,7 @@ class UI:
         ("click a crew tab", "switch mate"),
         ("enter / click", "open a call or Landed delivery"),
         ("H", "search retained delivery history (All or local home)"),
-        ("delivery", "r informe; d detalles; e explicación; s estado; Tab/Enter acciones"),
+        ("delivery", "r report; d details; e explanation; s status; Tab/Enter actions"),
         ("o", "open the selected agent pane"),
         ("d", "read full reason, owner, dependency and next step"),
         ("m", "message Firstmate"),
@@ -5663,8 +5707,8 @@ class UI:
                   ("Phase", context['label']),
                   ("Reason", context['reason']),
                   ("Native state", context['native_status']),
-                  ("Dependency", dependency_caption(card) or 'No registrada'),
-                  ("Waiting for", context['waiting_for'] or 'Consulta el motivo y la siguiente acción'),
+                  ("Dependency", dependency_caption(card) or tr('None recorded')),
+                  ("Waiting for", context['waiting_for'] or tr('See the reason and next action')),
                   ("Next", context['next_action']),
                   ("Firstmate action", context['firstmate_action']),
                   ("Owner", f"Firstmate · {owner}"), ("Worker", card.task)]
@@ -5676,7 +5720,7 @@ class UI:
         if event is not None:
             fields.append(("Time", card_time_detail(event)))
         for dep in getattr(card, 'dependencies', []):
-            fields.append(('Dependency identity', f"{dep['id']} · {dep.get('title') or 'nombre no registrado'} · {dep.get('owner') or 'responsable no registrado'} · {dep.get('state') or 'estado desconocido'}"))
+            fields.append(('Dependency identity', f"{dep['id']} · {dep.get('title') or tr('name not recorded')} · {dep.get('owner') or tr('owner not recorded')} · {dep.get('state') or tr('unknown state')}"))
         blockers = getattr(card, "blockers", [])
         for b in blockers:
             fields.append(("Reason", b["text"] or "No reason recorded"))
@@ -5700,12 +5744,12 @@ class UI:
         fields.append(("Firstmate", f"{getattr(card, 'snapshot_state', '') or 'unavailable'}; {card.doing or 'no activity detail'}"))
         fields.append(("Herdr", card.live_status or "unavailable"))
         fields.append(('Agent', UI.card_agent_line(card)))
-        fields.append(('Run totals', UI.card_run_stats_suffix(card) or 'No registrados'))
-        fields.append(('Branch', card.branch or 'no registrada'))
-        fields.append(('Worktree', card.worktree or 'no registrado'))
+        fields.append(('Run totals', UI.card_run_stats_suffix(card) or tr('Not recorded')))
+        fields.append(('Branch', card.branch or tr('no branch recorded')))
+        fields.append(('Worktree', card.worktree or tr('not recorded')))
         fields.append(('Supervisor evidence', delivery_text(json.dumps(getattr(card, 'supervisor', {}), ensure_ascii=False))))
-        fields.append(('Planned Firstmate action', (getattr(card, 'flow', {}) or {}).get('firstmate_action') or 'No exportada'))
-        fields.append(('Flow source', str((getattr(card, 'flow', {}) or {}).get('source') or 'Declaraciones retenidas; proyección no exportada')))
+        fields.append(('Planned Firstmate action', (getattr(card, 'flow', {}) or {}).get('firstmate_action') or tr('Not exported')))
+        fields.append(('Flow source', str((getattr(card, 'flow', {}) or {}).get('source') or tr('Retained declarations; projection not exported'))))
         fields.append(("Evidence", "Declarations are read from the latest 8192 bytes of the task log; missing dependency ownership is not inferred. Snapshot reasons may be abbreviated."))
         return fields
 
@@ -5809,8 +5853,9 @@ class UI:
     def render_help(self, lines: list[str], w: int, h: int) -> None:
         """Draw the keybinding help as a centered modal (footer ``? help``)."""
         self.help_box = None
-        keyw = max(display_width(key) for key, _ in self.HELP_ROWS)
-        cw = keyw + 3 + max(display_width(desc) for _, desc in self.HELP_ROWS)
+        rows = [(key, tr(desc)) for key, desc in self.HELP_ROWS]
+        keyw = max(display_width(key) for key, _ in rows)
+        cw = keyw + 3 + max(display_width(desc) for _, desc in rows)
         dw = min(max(34, cw + 4), max(34, w - 4))
         inner = dw - 4
         box_h = len(self.HELP_ROWS) + 2
@@ -5818,7 +5863,7 @@ class UI:
         x0 = max(0, (w - dw) // 2)
         border = fg(C_BORDER)
         box = [f"{border}\u256d─ Help " + "─" * max(0, dw - 9) + f"\u256e{RESET}"]
-        for key, desc in self.HELP_ROWS:
+        for key, desc in rows:
             key_text = pad(key, keyw + 3)
             desc_text = clip(desc, max(0, inner - keyw - 3))
             styled = f"{fg(C_DIM)}{key_text}{RESET}{desc_text}"
@@ -5869,15 +5914,15 @@ class UI:
         event = getattr(card, 'event_time', None)
         when = compact_time_caption(event, inner) if event is not None else ''
         if card.bucket == 'landed':
-            summary = getattr(card, 'delivery_summary', '') or getattr(card, 'delivery_problem', '') or (card.title + ' · Sin resumen de resultado; Enter abre las fuentes.')
+            summary = getattr(card, 'delivery_summary', '') or getattr(card, 'delivery_problem', '') or (card.title + tr(' · No result summary; Enter opens the sources.'))
             body = [mid(row) for row in excerpt(summary, 7)]
             body += [mid(row, C_DIM) for row in excerpt(when, 2)]
-            body += [mid('Enter entrega · H historial', C_ACCENT)]
+            body += [mid(tr('Enter delivery · H history'), C_ACCENT)]
         elif card.bucket == OTHER_AGENTS_COLUMN[0]:
             body = [mid(card.badge, card.badge_color), mid(self.card_agent_line(card), C_DIM)]
             body += [mid(row) for row in excerpt(card.title or card.task, 3)]
             body += [mid(card.doing, C_DIM), mid(card.mode, C_DIM)]
-            body += [mid(''), mid(''), mid('Enter / o: abrir agente', C_ACCENT)]
+            body += [mid(''), mid(''), mid(tr('Enter / o: open agent'), C_ACCENT)]
         else:
             context = flow_context(card)
             report_state, _report_text, report_time = durable_report(card)
@@ -5888,13 +5933,13 @@ class UI:
             body += [mid(context['label'], card.badge_color)]
             body += [mid(row, C_WARN) for row in excerpt(context['reason'], 2)]
             dependency = dependency_caption(card)
-            relation = ('Depende de: ' + dependency) if dependency else context['waiting_for'] or context['next_action']
-            relation = 'Firstmate · ' + (getattr(card, 'owner_label', '') or 'responsable no registrado') + ': ' + relation
+            relation = tr('Depends on: {dependency}', dependency=dependency) if dependency else context['waiting_for'] or context['next_action']
+            relation = 'Firstmate · ' + (getattr(card, 'owner_label', '') or tr('owner not recorded')) + ': ' + relation
             body += [mid(row) for row in excerpt(relation, 2)]
             # The workflow report and native observation are independent.
             body += [mid(clip(context['native_status'], inner), C_DIM)]
             body += [mid(clip(when, inner), C_DIM)]
-            body += [mid('Enter: texto completo · o agente', C_ACCENT)]
+            body += [mid(tr('Enter: full text · o agent'), C_ACCENT)]
         lines = [f'{fg(border_c)}{top}{RESET}', *body,
                  f"{fg(border_c)}{'╰' + '─' * (cardw - 2) + '╯'}{RESET}"]
         # pad each row to the full column width so the separator keeps a gap

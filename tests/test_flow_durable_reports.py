@@ -41,10 +41,10 @@ class DurableReportsTests(unittest.TestCase):
                 context = f.flow_context(card)
                 self.assertEqual(context['phase'], phase)
                 self.assertIn('Root', context['reason'])
-                self.assertEqual(context['native_status'], 'Estado nativo desconocido')
+                self.assertEqual(context['native_status'], 'Unknown native state')
                 self.assertEqual(card.snapshot_state, 'unknown')
-                self.assertNotIn('integra', context['next_action'])
-                self.assertNotIn('Actividad', context['label'])
+                self.assertNotIn('integrates', context['next_action'])
+                self.assertNotIn('Declared activity', context['label'])
 
     def test_full_wait_with_coordination_prose_keeps_state_age_and_owner(self):
         text = 'inbox069 atendido; faltan controles PC/móvil; Root coordina la aceptación. ' + 'evidencia ' * 40
@@ -59,7 +59,7 @@ class DurableReportsTests(unittest.TestCase):
         self.assertIn('2026-10-25', details['Report time'])
         for width in (32, 60, 126):
             rows = [f._ANSI_RE.sub('', row) for row in f.UI().render_card(card, width, False)]
-            self.assertIn('Espera declarada', '\n'.join(rows))
+            self.assertIn('Declared wait', '\n'.join(rows))
             self.assertIn('Firstmate', '\n'.join(rows))
             self.assertTrue(all(f.display_width(row) <= width for row in rows))
 
@@ -91,7 +91,7 @@ class DurableReportsTests(unittest.TestCase):
         self.assertEqual(f.flow_context(card)['next_action'], 'Mantener la retención.')
         card = self.card({'phase': 'integration', 'state': 'ready', 'reason': 'Rama por integrar.'},
                          state='done', doing='Ready in branch')
-        self.assertEqual(f.flow_context(card)['label'], 'Lista para integración')
+        self.assertEqual(f.flow_context(card)['label'], 'Ready for integration')
 
     def test_current_confirmed_work_supersedes_historical_wait_in_summary(self):
         card = self.card(status='paused [at=1792788000]: Esperar validación\n',
@@ -111,7 +111,7 @@ class DurableReportsTests(unittest.TestCase):
                 context = f.flow_context(card)
                 self.assertNotEqual(context['next_action'], fallback)
                 self.assertIn('Firstmate', context['next_action'])
-                self.assertEqual(context['native_status'], 'Estado nativo desconocido')
+                self.assertEqual(context['native_status'], 'Unknown native state')
                 self.assertIn('codex-unverified', dict(f.UI.detail_fields(card))['Firstmate'])
                 self.assertEqual(card.flow['next_action'], fallback)  # source evidence is untouched
                 # A concrete action in the same unknown-native contract wins.

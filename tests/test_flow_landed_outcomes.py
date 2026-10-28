@@ -89,7 +89,7 @@ class LandedOutcomeTests(unittest.TestCase):
             frame = self.frame(width, height)
             self.assertIn('Study only; apps unchanged.', frame)
             self.assertNotIn('Task: old', frame)
-            self.assertIn('Informe', frame)
+            self.assertIn('Report', frame)
             flow.parse_input(b'r', self.ui)
             frame = self.frame(width, height)
             self.assertIn('FULL_REPORT_mate', frame)

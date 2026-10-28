@@ -226,7 +226,7 @@ class DeliveryTests(unittest.TestCase):
         ui, snap = self.ui()
         (self.root / '.tasks.toml').write_text('backend = "beads"\n')
         flow.parse_input(b'H', ui)
-        self.assertIn('fuentes incompletas', self.frame(ui, snap))
+        self.assertIn('incomplete sources', self.frame(ui, snap))
         flow.parse_input(b'\t', ui)
         self.assertIn('read-only completed-record/archive export', ui.delivery)
         self.assertFalse(flow.delivery_seen(self.home.path, 'old'))
@@ -240,7 +240,7 @@ class DeliveryTests(unittest.TestCase):
         ui, snap = self.ui()
         (self.root / 'data/backlog.md').write_text('## In flight\n- [ ] old - Reopened task (kind: ship)\n')
         ui.activate()
-        self.assertIn('histórica', ui.delivery)
+        self.assertIn('historical', ui.delivery)
         flow.parse_input(b'd', ui)
         self.assertIn('State: in_flight', ui.delivery)
         self.assertIn('Title: Reopened task', ui.delivery)
@@ -251,7 +251,7 @@ class DeliveryTests(unittest.TestCase):
         ui, snap = self.ui()
         ui.activate()
         snap.cols['landed'] = []
-        self.assertIn('Entrega', self.frame(ui, snap))
+        self.assertIn('Delivery', self.frame(ui, snap))
         self.assertIsNotNone(ui.delivery)
 
     def test_stale_pane_cannot_focus_a_retired_tab(self):

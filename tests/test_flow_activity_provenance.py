@@ -164,8 +164,8 @@ class ActivityProvenanceTests(unittest.TestCase):
                 plain = [flow._ANSI_RE.sub("", line) for line in lines]
                 assert len(lines) == flow.CARD_ROWS
                 assert all(flow.display_width(line) <= width for line in plain)
-                assert "Último reporte" in plain[3]
-                assert "nativo" in plain[8]
+                assert "Last report" in plain[3]
+                assert "native" in plain[8]
                 assert "editing" in plain[4]
                 assert "harness state unavailable" not in "\n".join(plain)
 

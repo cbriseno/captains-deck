@@ -104,8 +104,8 @@ class CardTimeTests(unittest.TestCase):
             first = "\n".join(ui.render_card(card, 40, True, snap))
         with patch.object(flow.time, "time", return_value=NOW + 60):
             second = "\n".join(ui.render_card(card, 40, True, snap))
-        self.assertIn("hace 2 min", first)
-        self.assertIn("hace 3 min", second)
+        self.assertIn("2 min ago", first)
+        self.assertIn("3 min ago", second)
         self.assertEqual(card.event_time.epoch, event_epoch)
         # A fresh collector build also keeps the source instant, not poll time.
         card2, _ = self.board(log=meaningful + noise)
@@ -118,8 +118,8 @@ class CardTimeTests(unittest.TestCase):
                     patch.object(flow.time, "time", return_value=clock), \
                     patch.object(ui, "paint", side_effect=lambda lines, *_: frames.append("\n".join(lines))):
                 ui.render(snap, force=True)
-        self.assertIn("hace 2 min", frames[0])
-        self.assertIn("hace 3 min", frames[1])
+        self.assertIn("2 min ago", frames[0])
+        self.assertIn("3 min ago", frames[1])
         with patch.object(flow.time, "time", return_value=NOW):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -268,7 +268,7 @@ class CardTimeTests(unittest.TestCase):
         self.assertIn("Event ID: question:2", dict(flow.UI.detail_fields(card))["Time"])
         ui = flow.UI()
         for clock, expected in ((epoch + 120, "2 min"), (epoch + 180, "3 min"),
-                                (epoch - 1, "fecha futura")):
+                                (epoch - 1, "future date")):
             with patch.object(flow.time, "time", return_value=clock):
                 lines = [flow._ANSI_RE.sub("", s) for s in ui.render_card(card, 24, True, snap)]
             self.assertIn(expected, lines[9])
@@ -363,7 +363,7 @@ class CardTimeTests(unittest.TestCase):
                 lines = [flow._ANSI_RE.sub("", s) for s in ui.render_card(card, width, True, snap)]
             self.assertEqual(len(lines), flow.CARD_ROWS)
             self.assertTrue(all(flow.display_width(s) <= width for s in lines))
-            self.assertIn("Retención", lines[3])
+            self.assertIn("Technical hold", lines[3])
             self.assertIn("2 min", lines[9])
             self.assertIn("Enter:", lines[10])
         flow.parse_input(b"d", ui)

@@ -58,6 +58,7 @@
     "tests/test_flow_help.py",
     "tests/test_flow_homes.py",
     "tests/test_flow_landed_outcomes.py",
+    "tests/test_flow_language.py",
     "tests/test_flow_message_firstmate.py",
     "tests/test_flow_other_agents.py",
     "tests/test_flow_remote_homes.py",
