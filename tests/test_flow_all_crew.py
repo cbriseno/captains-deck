@@ -90,6 +90,7 @@ def test_merge_dedupes_captains_call_by_task():
     dup_a.owner = "demo-lane"
     dup_b = _card("fpr-issue-29", "/mate", "captains_call")
     dup_b.owner = "(main)"
+    dup_a.delivery_identity = dup_b.delivery_identity = "/mate"
     cols_c = {"captains_call": [dup_a]}
     cols_m = {"captains_call": [dup_b]}
     totals_c = {"captains_call": 1}
@@ -100,6 +101,54 @@ def test_merge_dedupes_captains_call_by_task():
     assert [c.task for c in cols["captains_call"]] == ["fpr-issue-29"]
     assert cols["captains_call"][0].owner == "demo-lane"
     assert totals["captains_call"] == 1
+
+
+def _held(task: str, owner: str = "(main)") -> dict:
+    return {"decisions_open": [{"id": task, "title": "Pick a color", "owner": owner}]}
+
+
+def _call_columns(home: Home, snap: dict, homes: list[Home]) -> tuple[dict, dict]:
+    # reveal_answered keeps the user's answered-call ledger out of the test.
+    return flow.make_cards(home, snap, {}, {}, {}, homes, reveal_answered=True)
+
+
+def test_merge_keeps_same_named_calls_from_independent_homes(tmp_path):
+    claude = Home("claude", str(tmp_path / "claude"), "captain")
+    codex = Home("codex", str(tmp_path / "codex"), "captain")
+    homes = [claude, codex]
+    parts = []
+    for home in homes:
+        cols, totals = _call_columns(home, _held("demo-color"), homes)
+        parts.append((home, cols, totals))
+    cols, totals = merge_fleet_columns(parts)
+    assert [c.home_path for c in cols["captains_call"]] == [claude.path, codex.path]
+    assert totals["captains_call"] == 2
+
+
+def test_merge_folds_parent_mirror_of_a_mate_call(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = [captain, mate]
+    cols_c, totals_c = _call_columns(captain, _held("demo-color", "lane"), homes)
+    cols_m, totals_m = _call_columns(mate, _held("demo-color"), homes)
+    cols, totals = merge_fleet_columns(
+        [(captain, cols_c, totals_c), (mate, cols_m, totals_m)]
+    )
+    assert [(c.home_path, c.owner) for c in cols["captains_call"]] == [(mate.path, "lane")]
+    assert totals["captains_call"] == 1
+
+
+def test_merge_keeps_calls_with_an_unknown_answering_home(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = [captain, mate]
+    cols_c, totals_c = _call_columns(captain, _held("demo-color", "gone"), homes)
+    cols_m, totals_m = _call_columns(mate, _held("demo-color"), homes)
+    cols, totals = merge_fleet_columns(
+        [(captain, cols_c, totals_c), (mate, cols_m, totals_m)]
+    )
+    assert sorted(c.home_path for c in cols["captains_call"]) == ["", mate.path]
+    assert totals["captains_call"] == 2
 
 
 def test_merge_folds_parent_mirror_into_owner_row():

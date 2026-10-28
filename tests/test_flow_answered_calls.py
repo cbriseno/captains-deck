@@ -194,6 +194,22 @@ def test_a_spent_record_stops_hiding() -> None:
     )
 
 
+def test_another_homes_answer_does_not_hide_this_call() -> None:
+    # Two homes can hold a call on the same task name; the ledger is keyed by
+    # task, so only a record from this call's own home hides it.
+    set_card_stamp(FIXTURE_STAMP)
+    record_answer()
+    records = flow.load_answered_calls()
+    records["decision-1"]["home"] = str(HOME.parent / "other-home")
+    flow.save_answered_calls(records)
+    cols, totals = cards()
+    check(
+        hidden_flags(cols)["decision-1"] is False,
+        "another home's answer to a same-named call does not hide this one",
+    )
+    check(totals["captains_call"] == 1, "the call still counts as actionable")
+
+
 def test_a_record_whose_row_left_the_column_is_dropped() -> None:
     flow.save_answered_calls(
         {"another-task": {"home": str(HOME), "answered_at": time.time()}}
@@ -247,6 +263,7 @@ def main() -> int:
     test_a_reveal_clears_the_mark()
     test_a_recomposed_card_and_the_match_switch()
     test_a_spent_record_stops_hiding()
+    test_another_homes_answer_does_not_hide_this_call()
     test_a_record_whose_row_left_the_column_is_dropped()
     test_record_from_a_dialog()
     test_the_setting_can_turn_the_hiding_off()

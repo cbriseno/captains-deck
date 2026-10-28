@@ -177,6 +177,23 @@ class WebTests(unittest.TestCase):
         status,ticket=self.req('/api/ticket/'+cards[1]['key']);self.assertEqual(status,200)
         self.assertEqual(ticket['owner'],'Otro')
 
+    def test_fleet_merge_keeps_each_homes_same_named_call_and_opens_its_own_question(self):
+        second,home2=fixture(self.root/'second')
+        home2.label='Otro'
+        snap=self.board.collector.snap
+        parts=[(self.home,snap.cols,snap.totals),(home2,second.collector.snap.cols,second.collector.snap.totals)]
+        snap.homes.append(home2)
+        snap.cols,snap.totals=bridge.fm.merge_fleet_columns(parts)
+        self.assertEqual(snap.totals['captains_call'],2)
+        cards=self.init()['columns'][2]['cards']
+        self.assertEqual([c['task'] for c in cards],['ask','ask'])
+        owners=[]
+        for card in cards:
+            status,ticket=self.req('/api/ticket/'+card['key']);self.assertEqual(status,200)
+            self.assertEqual(ticket['home'],card['home']);self.assertFalse(ticket['call']['error'])
+            owners.append(ticket['owner'])
+        self.assertEqual(owners,['Firstmate','Otro'])
+
     def test_history_demo_research_summary_report_and_safe_paths(self):
         self.init();status,data=self.req('/api/history?q=DEMO')
         self.assertEqual(status,200);self.assertEqual(len(data['records']),1)
