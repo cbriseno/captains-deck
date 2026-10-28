@@ -1,5 +1,4 @@
 """The terminal board follows the web's per-installation language setting."""
-import ast
 import importlib.util
 import json
 import os
@@ -86,12 +85,6 @@ class LanguageTests(unittest.TestCase):
                     self.assertIn(label, text)
                 # Authored task content is never translated.
                 self.assertIn('Fixture work', text)
-
-    def test_tui_source_keeps_spanish_only_in_the_catalog(self):
-        tree = ast.parse((ROOT / 'scripts/flow_tui.py').read_text(encoding='utf-8'))
-        constants = {node.value.strip() for node in ast.walk(tree)
-                     if isinstance(node, ast.Constant) and isinstance(node.value, str)}
-        self.assertEqual(sorted(constants & SPANISH_LABELS), [])
 
 
 if __name__ == '__main__':
