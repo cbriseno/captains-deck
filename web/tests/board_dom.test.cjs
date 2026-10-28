@@ -549,6 +549,17 @@ test('a lead line skips abbreviations anywhere and otherwise cuts at a word', as
   assert.equal(reasons.unsafe, 'Pick the cache for the sample service, Redis vs. Memcached, e.g. for session data, i.e. The login tokens, approx. Ten thousand keys per…');
 });
 
+test('a plain “no.” ends a lead sentence while the number abbreviation “No.” does not', async () => {
+  const lead = 'La migración del esquema ya terminó en staging, pero el despliegue a producción todavía no.';
+  const spanish = lead + ' Falta que el equipo de datos apruebe los cambios y revise los índices nuevos esta semana.';
+  const number = 'Before the release we still have to close the sample ticket No. Twelve for the billing service. ' +
+    'The rollback ticket can wait until the next sample review next week.';
+  const view = await mountBoard(board([{...card('es', ''), presentation: {summary: spanish}}, {...card('number', ''), presentation: {summary: number}}]));
+  const reasons = Object.fromEntries(cardsIn(underwayList(view.doc)).map(c => [c.dataset.key, c.querySelector('.card-reason').textContent]));
+  assert.equal(reasons.es, lead);
+  assert.equal(reasons.number, 'Before the release we still have to close the sample ticket No. Twelve for the billing service.');
+});
+
 test('a card status keeps the server’s state-specific label over the generic phase name', async () => {
   const at = (key, phase, label) => ({...card(key, 'Summary ' + key), activity: {kind: 'unknown', agent: 'unknown', until: '', gap: ''},
     context: {reason: '', phase, label, firstmate_action: null}, native: {}, report: null, agent: '', herdr_url: ''});

@@ -397,13 +397,13 @@ async function openStableLink(params) {
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
 // Long authored text leads with one short line; the rest opens on demand.
-const abbreviation = /(?:^|[^\p{L}.])(?:vs|e\.g|i\.e|etc|approx|aprox|mrs?|dra?|sra?|no|p\. ?ej)$/iu;
+const abbreviation = (text) => /(?:^|[^\p{L}.])(?:vs|e\.g|i\.e|etc|approx|aprox|mrs?|dra?|sra?|p\. ?ej)$/iu.test(text) || /(?:^|[^\p{L}.])No$/u.test(text);
 function shortLine(text, limit = 140) {
   const flat = String(text || '').replace(/\s+/g, ' ').trim();
   if (flat.length <= limit) return flat;
   for (const end of flat.matchAll(/[.!?](?=\s+[\p{Lu}¿¡]|$)/gu)) {
     if (end.index >= limit) break;
-    if (end.index >= 40 && !abbreviation.test(flat.slice(0, end.index))) return flat.slice(0, end.index + 1);
+    if (end.index >= 40 && !abbreviation(flat.slice(0, end.index))) return flat.slice(0, end.index + 1);
   }
   return flat.slice(0, limit - 1).replace(/\s+\S*$/, '') + '…';
 }
