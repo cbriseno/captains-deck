@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "4292c1ea7bc748801ecbcda21ca060b538605fb22cead04e37040273deb019dd"
+      "sha256": "3c2f271afb7407d6524d3fcb03b4fa71ed81a2b0bb908b923b09fc122903c3c2"
     },
     {
       "mode": "100755",
@@ -232,7 +232,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_card_time.py",
-      "sha256": "c807852693d008c391168c4f2f3d4aef410ee4e13814f9a09e3adffa5f9d6bc7"
+      "sha256": "e46b5aa6499e59ea7a660b38b7d206fd9fa40f4e396485def01923478155d5b8"
     },
     {
       "mode": "100644",
@@ -242,7 +242,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_decision_dialog.py",
-      "sha256": "2c714390e2a218d65ec36508634fdb67ca33d2b7aa368478d9e4d92a57d87a9a"
+      "sha256": "7a919bab4353470f29e88fee96b875806ac5bb57895a7316eae7c90c704c9ccb"
     },
     {
       "mode": "100644",
@@ -277,7 +277,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_language.py",
-      "sha256": "e24dcf7e4ede0357b52b14294ef572071ccdb16ad6819c475558585122cbbd3f"
+      "sha256": "8d1485e3b1bc52491b00659eab062959502fb6b85f63aafc90b9a45ac0631fde"
     },
     {
       "mode": "100644",
@@ -352,12 +352,12 @@
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "66cc40bc345edb018f9f2d3cb5dfa742a65ff4641298c91c3230011cdc85f109"
+      "sha256": "45f9dcb2a6d3fbb5cc75bc4fd5487df82bd97d5a478b8e4e5fafb4c7434d5fe7"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "505854f2c34fca2c36a0bf62133140ac5d8e1083e486ccdd5e17cba073308afa"
+      "sha256": "74708ff5349ff44cd236e6a8c271539e2caabe8ba372cea5ad90fbc15d3412b5"
     },
     {
       "mode": "100644",
@@ -462,7 +462,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_localization.py",
-      "sha256": "2e47ab72516ddb154298249568eb59f150cf6cb5f8bc4be563d9a2e81603f3db"
+      "sha256": "eea932e60442504deea7741bd21e68c907757be6c4604424a6f6e9326c9cfca4"
     },
     {
       "mode": "100644",
