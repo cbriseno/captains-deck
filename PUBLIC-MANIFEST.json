@@ -327,12 +327,12 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "ff91f6417a082b8c461bf1beb8d44572f3322e6e3cf66c5a1fe0be91df449c94"
+      "sha256": "87546579fe7a3484e5cc2a95dbca8d27c9c379e5576332d8afc0e91b3dddc704"
     },
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "ef5748a8c349dcf773f938d0d98259e79fdcea88a18cbeb7d88a9eaef39eef29"
+      "sha256": "b6c5ba6aa2909dd2692502bc5a2884b5f46ec92ee6773b7d9a55df9333f50e93"
     },
     {
       "mode": "100644",
@@ -442,7 +442,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "067bd0c979bbc91bf8d63ceb8b069a38bbcd7c4fb6e1fdeb94cb0a247a258569"
+      "sha256": "d5327bd5a67b5f4a57957044b93b55473fa0be21855e02fa9757a2dc98cf19a1"
     },
     {
       "mode": "100644",
