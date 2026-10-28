@@ -314,8 +314,27 @@ def answered_ledger_path() -> str:
     return os.path.join(_plugin_state_dir(), ANSWERED_LEDGER)
 
 
+def answered_call_key(home_path: str, task: str) -> str:
+    return json.dumps([os.path.realpath(home_path), task], separators=(",", ":"))
+
+
+def _answered_call_task(key: str) -> str:
+    if KEY_RE.fullmatch(key):
+        return key
+    try:
+        parts = json.loads(key)
+    except ValueError:
+        return ""
+    if (isinstance(parts, list) and len(parts) == 2
+            and all(isinstance(part, str) for part in parts)
+            and os.path.isabs(parts[0]) and KEY_RE.fullmatch(parts[1])
+            and key == answered_call_key(*parts)):
+        return parts[1]
+    return ""
+
+
 def load_answered_calls() -> dict[str, dict]:
-    """task key -> the record written when its Captain's Call was answered."""
+    """Read home/task records and legacy task-only records."""
     try:
         with open(answered_ledger_path(), "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -326,7 +345,7 @@ def load_answered_calls() -> dict[str, dict]:
     return {
         str(key): value
         for key, value in data.items()
-        if isinstance(key, str) and KEY_RE.fullmatch(key) and isinstance(value, dict)
+        if isinstance(key, str) and _answered_call_task(key) and isinstance(value, dict)
     }
 
 
@@ -385,7 +404,8 @@ def record_answered_call(dialog: "DecisionDialog") -> None:
     if not dialog.home_path or not KEY_RE.fullmatch(dialog.key):
         return
     records = load_answered_calls()
-    records[dialog.key] = {
+    records.pop(dialog.key, None)
+    records[answered_call_key(dialog.home_path, dialog.key)] = {
         "home": dialog.home_path,
         "title": _flatten_field(dialog.title),
         "answer": _flatten_field(dialog.display_answer()),
@@ -681,9 +701,9 @@ def merge_fleet_columns(
     if LANDED_LIMIT:
         cols["landed"] = cols["landed"][:LANDED_LIMIT]
     if cols["captains_call"]:
-        before = len(cols["captains_call"])
         cols["captains_call"] = _dedupe_captains_call(cols["captains_call"])
-        totals["captains_call"] -= before - len(cols["captains_call"])
+        totals["captains_call_hidden"] = sum(bool(getattr(c, "answered_hidden", False)) for c in cols["captains_call"])
+        totals["captains_call"] = len(cols["captains_call"]) - totals["captains_call_hidden"]
     return cols, totals
 
 
@@ -1711,7 +1731,7 @@ def _store_card(path: str) -> dict:
     return _store_entry(path)[0]
 
 
-def decision_card_record(key: str, *homes: Home | None) -> tuple[dict, str]:
+def decision_card_record(key: str, home: Home | None) -> tuple[dict, str]:
     """The composed card for one captain-held task id, and the generated stamp
     of the store record it came from. A card read from a board file or a
     payload carries no stamp of its own, so it answers "".
@@ -1721,43 +1741,35 @@ def decision_card_record(key: str, *homes: Home | None) -> tuple[dict, str]:
     the board build persists the effective card there too, so a stored record is
     never older than the board page it came from. The live board file is the next
     source, and the composed payload files it was built from are the last
-    fallback. The owning home wins over the board on screen, because a parent
-    board can carry a secondmate's card.
+    fallback. All sources belong to the supplied home.
     """
-    ordered: list[Home] = []
-    for home in homes:
-        if home is not None and all(home.path != h.path for h in ordered):
-            ordered.append(home)
     # every card source is keyed by a validated slug; never build a path from
     # anything else
-    if not KEY_RE.fullmatch(key):
+    if home is None or not KEY_RE.fullmatch(key):
         return {}, ""
-    for home in ordered:
-        card, stamp = _store_entry(
-            os.path.join(home.path, "state", "decision-cards", f"{key}.json")
-        )
-        if card:
-            return card, stamp
-    for home in ordered:
-        card = _board_file_cards(
-            os.path.join(home.path, ".lavish", "bearings-board.html")
-        ).get(key)
+    card, stamp = _store_entry(
+        os.path.join(home.path, "state", "decision-cards", f"{key}.json")
+    )
+    if card:
+        return card, stamp
+    card = _board_file_cards(
+        os.path.join(home.path, ".lavish", "bearings-board.html")
+    ).get(key)
+    if card:
+        return card, ""
+    for path in sorted(
+        glob.glob(os.path.join(home.path, "data", "bearings-board-payload-*.json")),
+        reverse=True,
+    ):
+        card = _payload_file_cards(path).get(key)
         if card:
             return card, ""
-    for home in ordered:
-        for path in sorted(
-            glob.glob(os.path.join(home.path, "data", "bearings-board-payload-*.json")),
-            reverse=True,
-        ):
-            card = _payload_file_cards(path).get(key)
-            if card:
-                return card, ""
     return {}, ""
 
 
-def decision_card_for(key: str, *homes: Home | None) -> dict:
+def decision_card_for(key: str, home: Home | None) -> dict:
     """The composed card for one captain-held task id."""
-    return decision_card_record(key, *homes)[0]
+    return decision_card_record(key, home)[0]
 
 
 def resolve_owner_home(
@@ -1796,37 +1808,47 @@ def resolve_owner_lane(homes: list[Home] | None, owner: str) -> tuple[Home | Non
     return None, ""
 
 
+def _call_owner_identities(
+    task: str, source: Home, snapshot: dict, homes: list[Home]
+) -> set[str]:
+    identities = set()
+    for row in snapshot.get("decisions_open") or []:
+        if _strip_owner(row.get("id") or row.get("key") or "") != task:
+            continue
+        owner = row.get("owner") or ""
+        if not owner or owner == "(main)":
+            identities.add(delivery_home_identity(source))
+        else:
+            matches = {delivery_home_identity(h) for h in homes
+                       if resolve_owner_home([h], owner, None) is not None}
+            identities.update(matches if len(matches) == 1 else {""})
+    return identities
+
+
+def _legacy_answer_unambiguous(
+    task: str, home: Home, snapshot: dict, homes: list[Home], home_path: str
+) -> bool:
+    identities = set()
+    for source in real_homes(homes):
+        data = (snapshot if delivery_home_identity(source) == delivery_home_identity(home)
+                else bearings_snapshot(source))
+        if not data:
+            return False
+        identities.update(_call_owner_identities(task, source, data, homes))
+    return identities == {os.path.realpath(home_path)}
+
+
 def answer_home_path(
     card: Card, homes: list[Home] | None, active: Home | None
 ) -> str:
     """The home whose ``fm-captain-hold.sh`` should intake this call's answer."""
-    owner = (card.owner or "").strip()
-    owner_home = resolve_owner_home(homes, owner, active)
-    if owner_home is not None and owner_home.path:
-        return owner_home.path
-    if owner and owner != "(main)":
-        return ""
     if card.home_path:
         return card.home_path
-    if active is not None and active.path and not is_aggregate_home(active):
-        return active.path
+    owner = (card.owner or "").strip()
+    owner_home = resolve_owner_home(homes, owner, active)
+    if owner_home is not None and owner_home.path and not is_aggregate_home(owner_home):
+        return owner_home.path
     return ""
-
-
-def _decision_lookup_homes(
-    homes: list[Home] | None, owner_home: Home | None, active: Home | None
-) -> list[Home]:
-    """Homes to search for a composed Captain's Call card, owner first.
-
-    The /bearings lavish fleet board and its decision-card store live on the
-    captain home even when the call's backlog owner is a secondmate, so every
-    discovered home must be searched — not only the tab on screen.
-    """
-    ordered: list[Home] = []
-    for home in (owner_home, *((homes or [])), active):
-        if home is not None and all(home.path != h.path for h in ordered):
-            ordered.append(home)
-    return ordered
 
 
 def _presentation_text(message, legacy=None, **values):
@@ -1846,10 +1868,22 @@ def decision_card_content(
     call re-checked.
     """
     tr = translate or _presentation_text
-    owner_home = resolve_owner_home(homes, card.owner, active)
-    raw, stamp = decision_card_record(
-        card.task, *_decision_lookup_homes(homes, owner_home, active)
-    )
+    home_path = answer_home_path(card, homes, active)
+    home_list = real_homes(list(homes or []))
+    if active is not None and not is_aggregate_home(active) and active not in home_list:
+        home_list.append(active)
+    owner_home = next((h for h in home_list if _same_path(h.path, home_path) and not is_remote_home(h)), None)
+    raw, stamp = decision_card_record(card.task, owner_home)
+    if not raw and owner_home is not None:
+        for source in home_list:
+            if is_remote_home(source) or _same_path(source.path, home_path):
+                continue
+            candidate, candidate_stamp = decision_card_record(card.task, source)
+            if not candidate:
+                continue
+            if _call_owner_identities(card.task, source, bearings_snapshot(source), home_list) == {delivery_home_identity(owner_home)}:
+                raw, stamp = candidate, candidate_stamp
+                break
     ctype = (str(raw.get("type") or "decision").strip() or "decision")
     options: list[dict[str, str]] = []
     for opt in raw.get("options") or []:
@@ -1903,7 +1937,6 @@ def decision_card_content(
         title = str(card.title or card.task)
     if not decide:
         decide = tr('Pick an option below, or answer in your own words.')
-    home_path = answer_home_path(card, homes, active)
     return {
         "key": card.task,
         "title": _flatten_field(title),
@@ -2864,6 +2897,7 @@ def make_cards(
         # The row's owner names the home whose backlog holds the call, so the
         # answer runs the intake in that home rather than the board on screen.
         c.owner = (entry.get("owner") or "").strip()
+        c.home_path = ""
         c.home_path = answer_home_path(c, homes, home)
         # Like a delivery, the call belongs to its answering home; a parent's
         # mirror carries the owner's identity so the fleet merge folds it.
@@ -2875,11 +2909,11 @@ def make_cards(
     # An answered call leaves the column until its owning agent takes the work.
     # Firstmate keeps a live captain hold after an answer, so without this the
     # same row returns with no new question and the calls pile up.
-    if hide_answered_default() and not reveal_answered and cols["captains_call"]:
+    if hide_answered_default() and not reveal_answered:
         records = load_answered_calls()
         if records:
             now = time.time()
-            present = {card.task for card in cols["captains_call"]}
+            present = {answered_call_key(card.home_path, card.task) for card in cols["captains_call"] if card.home_path}
             hidden = 0
             for card in cols["captains_call"]:
                 content = decision_card_content(card, homes, home)
@@ -2889,9 +2923,10 @@ def make_cards(
                     content.get("options"),
                     content.get("close") or "",
                 )
-                # Records are keyed by task; another home's same-named call
-                # never hides this one.
-                record = records.get(card.task)
+                record = records.get(answered_call_key(card.home_path, card.task)) if card.home_path else None
+                if record is None and card.task in records and card.home_path:
+                    if _legacy_answer_unambiguous(card.task, home, snap, home_list, card.home_path):
+                        record = records[card.task]
                 if isinstance(record, dict) and not _same_path(record.get("home") or "", card.home_path):
                     record = None
                 card.answered_hidden = answered_row_hidden(
@@ -2907,7 +2942,8 @@ def make_cards(
                 for key, record in records.items()
                 if isinstance(record, dict)
                 and (
-                    (record.get("home") == home.path and key not in present)
+                    (_same_path(record.get("home") or "", home.path)
+                     and answered_call_key(record["home"], _answered_call_task(key)) not in present)
                     or now - _float(record.get("answered_at"), 0.0) > ANSWERED_TTL_SECS
                 )
             ]

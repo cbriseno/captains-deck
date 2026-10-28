@@ -182,17 +182,59 @@ class WebTests(unittest.TestCase):
         home2.label='Otro'
         snap=self.board.collector.snap
         parts=[(self.home,snap.cols,snap.totals),(home2,second.collector.snap.cols,second.collector.snap.totals)]
+        for home,cols,_ in parts:
+            path=Path(home.path)/'state/decision-cards/ask.json'
+            data=json.loads(path.read_text());path.unlink()
+            data['generated']=home.label+'-stamp'
+            data['card'].update(key='docs',title=home.label+' question',about=home.label+' context',
+                                options=[{'value':home.label,'label':home.label+' answer'}])
+            (path.parent/'docs.json').write_text(json.dumps(data))
+            card=cols['captains_call'][0]
+            card.task=card.id='docs';card.title=home.label+' durable question'
         snap.homes.append(home2)
         snap.cols,snap.totals=bridge.fm.merge_fleet_columns(parts)
         self.assertEqual(snap.totals['captains_call'],2)
         cards=self.init()['columns'][2]['cards']
-        self.assertEqual([c['task'] for c in cards],['ask','ask'])
+        self.assertEqual([c['task'] for c in cards],['docs','docs'])
         owners=[]
+        tickets=[]
         for card in cards:
             status,ticket=self.req('/api/ticket/'+card['key']);self.assertEqual(status,200)
             self.assertEqual(ticket['home'],card['home']);self.assertFalse(ticket['call']['error'])
+            self.assertEqual(ticket['call']['title'],ticket['owner']+' question')
+            self.assertEqual(ticket['call']['about'],ticket['owner']+' context')
+            self.assertEqual(ticket['call']['options'][0]['value'],ticket['owner'])
+            self.assertEqual(ticket['call']['presentation']['about'],ticket['owner']+' context')
+            self.assertEqual(ticket['call']['presentation']['options'][0]['value'],ticket['owner'])
             owners.append(ticket['owner'])
+            tickets.append(ticket)
         self.assertEqual(owners,['Firstmate','Otro'])
+        for card,ticket in zip(cards,tickets):
+            body=dict(value=ticket['owner'],note='',occurrence=ticket['call']['occurrence'],
+                      request_id=ticket['owner']+'a'*32)
+            status,result=self.req('/api/ticket/'+card['key']+'/answer',body)
+            self.assertEqual(status,200);self.assertTrue(result['saved'])
+        for home in (self.home,home2):
+            mutations=(Path(home.path)/'mutations.jsonl').read_text().splitlines()
+            self.assertEqual(len(mutations),1)
+            self.assertEqual(json.loads(mutations[0])['input'].split('\t')[:2],['docs',home.label])
+
+    def test_ticket_without_own_content_does_not_borrow_another_homes_question(self):
+        second,home2=fixture(self.root/'second');home2.label='Otro'
+        snap=self.board.collector.snap
+        other=second.collector.snap.cols['captains_call'][0]
+        other.title='Otro durable question'
+        (Path(home2.path)/'state/decision-cards/ask.json').unlink()
+        snap.homes.append(home2)
+        snap.cols,snap.totals=bridge.fm.merge_fleet_columns(
+            [(self.home,snap.cols,snap.totals),(home2,second.collector.snap.cols,second.collector.snap.totals)])
+        cards=self.init()['columns'][2]['cards']
+        status,ticket=self.req('/api/ticket/'+cards[1]['key']);self.assertEqual(status,200)
+        self.assertEqual(ticket['owner'],'Otro')
+        self.assertEqual(ticket['call']['title'],'Otro durable question')
+        self.assertEqual([o['value'] for o in ticket['call']['options']],['reconcile'])
+        self.assertEqual([o['value'] for o in ticket['call']['presentation']['options']],['reconcile'])
+        self.assertFalse(ticket['call']['error'])
 
     def test_history_demo_research_summary_report_and_safe_paths(self):
         self.init();status,data=self.req('/api/history?q=DEMO')

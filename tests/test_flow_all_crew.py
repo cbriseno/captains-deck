@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 FLOW = ROOT / "scripts" / "flow_tui.py"
@@ -125,6 +127,50 @@ def test_merge_keeps_same_named_calls_from_independent_homes(tmp_path):
     assert totals["captains_call"] == 2
 
 
+def test_all_dialog_uses_each_homes_question_sources(tmp_path):
+    for representation in ("store", "board", "payload"):
+        homes = [Home(name, str(tmp_path / representation / name), "captain") for name in ("A", "B")]
+        parts = []
+        sources = []
+        for home in homes:
+            raw = {"key": "docs", "title": home.label + " question", "about": home.label + " context",
+                   "options": [{"value": home.label, "label": home.label + " answer"}]}
+            if representation == "store":
+                path = Path(home.path, "state/decision-cards/docs.json")
+                text = json.dumps({"generated": home.label + "-stamp", "card": raw})
+            else:
+                data = json.dumps({"captains_call": [raw]})
+                if representation == "board":
+                    path = Path(home.path, ".lavish/bearings-board.html")
+                    text = '<script id="bearings-data">' + data + '</script>'
+                else:
+                    path = Path(home.path, "data/bearings-board-payload-1.json")
+                    text = data
+            path.parent.mkdir(parents=True)
+            path.write_text(text)
+            sources.append(path)
+            cols, totals = _call_columns(home, _held("docs"), homes)
+            parts.append((home, cols, totals))
+        cols, _ = merge_fleet_columns(parts)
+        snapshot = flow.Snapshot()
+        snapshot.home = Home("All", "", "all")
+        snapshot.homes = flow.inject_all_crew(homes)
+        snapshot.cols = cols
+        ui = flow.UI()
+        ui.collector = SimpleNamespace(snapshot=lambda: snapshot)
+        for card, home in zip(cols["captains_call"], homes):
+            ui.open_decision(card)
+            assert ui.dialog.title == home.label + " question"
+            assert ui.dialog.about == home.label + " context"
+            assert ui.dialog.home_path == home.path
+            assert ui.dialog.options[0]["value"] == home.label
+        sources[1].unlink()
+        ui.open_decision(cols["captains_call"][1])
+        assert ui.dialog.title == "Pick a color"
+        assert [o["value"] for o in ui.dialog.options] == ["reconcile"]
+        assert ui.dialog.home_path == homes[1].path
+
+
 def test_merge_folds_parent_mirror_of_a_mate_call(tmp_path):
     captain = Home("captain", str(tmp_path / "captain"), "captain")
     mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
@@ -136,6 +182,14 @@ def test_merge_folds_parent_mirror_of_a_mate_call(tmp_path):
     )
     assert [(c.home_path, c.owner) for c in cols["captains_call"]] == [(mate.path, "lane")]
     assert totals["captains_call"] == 1
+    for home_cols in (cols_c, cols_m):
+        home_cols["captains_call"][0].answered_hidden = True
+    cols, totals = merge_fleet_columns(
+        [(captain, cols_c, totals_c), (mate, cols_m, totals_m)]
+    )
+    assert len(cols["captains_call"]) == 1
+    assert totals["captains_call"] == 0
+    assert totals["captains_call_hidden"] == 1
 
 
 def test_merge_keeps_calls_with_an_unknown_answering_home(tmp_path):
