@@ -1826,12 +1826,11 @@ def _call_owner_identities(
 
 
 def _legacy_answer_unambiguous(
-    task: str, home: Home, snapshot: dict, homes: list[Home], home_path: str
+    task: str, homes: list[Home], home_path: str, bearings: dict[str, dict]
 ) -> bool:
     identities = set()
     for source in real_homes(homes):
-        data = (snapshot if delivery_home_identity(source) == delivery_home_identity(home)
-                else bearings_snapshot(source))
+        data = bearings.get(delivery_home_identity(source))
         if not data:
             return False
         identities.update(_call_owner_identities(task, source, data, homes))
@@ -1858,7 +1857,8 @@ def _presentation_text(message, legacy=None, **values):
 
 
 def decision_card_content(
-    card: Card, homes: list[Home] | None, active: Home | None, *, translate=None
+    card: Card, homes: list[Home] | None, active: Home | None, *, translate=None,
+    bearings: dict[str, dict] | None = None,
 ) -> dict:
     """Normalized dialog content for a Captain's Call ticket.
 
@@ -1878,11 +1878,11 @@ def decision_card_content(
         for source in home_list:
             if is_remote_home(source) or _same_path(source.path, home_path):
                 continue
-            candidate, candidate_stamp = decision_card_record(card.task, source)
-            if not candidate:
+            evidence = (bearings or {}).get(delivery_home_identity(source), {})
+            if _call_owner_identities(card.task, source, evidence, home_list) != {delivery_home_identity(owner_home)}:
                 continue
-            if _call_owner_identities(card.task, source, bearings_snapshot(source), home_list) == {delivery_home_identity(owner_home)}:
-                raw, stamp = candidate, candidate_stamp
+            raw, stamp = decision_card_record(card.task, source)
+            if raw:
                 break
     ctype = (str(raw.get("type") or "decision").strip() or "decision")
     options: list[dict[str, str]] = []
@@ -2640,6 +2640,7 @@ def make_cards(
     homes: list[Home] | None = None,
     reveal_answered: bool = False,
     retained_at: float = 0.0,
+    bearings: dict[str, dict] | None = None,
 ) -> tuple[dict[str, list[Card]], dict[str, int]]:
     """Bucket snapshot entries into the workflow columns.
 
@@ -2653,6 +2654,7 @@ def make_cards(
     cols: dict[str, list[Card]] = {key: [] for key, _ in COLUMNS}
     totals: dict[str, int] = {key: 0 for key, _ in COLUMNS}
     home_list = list(homes) if homes else [home]
+    known_bearings = {**(bearings or {}), delivery_home_identity(home): snap}
     account_names = load_account_names(home_list)
 
     paths: dict[str, dict] = {}
@@ -2916,7 +2918,7 @@ def make_cards(
             present = {answered_call_key(card.home_path, card.task) for card in cols["captains_call"] if card.home_path}
             hidden = 0
             for card in cols["captains_call"]:
-                content = decision_card_content(card, homes, home)
+                content = decision_card_content(card, homes, home, bearings=known_bearings)
                 digest = call_digest(
                     content.get("key") or card.task,
                     content.get("title") or "",
@@ -2925,7 +2927,7 @@ def make_cards(
                 )
                 record = records.get(answered_call_key(card.home_path, card.task)) if card.home_path else None
                 if record is None and card.task in records and card.home_path:
-                    if _legacy_answer_unambiguous(card.task, home, snap, home_list, card.home_path):
+                    if _legacy_answer_unambiguous(card.task, home_list, card.home_path, known_bearings):
                         record = records[card.task]
                 if isinstance(record, dict) and not _same_path(record.get("home") or "", card.home_path):
                     record = None
@@ -3610,6 +3612,7 @@ class Snapshot:
         self.cols: dict[str, list[Card]] = {k: [] for k, _ in COLUMNS}
         self.collected_at = 0.0
         self.homes: list[Home] = []
+        self.bearings: dict[str, dict] = {}
         self.counts: dict[str, int] = {}
         self.landed_counts: dict[str, int] = {}
         self.totals: dict[str, int] = {}
@@ -3749,6 +3752,14 @@ class Collector(threading.Thread):
             or now - ts > _bearings_ttl()
         )
 
+    def _cached_bearings(self, homes: list[Home]) -> dict[str, dict]:
+        return {
+            delivery_home_identity(home): raw
+            for home in real_homes(homes)
+            for raw, _ts, path in [self._raw.get(home.label, ({}, 0.0, ""))]
+            if raw and path == home.path
+        }
+
     def _load_bearings(
         self,
         home: Home,
@@ -3784,7 +3795,7 @@ class Collector(threading.Thread):
             return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
         cols, totals = make_cards(
             home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered,
-            retained_at=retained_at,
+            retained_at=retained_at, bearings=self._cached_bearings(homes),
         )
         enrich_cards_run_stats(cols, agents)
         return raw, cols, totals, loading, ""
@@ -3850,6 +3861,7 @@ class Collector(threading.Thread):
     ) -> Snapshot:
         snap = Snapshot()
         snap.homes = homes
+        snap.bearings = self._cached_bearings(homes)
         snap.home = active
         snap.cols = cols
         snap.hidden_calls = int((totals or {}).get("captains_call_hidden", 0))
@@ -3925,6 +3937,7 @@ class Collector(threading.Thread):
                                     panes,
                                     homes,
                                     reveal_answered=self._reveal_answered,
+                                    bearings=self._cached_bearings(homes),
                                 )
                                 enrich_cards_run_stats(cached, agents)
                             else:
@@ -3958,6 +3971,7 @@ class Collector(threading.Thread):
                                 panes,
                                 homes,
                                 reveal_answered=self._reveal_answered,
+                                bearings=self._cached_bearings(homes),
                             )
                             enrich_cards_run_stats(cols, agents)
                         else:
@@ -4864,7 +4878,7 @@ class UI:
             # the local home's intake and steer, which cannot reach that home.
             self.say("remote home \u00b7 read-only on the board")
             return
-        content = decision_card_content(card, snap.homes, snap.home)
+        content = decision_card_content(card, snap.homes, snap.home, bearings=snap.bearings)
         self.dialog = DecisionDialog(content)
         self.dialog_hit = []
         self.dialog_box = None
@@ -6431,12 +6445,13 @@ def once(active_label: str = "", all_homes: bool = False) -> int:
     else:
         selected = fleet
     parts: list[tuple[Home, dict[str, list[Card]], dict[str, int]]] = []
+    bearings = {delivery_home_identity(home): bearings_snapshot(home) for home in selected}
     for home in selected:
-        snap = bearings_snapshot(home)
+        snap = bearings[delivery_home_identity(home)]
         cols: dict[str, list[Card]] = {k: [] for k, _ in COLUMNS}
         totals: dict[str, int] = {k: 0 for k, _ in COLUMNS}
         if snap:
-            cols, totals = make_cards(home, snap, meta_index, agents, panes, homes)
+            cols, totals = make_cards(home, snap, meta_index, agents, panes, homes, bearings=bearings)
         parts.append((home, cols, totals))
     if all_homes:
         merged, _totals = merge_fleet_columns(parts)
