@@ -82,12 +82,12 @@
     {
       "mode": "100644",
       "path": "herdr-plugin.toml",
-      "sha256": "732ac46097dbc31d85143ceb1e9cb50870d66815637ffaf99ea3704084969243"
+      "sha256": "78e04c03c4dbfca93d11985d8e5649ade74652befb8faa70305cb2dffe6b38f2"
     },
     {
       "mode": "100644",
       "path": "public-export.json",
-      "sha256": "739893d09d9eaf95e0c355b045c77ebde1d6659b6f494e31c48f9ce310ea7cbe"
+      "sha256": "35b7149f138a2066279cb34f883e13dca29278de34dd21d6b7e653a889cce64a"
     },
     {
       "mode": "100644",
@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "4eef80480178368bc483fb9c0f6baed2a38f06e53b620f0fc7ef284d9a3aeee3"
+      "sha256": "505385dd20c992c77e17f9663fc45f4b52d854ec31f6cd9d984ea56c7a1127fb"
     },
     {
       "mode": "100755",
@@ -117,7 +117,7 @@
     {
       "mode": "100755",
       "path": "scripts/fm_contract_check.py",
-      "sha256": "9cb011bd87d81b2edfb01ed53a61b52d7f58dbf8fcab9c11d8386517ee1047d9"
+      "sha256": "8d32b30c24df4a538f5968e2a8a3c446556a6c49e028e4e37ae9406829969d51"
     },
     {
       "mode": "100755",
@@ -197,7 +197,7 @@
     {
       "mode": "100644",
       "path": "tests/test_delivery_pty.py",
-      "sha256": "1ffb45852b7eb6cc820e1beafbe3320de1eab4623c9528f809fbd4fb4b85d165"
+      "sha256": "9ee46298ed5d62bd28703c9cb18c6d300b6c3f39acf5623b48ec2c5a17e4ccdc"
     },
     {
       "mode": "100644",
@@ -232,17 +232,17 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_card_time.py",
-      "sha256": "72a9f53f24254d827191a2204e0a3964a008414452990cf4e91f038c9984afbd"
+      "sha256": "9d5bd7b5ca6516a177c381ef3a9407075f9d120ae558019f62c37aa0040a8650"
     },
     {
       "mode": "100644",
       "path": "tests/test_flow_clarity.py",
-      "sha256": "f21b1136f19ba6ce93618fa58432d1067ec546753b0a6e4e46dc2ab53a0a19c6"
+      "sha256": "92e2e43e9d621c93289bcf4056d56d85e15791629e1cc6e2d6aadaa79f1c1683"
     },
     {
       "mode": "100644",
       "path": "tests/test_flow_decision_dialog.py",
-      "sha256": "8470abf295b0ff1973cc26fec0e13b64ac80c47d3e38679f8348d7470c9c1c78"
+      "sha256": "7ba22239d9055cc3ab3bb76aadb1684294561ff368a85a13c1d6929c106417ec"
     },
     {
       "mode": "100644",
@@ -252,7 +252,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_durable_reports.py",
-      "sha256": "c5364ff80792b75c9bd1a6b49440fc5976b2b612156843fbf44ace569cbc94ca"
+      "sha256": "fcb5f95e82d3d27551d0495ae80a54873e030220357a051651f3a75c47783662"
     },
     {
       "mode": "100644",
@@ -277,7 +277,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_language.py",
-      "sha256": "b53f4dc2899327efb51cf553bb07a72ebbff82822bb26654951430954759a885"
+      "sha256": "841368c2985d0732d728bb5c4beceb63ddc2e981e218cff13a59b736d750a91b"
     },
     {
       "mode": "100644",
@@ -306,8 +306,13 @@
     },
     {
       "mode": "100644",
+      "path": "tests/test_flow_structured_call.py",
+      "sha256": "897c5d61a34f7087b516858eea5ed4d80d1352048308bed77daf3000bf7bf4cf"
+    },
+    {
+      "mode": "100644",
       "path": "tests/test_fm_contract_check.py",
-      "sha256": "45b4f1c11a01bd93ff90f0d89b3c95d30e7fe95df5d973a855d51755492c5da2"
+      "sha256": "549d2e5568c14fa822fe153c6162753a053e76ffa3691b5389bae54bb4cf7a5a"
     },
     {
       "mode": "100644",
@@ -337,22 +342,22 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "04f3c9675ae48fda1525ba885222ed96bb500f512879784bbd3b667181bb5710"
+      "sha256": "2d13b76d33d65e7c2a17e5d5bcc28f2f4df8500dcfb47bd9cff284e949487abe"
     },
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "1a23e7bb235eda4773a50ef4543c98224af31d0c2ed20499ce6ba7442932e2be"
+      "sha256": "2646e1a87c6ac998f0cd83a7e10c01d54d2d74c128eec9ac82c76205e4e867b5"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "4461d630a82402340ccb825c93e24eed25301ddb4a32b897893d9570b4fe9fa8"
+      "sha256": "cf812837604be4d75a57002b759cc0de24c0dba08ffa55aa9394dbc16882c1b6"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "cca4c4aed26ab7deb21f7da81a7a1172a555a5162f8b6e563f744f549752bc9e"
+      "sha256": "1a89e058653ee59ff482933089b7fd609842e10b273af3962363484886be3372"
     },
     {
       "mode": "100644",
@@ -387,7 +392,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "35419fa1b48cfcfe97a8f78aa140834478a994ae5407be445b0636949bf138d3"
+      "sha256": "93dd0a00c317bd5c20788b5c913e7f14975c19a39728c76dcd407d88087f3e03"
     },
     {
       "mode": "100644",
@@ -402,12 +407,12 @@
     {
       "mode": "100644",
       "path": "web/static/index.html",
-      "sha256": "7cc551094b995e8bac3136aff1346df34337365391aa78485b0656ee13832196"
+      "sha256": "ae639b721324955be2418d7a75b08d42d93e21122ab3770b097c24e47ea96f4b"
     },
     {
       "mode": "100644",
       "path": "web/static/styles.css",
-      "sha256": "513ef2df5d39eaaf2393d0c6620a2e761ec61be998b538f3f07b65bf08bb7aca"
+      "sha256": "becd4df9e6050fa7f813c0093ba67eae18f3218c4f9849dbd89068ff536dc20d"
     },
     {
       "mode": "100644",
@@ -427,7 +432,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "532b2ccaaf4df96c4fbf09df13791e60e306427e0a8d63dd0de4eebd68462b7e"
+      "sha256": "88bca1aec9749fc7158e89424a040784dfa44c3dee06e35fea9f57aecbb0f45e"
     },
     {
       "mode": "100644",
@@ -452,12 +457,12 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "d5327bd5a67b5f4a57957044b93b55473fa0be21855e02fa9757a2dc98cf19a1"
+      "sha256": "ccbf769f9d7b924c86573f019e2d7d893e36651473b47f723652151bc01e0627"
     },
     {
       "mode": "100644",
       "path": "web/tests/test_localization.py",
-      "sha256": "e57c04ad209d09755c83d95e59d3f8a68ac56d42f8d1ddf5c7b997176090a41f"
+      "sha256": "1891942ca16db87791617d4e048b2d7c93694d156aae96eb4552f9970e698dfb"
     },
     {
       "mode": "100644",
