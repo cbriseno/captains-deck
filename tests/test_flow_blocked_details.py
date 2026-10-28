@@ -22,6 +22,11 @@ class BlockedDetailsTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name)
+        env = patch.dict(os.environ, HERDR_PLUGIN_CONFIG_DIR=str(self.path / 'plugin-config'))
+        env.start(); self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
         (self.path / "state").mkdir()
         self.status = self.path / "state/task.status"
         self.home = flow.Home("crew", str(self.path), "captain")

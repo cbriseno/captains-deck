@@ -47,10 +47,14 @@ class LandedOutcomeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.snap, self.parts = fleet_fixture(self.root)
-        env = patch.dict(os.environ, {'HERDR_PLUGIN_STATE_DIR': str(self.root / 'plugin-state'), 'FM_FLOW_SHOW_LANDED': '1'})
+        env = patch.dict(os.environ, {'HERDR_PLUGIN_STATE_DIR': str(self.root / 'plugin-state'),
+                                     'HERDR_PLUGIN_CONFIG_DIR': str(self.root / 'plugin-config'), 'FM_FLOW_SHOW_LANDED': '1'})
         env.start()
         self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
+        self.snap, self.parts = fleet_fixture(self.root)
         self.ui = flow.UI()
         self.ui.collector.snapshot = lambda: self.snap
         self.ui.columns = self.ui.board_columns(self.snap.home)

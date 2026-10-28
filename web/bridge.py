@@ -41,6 +41,7 @@ MAX_BODY = 16384
 # answer is recorded. It points at the record and never carries the answer.
 PRIMARY_WAKE = ("Captain's Deck: the captain answered {task} from the web board. "
                 "Read the recorded answer for this task.")
+CANONICAL_TEXT = Localization('en').t
 
 
 class Refusal(Exception):
@@ -282,7 +283,7 @@ class Board:
         with self.history_lock:
             rows, note, at = self.history_cache.get(identity, ([], '', 0))
             if force or time.time() - at > 15:
-                rows, note = fm.delivery_records(home, translate=self.t)
+                rows, note, _ = fm.delivery_records(home, translate=self.t)
                 self.history_cache[identity] = rows, note, time.time()
             return rows, note
 
@@ -360,10 +361,10 @@ class Board:
 
     def content(self, card, home):
         # The confirmed owning home is the active context, never aggregate All.
-        content = fm.decision_card_content(card, self.homes(), home)
+        content = fm.decision_card_content(card, self.homes(), home, translate=CANONICAL_TEXT)
         if os.path.realpath(content['home_path']) != fm.delivery_home_identity(home):
             raise Refusal('The intake does not match the owning home.')
-        context = fm.flow_context(card)
+        context = fm.flow_context(card, translate=CANONICAL_TEXT)
         if context['phase'] == 'human' and not content.get('about'):
             content['about'] = context['reason']
         return content
@@ -385,7 +386,7 @@ class Board:
                                                    'recommend', 'freeform', 'freeform_hint', 'close')}
         result['call']['identity'] = identity
         result['call']['occurrence'] = digest(home_id(home), card.task, identity, content['stamp'],
-                                            fm.flow_context(card)['reason'], result['call'])
+                                            fm.flow_context(card, translate=CANONICAL_TEXT)['reason'], result['call'])
         result['call']['error'] = error
         display = fm.decision_card_content(card, self.homes(), home, translate=self.t)
         if not display.get('about') and result['context']['phase'] == 'human':

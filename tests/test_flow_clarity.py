@@ -34,8 +34,12 @@ class ClarityTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.home = fixture.fixture(self.root)
-        self.env = patch.dict(os.environ, FM_FLOW_SHOW_LANDED='1', HERDR_PLUGIN_STATE_DIR=str(self.root/'plugin-state'))
+        self.env = patch.dict(os.environ, FM_FLOW_SHOW_LANDED='1', HERDR_PLUGIN_STATE_DIR=str(self.root/'plugin-state'),
+                              HERDR_PLUGIN_CONFIG_DIR=str(self.root/'plugin-config'))
         self.env.start(); self.addCleanup(self.env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        f._LOCALIZATION = None
+        self.addCleanup(setattr, f, '_LOCALIZATION', None)
 
     def ui(self, payload=None):
         snap = fixture.snapshot(self.home)
@@ -245,7 +249,8 @@ class ClarityTests(unittest.TestCase):
               'records':[{'id':'old','title':'Entrega pública','state':'done','source':'archive',
                           'completion':{'date':'2026-10-21','verb':'done'},'card_time':event}]}
         (self.root/'history.json').write_text(json.dumps(data))
-        rows,note=f.delivery_records(self.home)
+        rows,note,complete=f.delivery_records(self.home)
+        self.assertTrue(complete)
         self.assertEqual(rows[0]['closed'],'2026-10-21')
         self.assertEqual(rows[0]['card_time'],event)
         self.assertIn('done_keep',note)
@@ -253,7 +258,8 @@ class ClarityTests(unittest.TestCase):
         self.assertIsNotNone(ui.delivery_event.epoch)
         self.assertEqual(ui.delivery_event.source,'backlog.owner.done')
         data['home']='/foreign';(self.root/'history.json').write_text(json.dumps(data))
-        rows,note=f.delivery_records(self.home)
+        rows,note,complete=f.delivery_records(self.home)
+        self.assertTrue(complete)
         self.assertNotIn('Entrega pública',[row['title'] for row in rows])
         self.assertIn('export unavailable',note)
 

@@ -27,9 +27,13 @@ class CardTimeTests(unittest.TestCase):
         self.status = self.root / "state/task.status"
         self.home = flow.Home("fixture", str(self.root), "captain")
         env = patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": str(self.root / "plugin"),
+                                    "HERDR_PLUGIN_CONFIG_DIR": str(self.root / "plugin-config"),
                                     "FM_FLOW_SHOW_LANDED": "1"})
         env.start()
         self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
 
     def board(self, bucket="in_flight", log="", **fields):
         self.status.write_text(log)

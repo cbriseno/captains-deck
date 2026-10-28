@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import os
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,11 @@ class StatusFollowupTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name)
+        env = patch.dict(os.environ, HERDR_PLUGIN_CONFIG_DIR=str(self.path / 'plugin-config'))
+        env.start(); self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        flow._LOCALIZATION = None
+        self.addCleanup(setattr, flow, '_LOCALIZATION', None)
         (self.path / "state").mkdir()
         self.home = flow.Home("captain", str(self.path), "captain")
         self.status = self.path / "state/task.status"

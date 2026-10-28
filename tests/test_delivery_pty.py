@@ -106,6 +106,7 @@ class PTYTests(unittest.TestCase):
                 (root / 'clock.json').write_text(json.dumps({'now': CLOCK_EVENT + 120}))
                 env = dict(os.environ, FM_FLOW_SHOW_LANDED='1', HERDR_PLUGIN_STATE_DIR=str(root / 'plugin-state'),
                            HERDR_PLUGIN_CONFIG_DIR=str(root / 'plugin-config'), PYTHONDONTWRITEBYTECODE='1')
+                env.pop('CD_WEB_LANGUAGE', None)
                 master, slave = pty.openpty()
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', height, width, 0, 0))
                 proc = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()), '--fixture-time-board', directory],
@@ -215,6 +216,7 @@ class PTYTests(unittest.TestCase):
                        HERDR_PLUGIN_STATE_DIR=str(root / 'plugin-state'),
                        HERDR_PLUGIN_CONFIG_DIR=str(root / 'plugin-config'),
                        PYTHONDONTWRITEBYTECODE='1')
+            env.pop('CD_WEB_LANGUAGE', None)
             proof = Path(os.environ['DECK_DELIVERY_PROOF_DIR']) if os.environ.get('DECK_DELIVERY_PROOF_DIR') else None
             saved = []
             for width, height in ((130, 15), (60, 12)):

@@ -86,6 +86,54 @@ class LanguageTests(unittest.TestCase):
                 # Authored task content is never translated.
                 self.assertIn('Fixture work', text)
 
+    def test_history_completeness_tracks_sources_in_both_languages(self):
+        cases = ('complete', 'missing-current', 'missing-archive', 'unavailable-current',
+                 'unavailable-archive', 'endpoint-incomplete', 'endpoint-complete',
+                 'endpoint-fallback', 'remote', 'aggregate-partial', 'aggregate-complete',
+                 'aggregate-empty')
+        for language in ('en', 'es'):
+            os.environ['CD_WEB_LANGUAGE'] = language
+            f._LOCALIZATION = None
+            for case in cases:
+                with self.subTest(language=language, case=case):
+                    root = self.root / (language + '-' + case)
+                    root.mkdir()
+                    home = clarity.fixture.fixture(root)
+                    snap = clarity.fixture.snapshot(home)
+                    complete = case in ('complete', 'endpoint-complete', 'endpoint-fallback', 'aggregate-complete')
+                    for source, name in [('current', 'backlog.md'), ('archive', 'done-archive.md')]:
+                        if case in ('missing-' + source, 'unavailable-' + source) or (
+                            case == 'aggregate-partial' and source == 'archive'
+                        ):
+                            path = root / 'data' / name
+                            path.unlink()
+                            if case == 'unavailable-' + source:
+                                path.mkdir()
+                    if case.startswith('endpoint-'):
+                        (root / 'bin').mkdir()
+                        (root / 'bin/fm-delivery-history.sh').write_text('cat "$FM_HOME/history.json"\n')
+                        data = {'schema': 'fm-delivery-history.v1', 'home': home.path,
+                                'complete': complete, 'sources': ['archive/missing-label.md'],
+                                'retention': {}, 'records': [], 'limitations': ['Retained fixture only']}
+                        (root / 'history.json').write_text('invalid' if case == 'endpoint-fallback' else json.dumps(data))
+                    if case == 'remote':
+                        home.route = 'remote'
+                    if case.startswith('aggregate-'):
+                        snap.home = f.Home('All', '', 'all')
+                        snap.homes = [snap.home]
+                        if case != 'aggregate-empty':
+                            other_root = root / 'mate'
+                            other_root.mkdir()
+                            other = clarity.fixture.fixture(other_root)
+                            other.label = 'mate'
+                            snap.homes.extend([home, other])
+                    ui = f.UI()
+                    ui.collector.snapshot = lambda: snap
+                    ui.open_history()
+                    self.assertEqual(ui.history['complete'], complete)
+                    frame = self.render(ui, snap)
+                    self.assertIn(f.tr('current + archive') if complete else f.tr('incomplete sources'), frame)
+
 
 if __name__ == '__main__':
     unittest.main()

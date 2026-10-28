@@ -1,9 +1,11 @@
 """Durable declarations explain work while native Codex activity is unknown."""
 import importlib.util
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('durable_flow', ROOT / 'scripts/flow_tui.py')
@@ -17,6 +19,11 @@ class DurableReportsTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        env = patch.dict(os.environ, HERDR_PLUGIN_CONFIG_DIR=str(self.root / 'plugin-config'))
+        env.start(); self.addCleanup(env.stop)
+        os.environ.pop('CD_WEB_LANGUAGE', None)
+        f._LOCALIZATION = None
+        self.addCleanup(setattr, f, '_LOCALIZATION', None)
         (self.root / 'state').mkdir()
         self.home = f.Home('Firstmate', str(self.root), 'captain')
 

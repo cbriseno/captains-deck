@@ -1828,13 +1828,6 @@ def _decision_lookup_homes(
     return ordered
 
 
-class _EnglishCatalog:
-    """Source-message fallback for a checkout without the shared web catalogs."""
-
-    def t(self, message, **values):
-        return message.format_map(values) if values else message
-
-
 _LOCALIZATION = None
 
 
@@ -1851,14 +1844,11 @@ def _localization():
     global _LOCALIZATION
     if _LOCALIZATION is None:
         path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "localization.py")
-        try:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("_deck_localization", path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            _LOCALIZATION = module.Localization(deck_language())
-        except (OSError, ImportError, AttributeError, ValueError):
-            _LOCALIZATION = _EnglishCatalog()
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_deck_localization", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _LOCALIZATION = module.Localization(deck_language())
     return _LOCALIZATION
 
 
@@ -3081,13 +3071,13 @@ def _tasks_read(data):
     return json.loads(result.stdout)
 
 
-def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[list[dict], str]:
+def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[list[dict], str, bool]:
     """Current and configured archive, without changing done_keep or any rows.
     Unsupported backends/remotes report the missing surface explicitly.
     """
     tr = translate or _presentation_text
     if is_remote_home(home) or is_aggregate_home(home):
-        return [], tr('History unavailable here; choose a local home. Remote history needs a read-only archive export from Firstmate.')
+        return [], tr('History unavailable here; choose a local home. Remote history needs a read-only archive export from Firstmate.'), False
     # New public, read-only contract; old homes retain the canonical-reader
     # fallback below. Failure is visible instead of silently hiding archives.
     endpoint = endpoint_path(home.path, 'fm-delivery-history.sh')
@@ -3123,21 +3113,22 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
             if not data.get('complete'):
                 note += tr(' · incomplete: ') + '; '.join(map(str, data.get('limitations') or []))
             if not task_id or rows:
-                return rows, note
+                return rows, note, bool(data.get('complete'))
             # History intentionally excludes reopened tasks. Preserve the
             # existing current-record check when opening a stale Landed card.
             endpoint_warning = tr('Public history does not retain this delivery; checking the current canonical record for reopening.')
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
             endpoint_warning = tr('History export unavailable: {error}; local canonical reader fallback', error=exc)
     notes, rows, active_ids = ([endpoint_warning] if endpoint_warning else []), {}, set()
+    complete = True
     try:
         config = _tasks_read({'config': delivery_read(home.path, '.tasks.toml', 65536)})
     except FileNotFoundError:
         config = {}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return [], f'History unavailable: {exc}'
+        return [], f'History unavailable: {exc}', False
     if config.get('backend', 'markdown') != 'markdown':
-        return [], 'History unavailable: this backend needs a read-only completed-record/archive export from Firstmate/tasks-axi.'
+        return [], 'History unavailable: this backend needs a read-only completed-record/archive export from Firstmate/tasks-axi.', False
     cfg = config.get('markdown') or {}
     backlog = cfg.get('path') or 'data/backlog.md'
     archive = cfg.get('archive') or os.path.join(os.path.dirname(backlog), 'done-archive.md')
@@ -3189,11 +3180,13 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
                     rows[key] = task
             notes.append(f'{source}: {path}')
         except FileNotFoundError:
+            complete = False
             notes.append(tr('{source}: {path} missing; retained history may be incomplete', source=source, path=path))
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+            complete = False
             notes.append(tr('{source} unavailable: {error}; retained history may be incomplete', source=source, error=exc))
     ordered = sorted(rows.values(), key=lambda r: (r.get('closed', ''), r['id']), reverse=True)
-    return ordered, '; '.join(notes) + tr('. Retained deliveries only; no retention changes. done_keep={count}: current backlog limit; archive retains existing records. Recent is not all history; deleted records cannot be recovered.', count=cfg.get('done_keep', tr('not specified')))
+    return ordered, '; '.join(notes) + tr('. Retained deliveries only; no retention changes. done_keep={count}: current backlog limit; archive retains existing records. Recent is not all history; deleted records cannot be recovered.', count=cfg.get('done_keep', tr('not specified'))), complete
 
 
 def delivery_home_identity(home: Home) -> str:
@@ -4521,16 +4514,18 @@ class UI:
             self.say("no home selected")
             return
         if is_aggregate_home(home):
-            rows, notes = [], []
-            for source in real_homes(snap.homes):
-                source_rows, source_note = delivery_records(source)
+            sources = real_homes(snap.homes)
+            rows, notes, complete = [], [], bool(sources)
+            for source in sources:
+                source_rows, source_note, source_complete = delivery_records(source)
                 rows.extend(source_rows)
                 notes.append(source.label + ': ' + source_note)
+                complete = complete and source_complete
             rows.sort(key=lambda r: (r.get('closed', ''), r['id'], r['delivery_identity']), reverse=True)
             note = '\n'.join(notes) or 'History unavailable: no discovered real homes; choose the owning crew tab.'
         else:
-            rows, note = delivery_records(home)
-        self.history = {"home": home, "rows": rows, "note": note, "query": "", "index": 0}
+            rows, note, complete = delivery_records(home)
+        self.history = {"home": home, "rows": rows, "note": note, "complete": complete, "query": "", "index": 0}
         self.dirty = True
 
     def history_rows(self) -> list[dict]:
@@ -4600,7 +4595,7 @@ class UI:
                 self.delivery_scroll = 0
                 self.dirty = True
                 return
-            rows, note = delivery_records(home, task_id=card.task)
+            rows, note, _ = delivery_records(home, task_id=card.task)
             record = next((r for r in rows if r["id"] == card.task), None)
             if record is None:
                 record = {"id": card.task, "what": card.title, "artifact": card.artifact,
@@ -4774,8 +4769,7 @@ class UI:
         inner = max(4, min(122, w - 2) - 4)
         budget = max(1, h - 5)
         content = wrap_text("Search: " + state["query"] + "_", inner)
-        limited = any(word in state["note"].lower() for word in ("unavailable", "incomplete", "missing"))
-        content += wrap_text(tr("Retained: ") + (tr("incomplete sources") if limited else tr("current + archive")) + tr(" · Tab/Info: retention and sources"), inner)
+        content += wrap_text(tr("Retained: ") + (tr("current + archive") if state["complete"] else tr("incomplete sources")) + tr(" · Tab/Info: retention and sources"), inner)
         content += wrap_text("Type search · Enter open · ↑↓ select · Esc back", inner)
         # Source details are fully scrollable through Tab/Info even when there
         # are no rows (offline/backend missing), without marking anything read.
