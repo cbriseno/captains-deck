@@ -425,3 +425,24 @@ test('question draft and occurrence guard survive refreshed question context wit
   assert.equal(view.doc.getElementById('call-change').hidden, false);
   assert.ok(view.requests.every(r => r.method === 'GET'));
 });
+
+test('answer receipt says whether Firstmate was pointed at the answer or sees it next turn', async () => {
+  const note = 'Firstmate could not be reached now; it will see this answer at its next turn.';
+  const answer = async (primary) => {
+    const tickets = {ask: questionTicket('ask', 'Prepare sample release', 'Confirm sample workspace', '')};
+    const view = await questionView(tickets); await view.open('ask');
+    tickets['ask/answer'] = {saved: true, state: 'saved', message: 'Answer saved by Firstmate.', notice: 'unknown',
+      ack: 'unknown', consumed: 'unknown', ...(primary ? {primary} : {})};
+    const field = view.doc.getElementById('answer-note'); field.value = 'Sample answer';
+    field.listeners.input[0]({type: 'input'});
+    const send = descendants(view.doc.getElementById('detail-content')).find(n => n.id === 'answer-submit');
+    send.listeners.click[0](); await view.flush();
+    assert.ok(view.requests.some(r => r.url === 'api/ticket/ask/answer' && r.method === 'POST'));
+    return view.doc.getElementById('answer-status').textContent;
+  };
+  const unreachable = await answer('unreachable');
+  assert.ok(unreachable.includes('Answer recorded')); assert.ok(unreachable.includes(note));
+  const sent = await answer('sent');
+  assert.ok(sent.includes('Sent to Firstmate')); assert.ok(!sent.includes(note));
+  assert.ok(!(await answer('')).includes(note));
+});

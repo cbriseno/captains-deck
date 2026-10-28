@@ -267,5 +267,74 @@ class WebTests(unittest.TestCase):
             env=bridge.Board.child_env(self.home)
         self.assertEqual(set(names)&set(env),set());self.assertEqual(env['FM_HOME'],self.home.path)
 
+    def herdr(self,refuse=False):
+        """A stand-in for `herdr agent prompt` that records every send."""
+        log=self.root/'herdr-prompts.jsonl';script=self.root/'herdr'
+        script.write_text('#!/bin/sh\n'+(
+            'echo \'{"error":{"code":"agent_blocked","message":"busy"}}\' >&2; exit 1\n' if refuse else
+            'python3 -c \'import json,sys;open(sys.argv[1],"a").write(json.dumps(sys.argv[2:])+"\\n")\' "'+str(log)+'" "$@"\n'))
+        script.chmod(0o755)
+        self.enterContext(patch.object(bridge.fm,'HERDR_BIN',str(script)))
+        return log
+
+    def sends(self,log):
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def primary(self):
+        self.board.collector.snap.agents={'w-9':{'cwd':str(self.root/'elsewhere')},'p-1':{'cwd':self.home.path}}
+
+    def test_main_owned_answer_points_the_idle_primary_at_the_record_once(self):
+        log=self.herdr();self.primary();key,body=self.call()
+        status,receipt=self.req('/api/ticket/'+key+'/answer',body)
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertEqual(receipt['primary'],'sent')
+        self.assertEqual(len((Path(self.home.path)/'mutations.jsonl').read_text().splitlines()),1)
+        sent=self.sends(log);self.assertEqual(len(sent),1)
+        self.assertEqual(sent[0][:3],['agent','prompt','p-1'])
+        self.assertEqual(sent[0][3],bridge.PRIMARY_WAKE.format(task='ask'))
+        self.assertNotIn(body['note'],sent[0][3]);self.assertNotIn('scope',sent[0][3])
+        _,stored=self.req('/api/receipts');self.assertEqual(stored['receipts'][0]['primary'],'sent')
+
+    def test_primary_message_is_deduplicated_by_decision_identity_and_occurrence(self):
+        log=self.herdr();self.primary();key,body=self.call()
+        with ThreadPoolExecutor(2) as pool:
+            list(pool.map(lambda _:self.board.submit(key,body,'local'),range(2)))
+        restarted=bridge.Board(self.board.data_dir,collector=self.board.collector)
+        self.assertTrue(restarted.submit(key,body,'local')['replay'])
+        self.assertEqual(len(self.sends(log)),1)
+        stub=type('Card',(),{'owner':'(main)','task':'ask'})()
+        self.assertEqual(restarted.wake_primary(self.home,stub,'2026-10-25T15:00:00Z#0',body['occurrence']),'duplicate')
+        self.assertEqual(restarted.wake_primary(self.home,stub,'2026-10-25T15:00:00Z#1','b'*64),'sent')
+        self.assertEqual(len(self.sends(log)),2)
+
+    def test_unreachable_primary_keeps_the_answer_and_says_when_firstmate_sees_it(self):
+        log=self.herdr();key,body=self.call()
+        status,receipt=self.req('/api/ticket/'+key+'/answer',body)
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertEqual(receipt['primary'],'unreachable')
+        self.assertEqual(self.sends(log),[])
+        self.assertEqual(len((Path(self.home.path)/'mutations.jsonl').read_text().splitlines()),1)
+        self.herdr(refuse=True);self.primary()
+        stub=type('Card',(),{'owner':'(main)','task':'ask'})()
+        self.assertEqual(self.board.wake_primary(self.home,stub,'2026-10-25T15:00:00Z#1','c'*64),'unreachable')
+
+    def test_conflicted_answer_and_reconcile_never_message_the_primary(self):
+        log=self.herdr();self.primary();key,body=self.call()
+        (Path(self.home.path)/'race-rehold').touch()
+        self.assertEqual(self.req('/api/ticket/'+key+'/answer',body)[1]['state'],'conflict')
+        (Path(self.home.path)/'race-rehold').unlink()
+        key,body=self.call()
+        status,receipt=self.req('/api/ticket/'+key+'/answer',dict(body,value='reconcile',note='',request_id='r'*32))
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertNotIn('primary',receipt)
+        self.assertEqual(self.sends(log),[])
+
+    def test_worker_owned_decision_never_messages_the_primary(self):
+        log=self.herdr();self.primary()
+        self.home.mate_id='mate-a'
+        self.board.collector.snap.cols['captains_call'][0].owner='mate-a'
+        key,body=self.call()
+        status,receipt=self.req('/api/ticket/'+key+'/answer',body)
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertNotIn('primary',receipt)
+        self.assertEqual(self.sends(log),[])
+        self.assertFalse((self.board.data_dir/'primary-wakes').exists())
+
 
 if __name__=='__main__':unittest.main()

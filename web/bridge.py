@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Private, dependency-free HTTP projection of the Deck's existing model.
 
-No backlog, supervisor, shell-command API, notification sender or model calls.
+No backlog, supervisor, shell-command API, push sender or model calls.
 The single collector always reads All; selecting a crew never changes another
-browser's view. Mutations go only through the owning home's public intakes.
+browser's view. Mutations go only through the owning home's public intakes; the
+one message the bridge sends is the Deck's fixed pointer to a recorded answer.
 """
 from __future__ import annotations
 
@@ -36,6 +37,10 @@ STATIC = HERE / 'static'
 COLUMNS = [('charted', 'Up next'), ('underway', 'Underway'),
            ('captains_call', 'Your decision'), ('landed', 'Delivered')]
 MAX_BODY = 16384
+# The fixed line the Deck's message-Firstmate path sends after a main-owned
+# answer is recorded. It points at the record and never carries the answer.
+PRIMARY_WAKE = ("Captain's Deck: the captain answered {task} from the web board. "
+                "Read the recorded answer with bin/fm-tasks-axi.sh show {task} --full.")
 
 
 class Refusal(Exception):
@@ -512,6 +517,12 @@ class Board:
                     if conflict.get('error') == 'identity-conflict':
                         receipt.update(state='conflict', saved=False, notice='none',
                                        message='The occurrence changed before saving. The answer was not sent; your draft is preserved.')
+                if process.returncode == 0 and value != 'reconcile':
+                    # The answer is durable before anything points Firstmate at it.
+                    self.store_receipt(path, receipt)
+                    primary = self.wake_primary(home, card, call['identity'], occurrence)
+                    if primary:
+                        receipt['primary'] = primary
                 # Success is durable intake acceptance, never native execution,
                 # wake acknowledgement or consumption by the owning agent.
                 self.collector.refresh_now()
@@ -519,6 +530,38 @@ class Board:
                 receipt.update(message='Could not confirm submission. Your draft is preserved.', detail=str(exc))
             self.store_receipt(path, receipt)
             return self.present_receipt(receipt)
+
+    def wake_primary(self, home, card, identity, occurrence):
+        """Point the owning home's Firstmate at an answer its intake recorded.
+
+        The intake queues a wake that only an active supervision cycle reads,
+        so an idle primary would not react until its next turn. A mate-owned
+        call belongs to its own home's supervision and is never sent here.
+        Returns '' when not applicable, else sent, unreachable or duplicate.
+        """
+        if (card.owner or '(main)') != '(main)':
+            return ''
+        directory = self.data_dir / 'primary-wakes'
+        path = directory / (digest(home_id(home), identity, occurrence) + '.json')
+        try:
+            if directory.is_symlink():
+                return 'unreachable'
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            # Claimed before sending: a retry or restart never sends twice.
+            self.store_receipt(path, {'task': card.task, 'state': 'pending', 'at': time.time()}, exclusive=True)
+        except FileExistsError:
+            return 'duplicate'
+        except OSError:
+            return 'unreachable'
+        _, pane = fm.supervisor_target(home, self.homes(), self.collector.snapshot().agents)
+        sent, detail = fm.send_to_firstmate(pane, PRIMARY_WAKE.format(task=card.task)) if pane else (False, 'no Firstmate pane')
+        state = 'sent' if sent else 'unreachable'
+        try:
+            self.store_receipt(path, {'task': card.task, 'state': state, 'pane': pane,
+                                      'detail': detail, 'at': time.time()})
+        except OSError:
+            pass
+        return state
 
     def present_receipt(self, receipt):
         # Old receipt messages are bridge-owned text. Only this field is migrated
