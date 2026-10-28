@@ -207,7 +207,7 @@ Intake acceptance confirms a saved answer or review request.
 Notice, ACK and consumption are separate fields and remain unconfirmed without owner evidence.
 No receipt claims the agent resumed.
 After the owning home's intake records an answer to that home's own `(main)` call, the bridge points its Firstmate at the record through the Deck's message-Firstmate path: one fixed line, sent with `herdr agent prompt` to the agent pane whose working directory is the home.
-The line names the task, never the answer text, and a durable marker per question identity and occurrence keeps it to one message across retries and restarts.
+The line names the task, never the answer text or a home-relative command. The existing exclusive answer receipt prevents another notification when a submission is replayed, including after a restart.
 When no such pane accepts it, the answer stays saved and the receipt says Firstmate will see it at its next turn.
 Secondmate-owned calls, reconcile requests and unsaved answers send no message.
 Reconcile is a request to recheck, never an answer or a release.

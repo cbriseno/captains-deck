@@ -283,28 +283,40 @@ class WebTests(unittest.TestCase):
     def primary(self):
         self.board.collector.snap.agents={'w-9':{'cwd':str(self.root/'elsewhere')},'p-1':{'cwd':self.home.path}}
 
-    def test_main_owned_answer_points_the_idle_primary_at_the_record_once(self):
+    def test_main_owned_answer_points_the_idle_primary_at_the_record_with_split_root(self):
+        code=self.root/'firstmate code';code.mkdir()
+        (Path(self.home.path)/'bin').rename(code/'bin')
+        self.enterContext(patch.dict(os.environ,FM_ROOT_OVERRIDE=str(code)))
         log=self.herdr();self.primary();key,body=self.call()
         status,receipt=self.req('/api/ticket/'+key+'/answer',body)
         self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertEqual(receipt['primary'],'sent')
         self.assertEqual(len((Path(self.home.path)/'mutations.jsonl').read_text().splitlines()),1)
         sent=self.sends(log);self.assertEqual(len(sent),1)
         self.assertEqual(sent[0][:3],['agent','prompt','p-1'])
-        self.assertEqual(sent[0][3],bridge.PRIMARY_WAKE.format(task='ask'))
+        self.assertEqual(sent[0][3],"Captain's Deck: the captain answered ask from the web board. "
+                                  "Read the recorded answer for this task.")
         self.assertNotIn(body['note'],sent[0][3]);self.assertNotIn('scope',sent[0][3])
         _,stored=self.req('/api/receipts');self.assertEqual(stored['receipts'][0]['primary'],'sent')
 
-    def test_primary_message_is_deduplicated_by_decision_identity_and_occurrence(self):
+    def test_existing_answer_receipt_skips_wake_on_retry_and_restart(self):
         log=self.herdr();self.primary();key,body=self.call()
-        with ThreadPoolExecutor(2) as pool:
-            list(pool.map(lambda _:self.board.submit(key,body,'local'),range(2)))
+        with patch.object(self.board,'wake_primary',wraps=self.board.wake_primary) as wake:
+            with ThreadPoolExecutor(2) as pool:
+                replies=list(pool.map(lambda _:self.board.submit(key,body,'local'),range(2)))
+            self.assertTrue(all(reply['saved'] for reply in replies))
+            self.assertEqual(sum(bool(reply.get('replay')) for reply in replies),1)
+            self.assertEqual(wake.call_count,1)
+            wake.reset_mock()
+            self.assertTrue(self.board.submit(key,body,'local')['replay'])
+            self.assertTrue(self.board.submit(key,dict(body,request_id='b'*32),'local')['replay'])
+            wake.assert_not_called()
         restarted=bridge.Board(self.board.data_dir,collector=self.board.collector)
-        self.assertTrue(restarted.submit(key,body,'local')['replay'])
+        with patch.object(restarted,'wake_primary',wraps=restarted.wake_primary) as wake:
+            self.assertTrue(restarted.submit(key,body,'local')['replay'])
+            self.assertTrue(restarted.submit(key,dict(body,request_id='c'*32),'local')['replay'])
+            wake.assert_not_called()
         self.assertEqual(len(self.sends(log)),1)
-        stub=type('Card',(),{'owner':'(main)','task':'ask'})()
-        self.assertEqual(restarted.wake_primary(self.home,stub,'2026-10-25T15:00:00Z#0',body['occurrence']),'duplicate')
-        self.assertEqual(restarted.wake_primary(self.home,stub,'2026-10-25T15:00:00Z#1','b'*64),'sent')
-        self.assertEqual(len(self.sends(log)),2)
+        self.assertEqual(len((Path(self.home.path)/'mutations.jsonl').read_text().splitlines()),1)
 
     def test_unreachable_primary_keeps_the_answer_and_says_when_firstmate_sees_it(self):
         log=self.herdr();key,body=self.call()
@@ -314,7 +326,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(len((Path(self.home.path)/'mutations.jsonl').read_text().splitlines()),1)
         self.herdr(refuse=True);self.primary()
         stub=type('Card',(),{'owner':'(main)','task':'ask'})()
-        self.assertEqual(self.board.wake_primary(self.home,stub,'2026-10-25T15:00:00Z#1','c'*64),'unreachable')
+        self.assertEqual(self.board.wake_primary(self.home,stub),'unreachable')
 
     def test_conflicted_answer_and_reconcile_never_message_the_primary(self):
         log=self.herdr();self.primary();key,body=self.call()
@@ -334,7 +346,6 @@ class WebTests(unittest.TestCase):
         status,receipt=self.req('/api/ticket/'+key+'/answer',body)
         self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertNotIn('primary',receipt)
         self.assertEqual(self.sends(log),[])
-        self.assertFalse((self.board.data_dir/'primary-wakes').exists())
 
 
 if __name__=='__main__':unittest.main()
