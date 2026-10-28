@@ -1825,12 +1825,19 @@ def _call_owner_identities(
     return identities
 
 
+def _bearing_evidence(bearings: dict[str, tuple[dict, float]] | None, home: Home) -> dict:
+    data, received_at = (bearings or {}).get(delivery_home_identity(home), ({}, 0.0))
+    if received_at <= 0 or time.time() - received_at > _bearings_ttl():
+        return {}
+    return data
+
+
 def _legacy_answer_unambiguous(
-    task: str, homes: list[Home], home_path: str, bearings: dict[str, dict]
+    task: str, homes: list[Home], home_path: str, bearings: dict[str, tuple[dict, float]]
 ) -> bool:
     identities = set()
     for source in real_homes(homes):
-        data = bearings.get(delivery_home_identity(source))
+        data = _bearing_evidence(bearings, source)
         if not data:
             return False
         identities.update(_call_owner_identities(task, source, data, homes))
@@ -1885,7 +1892,7 @@ tr = _presentation_text
 
 def decision_card_content(
     card: Card, homes: list[Home] | None, active: Home | None, *, translate=None,
-    bearings: dict[str, dict] | None = None,
+    bearings: dict[str, tuple[dict, float]] | None = None,
 ) -> dict:
     """Normalized dialog content for a Captain's Call ticket.
 
@@ -1905,7 +1912,7 @@ def decision_card_content(
         for source in home_list:
             if is_remote_home(source) or _same_path(source.path, home_path):
                 continue
-            evidence = (bearings or {}).get(delivery_home_identity(source), {})
+            evidence = _bearing_evidence(bearings, source)
             if _call_owner_identities(card.task, source, evidence, home_list) != {delivery_home_identity(owner_home)}:
                 continue
             raw, stamp = decision_card_record(card.task, source)
@@ -2667,7 +2674,7 @@ def make_cards(
     homes: list[Home] | None = None,
     reveal_answered: bool = False,
     retained_at: float = 0.0,
-    bearings: dict[str, dict] | None = None,
+    bearings: dict[str, tuple[dict, float]] | None = None,
 ) -> tuple[dict[str, list[Card]], dict[str, int]]:
     """Bucket snapshot entries into the workflow columns.
 
@@ -2681,7 +2688,8 @@ def make_cards(
     cols: dict[str, list[Card]] = {key: [] for key, _ in COLUMNS}
     totals: dict[str, int] = {key: 0 for key, _ in COLUMNS}
     home_list = list(homes) if homes else [home]
-    known_bearings = {**(bearings or {}), delivery_home_identity(home): snap}
+    known_bearings = (bearings if bearings is not None
+                      else {delivery_home_identity(home): (snap, time.time())})
     account_names = load_account_names(home_list)
 
     paths: dict[str, dict] = {}
@@ -3646,7 +3654,7 @@ class Snapshot:
         self.cols: dict[str, list[Card]] = {k: [] for k, _ in COLUMNS}
         self.collected_at = 0.0
         self.homes: list[Home] = []
-        self.bearings: dict[str, dict] = {}
+        self.bearings: dict[str, tuple[dict, float]] = {}
         self.counts: dict[str, int] = {}
         self.landed_counts: dict[str, int] = {}
         self.totals: dict[str, int] = {}
@@ -3786,11 +3794,11 @@ class Collector(threading.Thread):
             or now - ts > _bearings_ttl()
         )
 
-    def _cached_bearings(self, homes: list[Home]) -> dict[str, dict]:
+    def _cached_bearings(self, homes: list[Home]) -> dict[str, tuple[dict, float]]:
         return {
-            delivery_home_identity(home): raw
+            delivery_home_identity(home): (raw, received_at)
             for home in real_homes(homes)
-            for raw, _ts, path in [self._raw.get(home.label, ({}, 0.0, ""))]
+            for raw, received_at, path in [self._raw.get(home.label, ({}, 0.0, ""))]
             if raw and path == home.path
         }
 
@@ -6484,9 +6492,9 @@ def once(active_label: str = "", all_homes: bool = False) -> int:
     else:
         selected = fleet
     parts: list[tuple[Home, dict[str, list[Card]], dict[str, int]]] = []
-    bearings = {delivery_home_identity(home): bearings_snapshot(home) for home in selected}
+    bearings = {delivery_home_identity(home): (bearings_snapshot(home), time.time()) for home in selected}
     for home in selected:
-        snap = bearings[delivery_home_identity(home)]
+        snap = bearings[delivery_home_identity(home)][0]
         cols: dict[str, list[Card]] = {k: [] for k, _ in COLUMNS}
         totals: dict[str, int] = {k: 0 for k, _ in COLUMNS}
         if snap:

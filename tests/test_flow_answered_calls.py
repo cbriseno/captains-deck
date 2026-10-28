@@ -262,7 +262,8 @@ def test_same_named_answers_and_legacy_records() -> None:
             snapshots[home.path] = {"decisions_open": [{"id": "docs", "owner": "(main)", "title": "Durable title"}]}
 
         def columns(home, crew=None):
-            return flow.make_cards(home, snapshots[home.path], {}, {}, {}, crew or homes, bearings=snapshots)
+            evidence = {path: (data, time.time()) for path, data in snapshots.items()}
+            return flow.make_cards(home, snapshots[home.path], {}, {}, {}, crew or homes, bearings=evidence)
 
         def answer(home):
             cols, _ = columns(home)

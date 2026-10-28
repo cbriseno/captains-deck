@@ -244,6 +244,87 @@ def test_parent_content_uses_cached_ownership_for_fingerprints_and_dialogs(tmp_p
             assert [o["value"] for o in without_evidence["options"]] == ["reconcile"]
 
 
+def test_legacy_answer_ignores_expired_inactive_and_retained_snapshots(tmp_path):
+    homes = [Home(name, str(tmp_path / name), "captain") for name in ("A", "B")]
+    a, b = homes
+    store = Path(a.path, "state/decision-cards/docs.json")
+    store.parent.mkdir(parents=True)
+    store.write_text(json.dumps({"generated": "stamp", "card": {"title": "A question"}}))
+    collector = flow.Collector()
+    collector._raw = {a.label: (_held("docs"), 1000.0, a.path),
+                      b.label: ({"decisions_open": []}, 1000.0, b.path)}
+    current = {a.path: _held("docs"), b.path: _held("docs")}
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"),
+                    FM_FLOW_HIDE_ANSWERED="1", FM_FLOW_ANSWER_MATCH="generated"):
+        with patch.object(flow.time, "time", return_value=1000.0) as clock, \
+                patch.object(flow, "_bearings_ttl", return_value=60.0), \
+                patch.object(flow, "bearings_snapshot", side_effect=lambda home: current[home.path]) as walk:
+            flow.save_answered_calls({"docs": {"home": a.path, "generated": "stamp", "answered_at": 1000.0}})
+            _, cols, totals, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 0
+            walk.assert_not_called()
+            clock.return_value = 1061.0
+            _, cols, totals, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+            walk.assert_called_once_with(a)
+            collector._load_bearings(b, clock.return_value, {}, {}, homes)
+            _, cols, _, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert walk.call_count == 2
+            clock.return_value = 1122.0
+            current[b.path] = {"decisions_open": []}
+            current[a.path] = {}
+            collector._load_bearings(b, clock.return_value, {}, {}, homes)
+            _, cols, totals, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+            assert collector._raw[a.label][1] == 1061.0
+
+
+def test_parent_ownership_expires_in_published_dialogs_and_fingerprints(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = flow.inject_all_crew([captain, mate])
+    store = Path(captain.path, "state/decision-cards/docs.json")
+    store.parent.mkdir(parents=True)
+    store.write_text(json.dumps({"generated": "stamp", "card": {
+        "title": "Delegated question", "options": [{"value": "yes", "label": "Proceed"}]
+    }}))
+    raw = {captain.path: _held("docs", "lane"), mate.path: _held("docs")}
+    collector = flow.Collector()
+    collector._raw = {home.label: (raw[home.path], 1000.0, home.path) for home in (captain, mate)}
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"),
+                    FM_FLOW_HIDE_ANSWERED="1", FM_FLOW_ANSWER_MATCH="generated"):
+        with patch.object(flow.time, "time", return_value=1000.0) as clock, \
+                patch.object(flow, "_bearings_ttl", return_value=60.0), \
+                patch.object(flow, "bearings_snapshot", side_effect=lambda home: raw[home.path]) as walk:
+            collector._publish_fleet(homes, {}, {}, clock.return_value)
+            ui = flow.UI()
+            ui.collector = collector
+            card = collector.snapshot().cols["captains_call"][0]
+            ui.open_decision(card)
+            assert ui.dialog.options[0]["value"] == "yes"
+            ui.dialog.selected = 0
+            flow.record_answered_call(ui.dialog)
+            clock.return_value = 1061.0
+            ui.open_decision(card)
+            assert [o["value"] for o in ui.dialog.options] == ["reconcile"]
+            walk.assert_not_called()
+            _, cols, totals, _, _ = collector._load_bearings(mate, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+            walk.assert_called_once_with(mate)
+            collector._load_bearings(captain, clock.return_value, {}, {}, homes)
+            _, cols, totals, _, _ = collector._load_bearings(mate, clock.return_value, {}, {}, homes)
+            collector._publish(collector._snapshot(homes, mate, cols, {}, {}, totals))
+            ui.open_decision(cols["captains_call"][0])
+            assert ui.dialog.options[0]["value"] == "yes"
+            assert cols["captains_call"][0].answered_hidden
+            assert walk.call_count == 2
+
+
 def test_merge_folds_parent_mirror_of_a_mate_call(tmp_path):
     captain = Home("captain", str(tmp_path / "captain"), "captain")
     mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
