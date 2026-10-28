@@ -125,7 +125,7 @@ class Board:
     def home(self, identity):
         matches = [h for h in self.homes() if home_id(h) == identity]
         if len(matches) != 1:
-            raise Refusal('The home is unavailable or its identity is ambiguous.', 404)
+            raise Refusal('Deck can’t find this crew right now. Refresh the board.', 404)
         return matches[0]
 
     def owner(self, card):
@@ -138,7 +138,7 @@ class Board:
         else:
             matches = [h for h in homes if h.path == card.home_path]
         if len(matches) != 1:
-            raise Refusal('The owner of this task is unconfirmed.')
+            raise Refusal('Deck isn’t sure which crew this task belongs to yet.')
         return matches[0]
 
     def key(self, card):
@@ -171,7 +171,7 @@ class Board:
             link = self.herdr_origin + '/?' + urlencode({'machine': 'local', 'pane': pane, 'view': 'chat'})
         return {'key': self.key(card), 'task': card.task, 'title': human_title(card.title, self.t),
                 'original_title': card.title,
-                'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unconfirmed owner'),
+                'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unknown crew'),
                 'home': home_id(owner) if owner else '', 'context': context,
                 'presentation': project(card, context),
                 'activity': fm.card_activity(card),
@@ -213,15 +213,14 @@ class Board:
                 'error': self.t(snap.error), 'sources': sources,
                 'homes': [{'id': home_id(h), 'label': h.label} for h in homes],
                 'columns': columns, 'home': selected,
-                'source_ttl': fm._bearings_ttl(),
-                'retention': self.t('Recent is a limited view. History searches retained deliveries only; it cannot recover deleted records.')}
+                'source_ttl': fm._bearings_ttl()}
 
     def receipts(self, actor):
         directory = self.data_dir / 'answers'
         if not directory.exists():
             return []
         if directory.is_symlink():
-            raise Refusal('Unsafe receipt directory.')
+            raise Refusal('Deck’s answer folder isn’t safe to use.')
         result = []
         for path in sorted(directory.glob('*.json'))[:1000]:
             if not re.fullmatch(r'[a-f0-9]{64}\.json', path.name):
@@ -314,7 +313,7 @@ class Board:
         rows, note = self.records(home, force=True)
         matches = [r for r in rows if r['id'] == task]
         if len(matches) != 1:
-            raise Refusal('This delivery is no longer retained or the task was reopened.', 404)
+            raise Refusal('This delivery isn’t in history anymore, or the task was reopened.', 404)
         record = matches[0]
         content = fm.delivery_content(record, home, split_views=True, translate=self.t, report_heading=False)
         if not isinstance(content, dict):
@@ -330,7 +329,7 @@ class Board:
             raise Refusal('Invalid task identity.', 400)
         rows, _ = self.records(home, force=not status)
         if len([row for row in rows if row['id'] == task]) != 1:
-            raise Refusal('This delivery is no longer retained or the task was reopened.', 404)
+            raise Refusal('This delivery isn’t in history anymore, or the task was reopened.', 404)
         return fm.explanation_request(home, task, status=status, translate=self.t)
 
     def call_identity(self, home, task):
@@ -364,7 +363,7 @@ class Board:
         # The confirmed owning home is the active context, never aggregate All.
         content = fm.decision_card_content(card, self.homes(), home, translate=CANONICAL_TEXT)
         if os.path.realpath(content['home_path']) != fm.delivery_home_identity(home):
-            raise Refusal('The intake does not match the owning home.')
+            raise Refusal('This question belongs to a different crew than expected. Refresh the board.')
         context = fm.flow_context(card, translate=CANONICAL_TEXT)
         if context['phase'] == 'human' and not content.get('about'):
             content['about'] = context['reason']
@@ -416,18 +415,18 @@ class Board:
             raise Refusal('Invalid answer format.', 400)
         request_id = body.get('request_id', '')
         if not re.fullmatch(r'[a-zA-Z0-9_-]{16,80}', request_id):
-            raise Refusal('Missing submission identifier.', 400)
+            raise Refusal('Something’s missing from this send. Refresh the page and try again.', 400)
         occurrence = body.get('occurrence', '')
         if not re.fullmatch(r'[a-f0-9]{64}', occurrence):
-            raise Refusal('Missing question occurrence.', 400)
+            raise Refusal('This page is missing the question version. Refresh it and try again.', 400)
         # One immutable receipt per occurrence, across clients and server restarts.
         # Lock is held across validation/intake; Firstmate additionally owns CAS.
         if not safe_file_reads():
-            raise Refusal('The secure answer backend requires POSIX; run Deck and Firstmate in WSL.', 503)
+            raise Refusal('Answering from the web needs Linux or macOS. On Windows, run Deck and Firstmate in WSL.', 503)
         with self.mutation_lock:
             receipt_dir = self.data_dir / 'answers'
             if receipt_dir.is_symlink():
-                raise Refusal('Unsafe receipt directory.')
+                raise Refusal('Deck’s answer folder isn’t safe to use.')
             path = receipt_dir / (digest(key, occurrence) + '.json')
             payload_hash = digest(key, occurrence, body.get('value', ''), body.get('note', ''))
             if path.exists() or path.is_symlink():
@@ -496,7 +495,7 @@ class Board:
                                                  env=self.child_env(home), capture_output=True, text=True,
                                                  stdin=subprocess.DEVNULL, timeout=15)
                         if binding.returncode:
-                            raise Refusal('Could not bind the review intake.')
+                            raise Refusal('Couldn’t register Deck for re-check requests.')
                 args += ['--expected-identity', call['identity']]
                 process = subprocess.run(shell_command(endpoint_path(home.path, 'fm-captain-hold.sh'), *args),
                                          input=line + '\n', text=True, capture_output=True,

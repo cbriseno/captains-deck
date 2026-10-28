@@ -102,7 +102,7 @@ class CardTimeTests(unittest.TestCase):
                  f"working [at={NOW - 10}]: inbox acknowledged\n")
         card, snap = self.board(log=meaningful + noise)
         event_epoch = card.event_time.epoch
-        self.assertIn("spawn boundary unavailable", flow.card_time_detail(card.event_time))
+        self.assertIn("can’t tell which run this is", flow.card_time_detail(card.event_time))
         ui = flow.UI()
         with patch.object(flow.time, "time", return_value=NOW):
             first = "\n".join(ui.render_card(card, 40, True, snap))
@@ -128,7 +128,7 @@ class CardTimeTests(unittest.TestCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 flow._print_home_cols("fixture", str(self.root), snap.cols)
-        self.assertIn("latest retained meaningful task declaration", out.getvalue())
+        self.assertIn("latest task update", out.getvalue())
 
     def test_unstamped_newer_report_and_previous_spawn_do_not_borrow_precision(self):
         log = f"working [at={NOW - 120}]: Editing renderer\nworking: Checking boundaries\n"
@@ -142,7 +142,7 @@ class CardTimeTests(unittest.TestCase):
     def test_unresolved_owner_cannot_borrow_local_same_named_task_time(self):
         card, _ = self.board(id="unknown-mate/task", log=f"working [at={NOW - 120}]: Editing local task\n")
         self.assertIsNone(card.event_time.epoch)
-        self.assertIn("unresolved owner", flow.card_time_detail(card.event_time))
+        self.assertIn("Remote or unknown crew", flow.card_time_detail(card.event_time))
 
     def test_blocker_and_resolution_are_task_events_but_keep_their_status(self):
         log = f"blocked [key=dependency] [at={NOW - 120}]: inbox result missing authenticated binding\n"
@@ -158,7 +158,7 @@ class CardTimeTests(unittest.TestCase):
         card, _ = self.board(state="done", log=f"done [at={NOW - 3600}]: Candidate ready for review\n")
         self.assertEqual(card.bucket, "underway")
         self.assertEqual(flow.card_time_line(card.event_time, 80, NOW), "Done report 1 hour ago")
-        self.assertIn("not delivery or review-request time", dict(flow.UI.detail_fields(card))["Time"])
+        self.assertIn("not delivery or review time", dict(flow.UI.detail_fields(card))["Time"])
         card, _ = self.board(state="done", log=f"working [at={NOW - 10}]: Revising candidate\n")
         self.assertIsNone(card.event_time.epoch)
         landed, _ = self.board("landed", log=f"done [at={NOW - 3600}]: Candidate ready\n")
@@ -387,7 +387,7 @@ class CardTimeTests(unittest.TestCase):
         self.assertIn("(terminal local)", seen)
         self.assertIn("(UTC)", seen)
         self.assertIn("Source:", seen)
-        self.assertIn("Owner: Firstmate", seen)
+        self.assertIn("Crew: Firstmate", seen)
         flow.parse_input(b"\x1b", ui)
         self.assertIsNone(ui.details)
 

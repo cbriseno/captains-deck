@@ -78,7 +78,7 @@ function agentLine(card) {
 }
 function activityCount(columns, id, kind) { return (columns.find(c => c.id === id)?.cards || []).filter(x => !x.answered && x.activity?.kind === kind).length; }
 function dependencyText(card) {
-  return card.dependencies.map(d => (d.title || d.id) + ' · ' + (d.owner === '(main)' ? card.owner : d.owner || t('owner not recorded')) +
+  return card.dependencies.map(d => (d.title || d.id) + ' · ' + (d.owner === '(main)' ? card.owner : d.owner || t('crew not recorded')) +
     (d.reconciliation_required ? t(' · needs a check') : d.unresolved === false ? t(' · resolved') : '')).join('; ');
 }
 function notice(text, error = false) { $('notice').hidden = !text; $('notice').className = 'notice' + (error ? ' error' : ''); $('notice').textContent = text; }
@@ -253,7 +253,7 @@ function renderSupervisors() {
     receipt.dataset.role = 'receipt';
     const title = append(node('div'), node('strong', '', source.label), receipt);
     const status = !s?.observed_at ? t('Firstmate hasn’t said what it’s doing.') : expired ? t('Firstmate’s last update expired.') : t('Firstmate posted an update.');
-    const snapshot = timeView({label: 'Snapshot generated', epoch: Date.parse(source.generated) / 1000});
+    const snapshot = timeView({label: 'Data generated', epoch: Date.parse(source.generated) / 1000});
     snapshot.dataset.role = 'snapshot';
     const detailsView = disclosure(t('Source details'), prose(supervisorText(s)), snapshot);
     detailsView.dataset.role = 'source';
@@ -370,7 +370,7 @@ function addTechnical(ticket, ...extra) {
     contextRow(t('Date provenance'), ticket.time?.detail || t('Time not recorded')),
     ticket.report?.text ? contextRow(t('Report provenance'), ticket.report.time?.detail) : null,
     evidence, ...extra);
-  if (ticket.original_title !== ticket.title) details.append(contextRow(t('Retained original title'), ticket.original_title));
+  if (ticket.original_title !== ticket.title) details.append(contextRow(t('Original title'), ticket.original_title));
   $('detail-content').append(details);
 }
 function addHerdr(ticket) { if (!ticket.herdr_url) return; const a = node('a', 'herdr-link', t("Open this agent in Herdr Web ↗")); a.href = ticket.herdr_url; a.target = '_blank'; a.rel = 'noopener noreferrer'; $('detail-content').append(a); }

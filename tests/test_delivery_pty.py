@@ -310,7 +310,7 @@ class PTYTests(unittest.TestCase):
                     send(b'r')
                     expect(lambda f: 'Full report · data/old/report.md' in f['text'], 'report-and-receipt')
                     send(b'\x1b\t')
-                    expect(lambda f: 'Retained delivery history' in f['text'], 'source-info')
+                    expect(lambda f: 'Delivery history · sources and controls' in f['text'], 'source-info')
                     send(b'\x1b\x1bq')
                     proc.wait(timeout=4)
                     drain()

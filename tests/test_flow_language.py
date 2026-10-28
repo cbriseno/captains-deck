@@ -65,7 +65,7 @@ class LanguageTests(unittest.TestCase):
         leaked = sorted(label for label in SPANISH_LABELS if label in text)
         self.assertEqual(leaked, [])
         for label in ('On hold', 'Firstmate state: paused', '[Back]', 'Request: Queued for Firstmate',
-                      'Details and sources', 'Retained: ', ' · H history', 'Enter: full text · o agent',
+                      'Details and sources', 'Sources: ', ' · H history', 'Enter: full text · o agent',
                       '(resolved)', 'r report; d details', 'Firstmate: current activity unknown'):
             self.assertIn(label, text)
 
@@ -80,7 +80,7 @@ class LanguageTests(unittest.TestCase):
                 f._LOCALIZATION = None
                 text = self.board_text()
                 for label in ('En espera', 'Estado de Firstmate: paused', '[Volver]', 'Solicitud: En cola para Firstmate',
-                              'Detalles y fuentes', 'Retenido: ', ' · H historial', 'Enter: texto completo · o agente',
+                              'Detalles y fuentes', 'Fuentes: ', ' · H historial', 'Enter: texto completo · o agente',
                               '(resuelta)', 'r informe; d detalles', 'Firstmate: actividad actual desconocida'):
                     self.assertIn(label, text)
                 # Authored task content is never translated.

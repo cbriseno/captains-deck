@@ -211,7 +211,7 @@ def test_submit_wake_compatibility() -> None:
                         lines = [" " * 120 for _ in range(40)]
                         ui.render_dialog(lines, 120, 40)
                         rendered = ANSI.sub("", "\n".join(lines))
-                        check(("queues owner wake" in rendered) == owns_wake
+                        check(("wakes the task’s agent" in rendered) == owns_wake
                               and ("steers demo-lane" in rendered) == (enabled and not owns_wake),
                               f"rendered Reconcile footer matches the wake: {label}")
 

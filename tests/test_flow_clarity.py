@@ -86,7 +86,7 @@ class ClarityTests(unittest.TestCase):
         self.assertIn('Comprobar atención en el teléfono · fixture',f.dependency_caption(card))
         self.assertEqual(f.flow_context(card)['phase'],'dependency')
         card.dependencies[0]['reconciliation_required']=True
-        self.assertIn('pending reconciliation',f.dependency_caption(card))
+        self.assertIn('link needs a check',f.dependency_caption(card))
         card.blocked_by='';card.dependencies=[];card.live_status='working'
         self.assertEqual(f.flow_context(card)['phase'],'unknown')
         card.flow={'phase':'human','reason':'Elegir el alcance','waiting_for':'Respuesta de la persona','firstmate_action':'Coordinar opciones'}
@@ -183,7 +183,7 @@ class ClarityTests(unittest.TestCase):
     def test_explanation_missing_backend_and_wrong_home_are_visible(self):
         ui,snap=self.ui();ui.open_delivery(snap.cols['landed'][0]);f.parse_input(b'e',ui)
         self.assertEqual(ui.explanation['state'],'unsupported')
-        self.assertIn('backend',self.render(ui,snap,60,18))
+        self.assertIn('Update Firstmate to ask for explanations',self.render(ui,snap,60,18))
         self.endpoint()
         with patch.object(f.subprocess,'run',return_value=type('Result',(),{'returncode':0,'stdout':json.dumps({'ok':True,'home':'/wrong','task':'old','request_id':'wrong','state':'queued'})})()):
             result=f.explanation_request(self.home,'old')

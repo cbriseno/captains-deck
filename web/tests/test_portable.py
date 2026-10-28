@@ -160,7 +160,7 @@ class PortableTests(unittest.TestCase):
 
     def test_safety_capability_fails_closed(self):
         with patch.object(bridge.fm, 'safe_file_reads', return_value=False):
-            with self.assertRaisesRegex(OSError, 'no-follow'):
+            with self.assertRaisesRegex(OSError, 'Reading reports safely needs Linux or macOS'):
                 bridge.fm.delivery_read('unused', 'data/report.md', 100)
 
     @unittest.skipIf(os.name == 'nt', 'Firstmate producer endpoints require POSIX/WSL')

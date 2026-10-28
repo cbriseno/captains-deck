@@ -56,6 +56,22 @@ class LocaleTests(unittest.TestCase):
                          'La pregunta cambió antes de guardar, así que no se envió nada. Tu borrador está a salvo.')
         self.assertEqual(en.receipt_message('Ship the sample.'), 'Ship the sample.')
 
+    def test_displayed_copy_has_no_internal_terms_in_either_language(self):
+        # Every catalog entry is shown somewhere, so none may use Firstmate's
+        # plumbing words. Placeholders are filled at display time and do not count.
+        # Allowed: keyboard key names that only look like a term.
+        allowed = ('Home/End',)
+        jargon = re.compile(r'intake|\bhomes?\b|backend|retain|retention|retenid|retenci|occurrence|ocurrencia|receipt|recibo|'
+                            r'\bguard\b|identifier|identificador|ledger|snapshot|owner|reconcil|conciliaci', re.I)
+        en, es = Localization('en'), Localization('es')
+        for key in en.messages:
+            for text in (en.messages[key], es.messages[key]):
+                shown = re.sub(r'\{\w+\}', '', text)
+                for name in allowed:
+                    shown = shown.replace(name, '')
+                with self.subTest(key=key):
+                    self.assertIsNone(jargon.search(shown), text)
+
     def test_card_and_call_copy_is_short_plain_and_translated(self):
         # Primary card, drawer and Captain's Call copy: one short line, no
         # internal plumbing words, and a real Spanish version of each.
@@ -209,8 +225,8 @@ class LocalizedOwnerTests(unittest.TestCase):
         self.assertTrue(es['details'].startswith('Detalles de la entrega'))
         self.assertEqual(en['time']['date'], es['time']['date'])
         self.assertIsNone(en['time']['epoch']); self.assertIn('sólo fecha', es['time']['detail'])
-        self.assertIn('Retained Firstmate history', self.en.history()['details'][0]['source'])
-        self.assertIn('Historial retenido de Firstmate', self.es.history()['details'][0]['source'])
+        self.assertIn('Firstmate history', self.en.history()['details'][0]['source'])
+        self.assertIn('Historial de Firstmate', self.es.history()['details'][0]['source'])
         # A generated no-report message translates; a report containing that same
         # sentence would remain authored text in both locales.
         for f in ('delivery.md', 'recap.md', 'report.md'):

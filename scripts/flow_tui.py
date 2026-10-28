@@ -2570,7 +2570,7 @@ def card_time_detail(event: CardTime, *, translate=None) -> str:
             value += tr('; future timestamp: check producer/terminal clock')
     else:
         value = tr(event.problem) if translate else event.problem
-    detail = tr('{label}: {value}. Source: {source}.', label=tr(event.label), value=value, source=event.source)
+    detail = tr('{label}: {value}. Source: {source}.', label=tr(event.label), value=value, source=tr(event.source))
     if event.producer_kind:
         precision = "date" if event.day is not None else "second"
         detail += tr(' Producer event: {kind}; precision: {precision}.', kind=event.producer_kind, precision=precision)
@@ -2828,7 +2828,7 @@ def make_cards(
             # the original task's filing date the start of its current hold.
             card.event_time = CardTime("Asked", source="Current question/hold creation is not exported; task filing and board generation are not question time")
         elif card.bucket == "landed":
-            card.event_time = CardTime("Delivered", entry.get("closed"), "bearings.landed.closed; if absent, open the delivery for its retained completion date")
+            card.event_time = CardTime("Delivered", entry.get("closed"), "bearings.landed.closed; if missing, open the delivery to see when it finished")
         else:
             update_state, update_at = ("", 0)
             if status_file and time_home is not None and not is_remote_home(time_home):
@@ -2837,13 +2837,13 @@ def make_cards(
             label = "Done report" if completed else "Updated"
             if completed and update_state != "done":
                 update_at = 0
-            boundary = "current-spawn boundary applied" if card.spawn_epoch else "spawn boundary unavailable"
-            card.event_time = CardTime(label, update_at or None,
-                f"{status_file}: latest retained meaningful task declaration [at=Unix seconds]; {boundary}; "
-                + ("worker done report, not delivery or review-request time" if completed
-                   else "excludes poll/heartbeat, harness activity and control receipts"))
+            card.event_time = CardTime(label, update_at or None, tr(
+                "{path}: latest task update [at=Unix seconds]; {boundary}; {scope}", path=status_file,
+                boundary=tr("only the current run counts" if card.spawn_epoch else "can’t tell which run this is"),
+                scope=tr("the worker’s done report, not delivery or review time" if completed
+                         else "ignores polling, heartbeats, harness activity and control messages")))
             if time_home is None or is_remote_home(time_home):
-                card.event_time.source = "No verified local owner/task declaration export; remote or unresolved owner timestamps are not inferred"
+                card.event_time.source = "Remote or unknown crew: no local task updates, so no time is guessed"
         time_bucket = 'awaiting_merge' if card.bucket == 'underway' and entry.get('state') == 'done' and not (entry.get('doing') or '').lower().startswith('harness state unavailable') else card.bucket
         card.event_time = producer_card_time(entry.get("card_time"), time_bucket, card.event_time)
 
@@ -3089,7 +3089,7 @@ def delivery_read(home: str, path: str, limit: int) -> str:
     Oversize files are refused visibly rather than silently cutting a report.
     """
     if not safe_file_reads():
-        raise OSError('Safe report reads require descriptor-relative no-follow support; use a POSIX backend (WSL on Windows).')
+        raise OSError(tr('Reading reports safely needs Linux or macOS; on Windows, use WSL.'))
     if '..' in path.split('/'):
         raise ValueError('unsafe traversal path')
     root = os.path.realpath(home)
@@ -3100,7 +3100,7 @@ def delivery_read(home: str, path: str, limit: int) -> str:
     relative = os.path.relpath(path, root) if os.path.isabs(path) else path
     parts = relative.split('/')
     if not home or any(p in ('', '.', '..') for p in parts) or '\\' in path or '\x00' in path:
-        raise ValueError('unsafe path outside allowed home/task')
+        raise ValueError(tr('unsafe path outside this task’s files'))
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in parts[:-1]:
@@ -3146,7 +3146,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
     """
     tr = translate or _presentation_text
     if is_remote_home(home) or is_aggregate_home(home):
-        return [], tr('History unavailable here; choose a local home. Remote history needs a read-only archive export from Firstmate.'), False
+        return [], tr('History isn’t available here. Pick a crew on this machine; remote crews don’t share history yet.'), False
     # New public, read-only contract; old homes retain the canonical-reader
     # fallback below. Failure is visible instead of silently hiding archives.
     endpoint = endpoint_path(home.path, 'fm-delivery-history.sh')
@@ -3159,7 +3159,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
                                     text=True, timeout=15, stdin=subprocess.DEVNULL)
             data = json.loads(result.stdout)
             if result.returncode or data.get('schema') != 'fm-delivery-history.v1' or os.path.realpath(data.get('home', '')) != os.path.realpath(home.path):
-                raise ValueError(tr('invalid history response or different home'))
+                raise ValueError(tr('history reply was invalid or from another crew'))
             rows = []
             for record in data.get('records', []):
                 if not isinstance(record, dict) or not isinstance(record.get('id'), str) or not KEY_RE.fullmatch(record['id']):
@@ -3176,18 +3176,18 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
                 row.setdefault('source', 'Firstmate history')
                 if not task_id or record['id'] == task_id:
                     rows.append(row)
-            note = tr('Retained Firstmate history. ') + json.dumps(data.get('retention', {}), ensure_ascii=False)
+            note = tr('Firstmate history. ') + json.dumps(data.get('retention', {}), ensure_ascii=False)
             note += tr(' · Sources: ') + json.dumps(data.get('sources', []), ensure_ascii=False)
-            note += tr(' · Recent is limited; history includes retained records only and cannot recover deleted records.')
+            note += tr(' · The board shows only recent ones; history has everything Firstmate still keeps. Deleted tasks can’t be recovered.')
             if not data.get('complete'):
                 note += tr(' · incomplete: ') + '; '.join(map(str, data.get('limitations') or []))
             if not task_id or rows:
                 return rows, note, bool(data.get('complete'))
             # History intentionally excludes reopened tasks. Preserve the
             # existing current-record check when opening a stale Landed card.
-            endpoint_warning = tr('Public history does not retain this delivery; checking the current canonical record for reopening.')
+            endpoint_warning = tr('This delivery isn’t in history anymore. Checking whether the task was reopened.')
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-            endpoint_warning = tr('History export unavailable: {error}; local canonical reader fallback', error=exc)
+            endpoint_warning = tr('History export unavailable: {error}; reading the task files directly', error=exc)
     notes, rows, active_ids = ([endpoint_warning] if endpoint_warning else []), {}, set()
     complete = True
     try:
@@ -3197,7 +3197,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return [], f'History unavailable: {exc}', False
     if config.get('backend', 'markdown') != 'markdown':
-        return [], 'History unavailable: this backend needs a read-only completed-record/archive export from Firstmate/tasks-axi.', False
+        return [], tr('History unavailable: this task store doesn’t share finished tasks with Deck yet.'), False
     cfg = config.get('markdown') or {}
     backlog = cfg.get('path') or 'data/backlog.md'
     archive = cfg.get('archive') or os.path.join(os.path.dirname(backlog), 'done-archive.md')
@@ -3250,12 +3250,12 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
             notes.append(f'{source}: {path}')
         except FileNotFoundError:
             complete = False
-            notes.append(tr('{source}: {path} missing; retained history may be incomplete', source=source, path=path))
+            notes.append(tr('{source}: {path} missing; history may be incomplete', source=source, path=path))
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
             complete = False
-            notes.append(tr('{source} unavailable: {error}; retained history may be incomplete', source=source, error=exc))
+            notes.append(tr('{source} unavailable: {error}; history may be incomplete', source=source, error=exc))
     ordered = sorted(rows.values(), key=lambda r: (r.get('closed', ''), r['id']), reverse=True)
-    return ordered, '; '.join(notes) + tr('. Retained deliveries only; no retention changes. done_keep={count}: current backlog limit; archive retains existing records. Recent is not all history; deleted records cannot be recovered.', count=cfg.get('done_keep', tr('not specified'))), complete
+    return ordered, '; '.join(notes) + tr('. Shows what Firstmate still keeps; searching changes nothing. done_keep={count}: finished tasks kept in the backlog; older ones stay in the archive. Deleted tasks can’t be recovered.', count=cfg.get('done_keep', tr('not specified'))), complete
 
 
 def delivery_home_identity(home: Home) -> str:
@@ -3281,16 +3281,16 @@ def delivery_owner_home(homes: list[Home], source: Home, owner: str, task: str) 
         if len(matches) == 1:
             match = next(iter(matches.values()))
             if resolved is not None and delivery_home_identity(resolved) != delivery_home_identity(match):
-                return None, 'Delivery owner unavailable: producer owner and task namespace conflict; repair the owning home export.'
+                return None, tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')
             resolved = match
             continue
         problem = 'ambiguous' if matches else 'unknown'
-        return None, f'Delivery owner unavailable ({problem}: {explicit}); choose the owning home or repair its discovered identity.'
+        return None, tr('Can’t tell which crew this delivery belongs to ({problem}: {name}). Open it from its crew tab.', problem=tr(problem), name=explicit)
     if resolved is not None:
         return resolved, ''
     if delivery_home_identity(source):
         return source, ''
-    return None, 'Delivery owner unavailable: All has no filesystem home; reopen this delivery from its owning crew tab.'
+    return None, tr('Can’t open this delivery from All. Pick its crew tab first.')
 
 
 def delivery_task_prefix(task: str) -> str:
@@ -3451,17 +3451,17 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
     tr = translate or _presentation_text
     task = record['id']
     if not delivery_home_identity(home):
-        return tr('Delivery owner unavailable: choose the owning crew tab; All is not a filesystem home.')
-    header = tr('Task: {task}\nTitle: {title}\nHome: {home}\nKind: {kind}\nState: {state}\nCompletion: {verb} · {closed}\nSource: {source}\nScope: this delivery/task only; broader intent is not inferred.\nRead marks are local reading history, not acceptance or approval.\n', task=task,
+        return tr('Can’t open this delivery from All. Pick its crew tab first.')
+    header = tr('Task: {task}\nTitle: {title}\nCrew: {home}\nKind: {kind}\nState: {state}\nFinished: {verb} · {closed}\nSource: {source}\nScope: this task only.\nRead marks only show what you opened here; they don’t approve anything.\n', task=task,
                 title=record.get('title') or record.get('what') or task,
                 home=home.label, kind=record.get('kind') or tr('not recorded'),
-                state=record.get('state') or 'landed (snapshot)',
+                state=record.get('state') or tr('delivered (recent view)'),
                 verb=record.get('verb') or tr('not recorded'),
                 closed=record.get('closed') or tr('date unavailable'),
-                source=record.get('source') or tr('recent snapshot'))
+                source=record.get('source') or tr('recent view'))
     header += tr('Completion time: ') + card_time_detail(CardTime(
         "Delivered", record.get("closed"),
-        f"{record.get('source') or 'recent snapshot'} canonical completion field closed"), translate=translate) + "\n"
+        tr('{source}: the task’s closed date', source=record.get('source') or tr('recent view'))), translate=translate) + "\n"
     if board_time is not None:
         header += tr('Board time: ') + card_time_detail(board_time, translate=translate) + "\n"
     if record.get('body'):
@@ -3469,7 +3469,7 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
     if record.get('artifact') not in ('', '-', None):
         header += tr('\nRecorded artifact: ') + record['artifact'] + '\n'
     if is_remote_home(home):
-        return delivery_text(tr('Remote report/recap unavailable: no local artifact export. Ask the owning home for a read-only report export. Snapshot text may be abbreviated.\n\n') + header)
+        return delivery_text(tr('This crew is remote, so its report files aren’t here. The text below may be shortened.\n\n') + header)
     try:
         prefix = delivery_task_prefix(task)
     except ValueError:
@@ -3522,31 +3522,31 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
     if report is None:
         report = next(((p, t) for p, t in documents if p not in (prefix + 'delivery.md', prefix + 'recap.md')
                        and p.endswith(('.md', '.txt')) and t.strip()), None)
-    lead = tr('Full report: r / [Report]\n\n') if report else tr('Report unavailable: no full report retained for this task.\n\n')
+    lead = tr('Full report: r / [Report]\n\n') if report else tr('No full report for this task yet.\n\n')
     if curated:
         lead += re.sub(r'\A\s*# [^\n]*\n+', '', curated[1]).strip() + '\n\n'
     else:
-        lead += tr('No curated recap (delivery.md or recap.md); showing retained report prose where available.\n\n')
+        lead += tr('No recap yet (delivery.md or recap.md); showing the report text instead.\n\n')
     ordered = []
     if report:
         ordered.append(tr('Full report: {path}\n{text}', path=report[0], text=report[1]))
     for path, text in documents:
         if curated and path == curated[0] or report and path == report[0]:
             continue
-        label = tr('Curated recap (home-authored)') if path in (prefix + 'delivery.md', prefix + 'recap.md') else tr('Artifact')
+        label = tr('Recap') if path in (prefix + 'delivery.md', prefix + 'recap.md') else tr('Artifact')
         ordered.append(tr('{label}: {path}\n{text}', label=label, path=path, text=text))
     details = tr('Delivery details\n') + header
     if curated:
-        details += tr('\nCurated recap (home-authored): ') + curated[0]
+        details += tr('\nRecap file: ') + curated[0]
     if record.get('state') and record['state'] != 'done':
-        lead = tr('Current task state: {state}; the retained delivery below is historical.\n\n', state=record['state']) + lead
+        lead = tr('This task is now {state}; the delivery below is from before.\n\n', state=record['state']) + lead
     full = delivery_text(lead + '\n\n'.join(ordered) + '\n\n' + details + '\n\n' + '\n\n'.join(sections))
     if split_views:
         summary = concise_delivery(curated[1] if curated else '', record.get('title') or record.get('what') or task, translate=translate)
         if record.get('state') and record['state'] != 'done':
             summary = tr('The task was reopened; this delivery is historical.') + '\n\n' + summary
         return {'summary': summary,
-                'report': readable_markdown(tr('Full report · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report is retained for this task.'),
+                'report': readable_markdown(tr('Full report · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report for this task yet.'),
                 'details': readable_markdown(details + '\n\n' + (curated[1] if curated else '') + '\n\n' + '\n\n'.join(ordered[1:] if report else ordered) + '\n\n' + '\n\n'.join(sections))}
     return full
 
@@ -4359,8 +4359,8 @@ def dependency_caption(card: Card) -> str:
         return card.blocked_by if card.blocked_by not in ('', '-') else ''
     def owner_label(dep):
         owner = dep.get('owner')
-        return (getattr(card, 'owner_label', '') or 'Firstmate') if owner == '(main)' else owner or tr('owner not recorded')
-    return '; '.join(f"{d.get('title') or d['id']} · {owner_label(d)}" + (tr(' (resolved)') if d.get('unresolved') is False else '') + (tr(' (link pending reconciliation)') if d.get('reconciliation_required') is True else '')
+        return (getattr(card, 'owner_label', '') or 'Firstmate') if owner == '(main)' else owner or tr('crew not recorded')
+    return '; '.join(f"{d.get('title') or d['id']} · {owner_label(d)}" + (tr(' (resolved)') if d.get('unresolved') is False else '') + (tr(' (link needs a check)') if d.get('reconciliation_required') is True else '')
                      for d in deps)
 
 
@@ -4368,10 +4368,10 @@ def explanation_request(home: Home, task: str, *, status: bool = False, translat
     """Identity-only intake. A stable key delegates deduplication to Firstmate."""
     tr = translate or _presentation_text
     if is_remote_home(home) or not delivery_home_identity(home) or not KEY_RE.fullmatch(task):
-        return {'state': 'unsupported', 'message': tr('This home does not allow explanation requests from Deck.')}
+        return {'state': 'unsupported', 'message': tr('Explanations only work for crews on this machine.')}
     script = endpoint_path(home.path, 'fm-delivery-explain.sh')
     if not os.path.isfile(script):
-        return {'state': 'unsupported', 'message': tr('This backend does not offer the explanation intake yet. Firstmate must update this home.')}
+        return {'state': 'unsupported', 'message': tr('Update Firstmate to ask for explanations here.')}
     request_id = 'deck-explain-' + delivery_key(delivery_home_identity(home), task)[:32]
     command = [script, '--task', task, '--request-id', request_id, '--json']
     if status:
@@ -4389,7 +4389,7 @@ def explanation_request(home: Home, task: str, *, status: bool = False, translat
             raise ValueError(tr('invalid response or different identity'))
         return data
     except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-        return {'state': 'error', 'request_id': request_id, 'message': tr('Could not verify the request: {error}. Retrying uses the same identifier.', error=exc)}
+        return {'state': 'error', 'request_id': request_id, 'message': tr('Details: {error}. Asking again won’t create a duplicate.', error=exc)}
 
 
 class UI:
@@ -4580,7 +4580,7 @@ class UI:
         snap = self.collector.snapshot()
         home = snap.home
         if home is None:
-            self.say("no home selected")
+            self.say(tr("no crew selected"))
             return
         if is_aggregate_home(home):
             sources = real_homes(snap.homes)
@@ -4591,7 +4591,7 @@ class UI:
                 notes.append(source.label + ': ' + source_note)
                 complete = complete and source_complete
             rows.sort(key=lambda r: (r.get('closed', ''), r['id'], r['delivery_identity']), reverse=True)
-            note = '\n'.join(notes) or 'History unavailable: no discovered real homes; choose the owning crew tab.'
+            note = '\n'.join(notes) or tr('History unavailable: no local crews found.')
         else:
             rows, note, complete = delivery_records(home)
         self.history = {"home": home, "rows": rows, "note": note, "complete": complete, "query": "", "index": 0}
@@ -4621,16 +4621,16 @@ class UI:
         self.delivery_action_focus = 0
         self.delivery_actions = ['back']
         self.delivery_scroll = 0
-        self.delivery = ("Retained delivery history · sources and controls\n\n" +
-                         delivery_text(self.history["note"]) + "\n\nFull search text: " + self.history["query"] +
-                         "\n\nType to search task id, full title, canonical notes, date, artifact or source. "
-                         "Arrows select; Page Up/Down page; Home/End first/last; Enter/click opens. "
-                         "Ctrl+U or Clear resets search. Esc or Back returns. Tab or Info opens this source detail. "
-                         "Opening a delivery marks it read locally; searching, refresh and this source detail do not. "
-                         "Read is not acceptance or approval.\n\n" +
-                         "Delivery sheets: arrows/j/k, Page Up/Down, Home/End or wheel scroll. "
-                         "Up/Down buttons page; Back/Esc returns; o/Pane focuses a verified live pane when available. "
-                         "Missing reports and backend exports do not create automatic messages or calls.")
+        self.delivery = (tr("Delivery history · sources and controls\n\n") +
+                         delivery_text(self.history["note"]) + tr("\n\nFull search text: ") + self.history["query"] +
+                         tr("\n\nType to search by task, title, notes, date, file or source. "
+                            "Arrows select; Page Up/Down page; Home/End jump to first/last; Enter or click opens. "
+                            "Ctrl+U or Clear resets the search. Esc or Back returns. Tab or Info opens this page. "
+                            "Opening a delivery marks it read on this machine; searching and refreshing don’t. "
+                            "Read doesn’t mean approved.\n\n"
+                            "In a delivery: arrows/j/k, Page Up/Down, Home/End or the wheel scroll. "
+                            "Up/Down buttons page; Back/Esc returns; o/Pane jumps to the live agent pane when there is one. "
+                            "Missing reports never send messages or start calls."))
         self.dirty = True
 
     def history_open(self) -> None:
@@ -4658,9 +4658,9 @@ class UI:
             if home is not None:
                 resolved, owner_problem = delivery_owner_home(snap.homes, home, card.owner, card.id)
                 if resolved is None or delivery_home_identity(resolved) != identity:
-                    problem = owner_problem or 'Delivery owner unavailable: retained ownership conflicts with this card; refresh the owning crew tab.'
+                    problem = owner_problem or tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')
             if home is None or problem:
-                self.delivery = delivery_text(problem or 'Delivery owner unavailable: reopen from the owning crew tab; its discovered identity is missing or ambiguous.') + '\n' + delivery_text(card.title)
+                self.delivery = delivery_text(problem or tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')) + '\n' + delivery_text(card.title)
                 self.delivery_scroll = 0
                 self.dirty = True
                 return
@@ -4668,14 +4668,14 @@ class UI:
             record = next((r for r in rows if r["id"] == card.task), None)
             if record is None:
                 record = {"id": card.task, "what": card.title, "artifact": card.artifact,
-                          "source": "recent snapshot; canonical record unavailable (text may be abbreviated)"}
+                          "source": tr("recent view; full record unavailable (text may be shortened)")}
         else:
             record = card
             identity = record.get('delivery_identity', '')
             matches = [h for h in real_homes(snap.homes) if identity and delivery_home_identity(h) == identity]
             home = matches[0] if len(matches) == 1 else None
             if home is None:
-                self.delivery = 'Delivery owner unavailable: reopen history from the owning crew tab; its discovered identity is missing or ambiguous.'
+                self.delivery = tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')
                 self.delivery_scroll = 0
                 self.dirty = True
                 return
@@ -4720,7 +4720,7 @@ class UI:
                 self.dirty = True
                 return
             offset += len(wrap_text(line, inner))
-        self.say('Full report unavailable; see retained sources and details.')
+        self.say(tr('No full report here; check Details.'))
 
     def delivery_set_view(self, view: str) -> None:
         if self.delivery_views:
@@ -4798,9 +4798,9 @@ class UI:
                 heading.insert(0, f'{home.label} · {task}')
         status_rows = []
         if self.delivery_context and self.explanation and (self.explanation_notice or self.explanation.get('state') not in ('absent', 'unsupported')):
-            states = {'queued': tr('Queued for Firstmate'), 'acknowledged': tr('Firstmate acknowledged receipt'),
+            states = {'queued': tr('Queued for Firstmate'), 'acknowledged': tr('Firstmate got it'),
                       'answered': tr('Firstmate answered; see Details'), 'saved_unannounced': tr('Saved; Firstmate notice unconfirmed'),
-                      'absent': tr('No request'), 'unsupported': tr('Explanation unavailable on this backend'),
+                      'absent': tr('No request'), 'unsupported': tr('Explanations aren’t available here'),
                       'error': tr('Request unverified; s checks the status')}
             state = self.explanation.get('state', 'error')
             status_rows += wrap_text(tr('Request: ') + states[state], inner)
@@ -4838,7 +4838,7 @@ class UI:
         inner = max(4, min(122, w - 2) - 4)
         budget = max(1, h - 5)
         content = wrap_text("Search: " + state["query"] + "_", inner)
-        content += wrap_text(tr("Retained: ") + (tr("current + archive") if state["complete"] else tr("incomplete sources")) + tr(" · Tab/Info: retention and sources"), inner)
+        content += wrap_text(tr("Sources: ") + (tr("current + archive") if state["complete"] else tr("incomplete sources")) + tr(" · Tab/Info: where history comes from"), inner)
         content += wrap_text("Type search · Enter open · ↑↓ select · Esc back", inner)
         # Source details are fully scrollable through Tab/Info even when there
         # are no rows (offline/backend missing), without marking anything read.
@@ -4860,7 +4860,7 @@ class UI:
             if len(content) >= budget:
                 break
         if not rows:
-            content.append("No matching retained deliveries.")
+            content.append(tr("No matching deliveries."))
         title = f" Delivery history · {state['home'].label} · {len(rows)} matches · {index + 1 if rows else 0}/{len(rows)} "
         actions = "[Prev] [Next] [Open] [Clear] [Back] [Info]"
         x, y, budget, _ = self.reader_frame(lines, w, h, title, content, actions)
@@ -4923,7 +4923,7 @@ class UI:
         if is_remote_home(snap.home):
             # Remote homes stay read-only on the board: answering a call runs
             # the local home's intake and steer, which cannot reach that home.
-            self.say("remote home \u00b7 read-only on the board")
+            self.say(tr("remote crew · read-only on the board"))
             return
         content = decision_card_content(card, snap.homes, snap.home)
         self.dialog = DecisionDialog(content)
@@ -5028,7 +5028,7 @@ class UI:
             d.error = detail
             self.say(f"answer queued: {d.key}")
         else:
-            d.error = detail or "the answer intake refused this call"
+            d.error = detail or tr("Firstmate didn’t accept this answer")
             d.busy = False
         self.dirty = True
 
@@ -5636,11 +5636,11 @@ class UI:
         current = d.selected_option()
         reconcile = bool(current and current["value"] == "reconcile")
         if reconcile:
-            button_text = " Queue reconcile request "
+            button_text = tr(" Ask for a re-check ")
         elif d.close == "release":
-            button_text = " Queue answer \u00b7 releases hold "
+            button_text = tr(" Queue answer · releases hold ")
         else:
-            button_text = " Queue answer "
+            button_text = tr(" Queue answer ")
         button_segments = [
             (button_text, REV + BOLD + fg(C_OK if d.queued else C_ACCENT))
         ]
@@ -5652,20 +5652,20 @@ class UI:
         add_footer_segments(button_segments, "button")
         # Consent line: what a submit does beyond the answer record itself.
         if reconcile:
-            outcome = "files re-check"
+            outcome = tr("files re-check")
             if d.intake_reconcile_wakes:
-                outcome += " · queues owner wake"
+                outcome += tr(" · wakes the task’s agent")
             elif d.wake_home and d.wake_lane and d.wake_enabled:
-                outcome += f" · steers {d.wake_lane}"
-            outcome += " · binds source if unbound"
+                outcome += tr(" · steers {lane}", lane=d.wake_lane)
+            outcome += tr(" · binds source if unbound")
         else:
-            outcome = "releases hold" if d.close == "release" else "closes task"
+            outcome = tr("releases hold") if d.close == "release" else tr("closes task")
             if d.wake_home and d.wake_lane:
                 # the intake's own wake does not depend on FM_FLOW_WAKE
                 outcome += (
-                    f" \u00b7 steers {d.wake_lane}"
+                    tr(" · steers {lane}", lane=d.wake_lane)
                     if d.intake_wakes or d.wake_enabled
-                    else " \u00b7 owner wake off"
+                    else tr(" · won’t wake the task’s agent")
                 )
         add_footer(
             clip(f"\u2192 {_flatten_field(d.key)} \u00b7 {outcome}", inner),
@@ -5738,10 +5738,10 @@ class UI:
         ("pgup/pgdn, wheel", "scroll the column"),
         ("click a crew tab", "switch mate"),
         ("enter / click", "open a call or Landed delivery"),
-        ("H", "search retained delivery history (All or local home)"),
+        ("H", "search delivery history (All or a local crew)"),
         ("delivery", "r report; d details; e explanation; s status; Tab/Enter actions"),
         ("o", "open the selected agent pane"),
-        ("d", "read full reason, owner, dependency and next step"),
+        ("d", "read the full reason, crew, dependency and next step"),
         ("m", "message Firstmate"),
         ("1-9 / tab", "switch crew (All = fleet)"),
         ("L", "show/hide Landed"),
@@ -5764,7 +5764,7 @@ class UI:
     @staticmethod
     def detail_fields(card: Card) -> list[tuple[str, str]]:
         """Evidence and routing, without turning a technical block into a call."""
-        owner = getattr(card, "owner_label", "") or card.home_path or "unknown home"
+        owner = getattr(card, "owner_label", "") or card.home_path or tr("unknown crew")
         context = flow_context(card)
         fields = [("Task", card.title or card.task), ("State", card.badge),
                   ("Phase", context['label']),
@@ -5774,7 +5774,7 @@ class UI:
                   ("Waiting for", context['waiting_for'] or tr('See the reason and next action')),
                   ("Next", context['next_action']),
                   ("Firstmate action", context['firstmate_action']),
-                  ("Owner", f"Firstmate · {owner}"), ("Worker", card.task)]
+                  ("Crew", f"Firstmate · {owner}"), ("Worker", card.task)]
         report_state, report_text, report_time = durable_report(card)
         if report_state:
             fields[4:4] = [("Task report", f"{report_state}: {report_text}"),
@@ -5783,7 +5783,7 @@ class UI:
         if event is not None:
             fields.append(("Time", card_time_detail(event)))
         for dep in getattr(card, 'dependencies', []):
-            fields.append(('Dependency identity', f"{dep['id']} · {dep.get('title') or tr('name not recorded')} · {dep.get('owner') or tr('owner not recorded')} · {dep.get('state') or tr('unknown state')}"))
+            fields.append(('Dependency identity', f"{dep['id']} · {dep.get('title') or tr('name not recorded')} · {dep.get('owner') or tr('crew not recorded')} · {dep.get('state') or tr('unknown state')}"))
         blockers = getattr(card, "blockers", [])
         for b in blockers:
             fields.append(("Reason", b["text"] or "No reason recorded"))
@@ -5794,16 +5794,16 @@ class UI:
         elif card.blocked_by not in ("", "-"):
             next_step = "Firstmate: check the named dependency and resume when it clears."
         elif any(b["state"] == "blocked" for b in blockers) or "blocked" in card.badge.lower():
-            next_step = "Firstmate: take the authorized technical step or assign a named dependency owner; resume after resolution."
+            next_step = "Firstmate: fix the blocker or name who should; resume once it’s fixed."
         elif "decision" in card.badge.lower():
-            next_step = "Firstmate: reconcile the declared decision with the authoritative Captain's Call."
+            next_step = "Firstmate: check this decision against the Captain’s Call."
         elif any(s in card.badge.lower() for s in ("paused", "parked")):
             next_step = "Firstmate: check the declared wait and resume when its condition clears."
         elif getattr(card, "activity_unconfirmed", False):
             next_step = "Firstmate: verify task status; native pane activity alone does not confirm task progress."
         else:
             next_step = "Firstmate supervises this task; open its agent pane with o for live context."
-        fields.append(("Routing detail", next_step))
+        fields.append(("Routing detail", tr(next_step)))
         fields.append(("Firstmate", f"{getattr(card, 'snapshot_state', '') or 'unavailable'}; {card.doing or 'no activity detail'}"))
         fields.append(("Herdr", card.live_status or "unavailable"))
         fields.append(('Agent', UI.card_agent_line(card)))
@@ -5812,8 +5812,8 @@ class UI:
         fields.append(('Worktree', card.worktree or tr('not recorded')))
         fields.append(('Supervisor evidence', delivery_text(json.dumps(getattr(card, 'supervisor', {}), ensure_ascii=False))))
         fields.append(('Planned Firstmate action', (getattr(card, 'flow', {}) or {}).get('firstmate_action') or tr('Not exported')))
-        fields.append(('Flow source', str((getattr(card, 'flow', {}) or {}).get('source') or tr('Retained declarations; projection not exported'))))
-        fields.append(("Evidence", "Declarations are read from the latest 8192 bytes of the task log; missing dependency ownership is not inferred. Snapshot reasons may be abbreviated."))
+        fields.append(('Flow source', str((getattr(card, 'flow', {}) or {}).get('source') or tr('From task updates; no flow summary shared'))))
+        fields.append(("Evidence", tr("Read from the last 8192 bytes of the task log; a missing dependency crew isn’t guessed. Reasons may be shortened.")))
         return fields
 
     def render_details(self, lines: list[str], w: int, h: int) -> None:
@@ -5997,7 +5997,7 @@ class UI:
             body += [mid(row, C_WARN) for row in excerpt(context['reason'], 2)]
             dependency = dependency_caption(card)
             relation = tr('Waiting on: {dependency}', dependency=dependency) if dependency else context['waiting_for'] or context['next_action']
-            relation = 'Firstmate · ' + (getattr(card, 'owner_label', '') or tr('owner not recorded')) + ': ' + relation
+            relation = 'Firstmate · ' + (getattr(card, 'owner_label', '') or tr('crew not recorded')) + ': ' + relation
             body += [mid(row) for row in excerpt(relation, 2)]
             # The workflow report and native observation are independent.
             body += [mid(clip(context['native_status'], inner), C_DIM)]
@@ -6018,7 +6018,7 @@ class UI:
         if getattr(card, "bucket", "") == "landed":
             identity = getattr(card, 'delivery_identity', '')
             if not identity:
-                return 'owner unavailable · Delivery'
+                return tr('crew unknown · Delivery')
             return ("read" if delivery_seen(identity, card.task) else "new") + " · Delivery"
         if getattr(card, "bucket", "") == "captains_call":
             return "Human action"
@@ -6522,7 +6522,7 @@ def main(argv: list[str]) -> int:
         discover_homes(verbose=True)
         return 0
     if os.name == 'nt':
-        print('TUI collection requires a POSIX backend; use the web UI or run with Firstmate in WSL.', file=sys.stderr)
+        print(tr('The terminal board needs Linux or macOS; on Windows, use the web board or run it in WSL.'), file=sys.stderr)
         return 2
     if "--once" in argv:
         active = ""
