@@ -262,7 +262,7 @@ def test_same_named_answers_and_legacy_records() -> None:
             snapshots[home.path] = {"decisions_open": [{"id": "docs", "owner": "(main)", "title": "Durable title"}]}
 
         def columns(home, crew=None):
-            return flow.make_cards(home, snapshots[home.path], {}, {}, {}, crew or homes)
+            return flow.make_cards(home, snapshots[home.path], {}, {}, {}, crew or homes, bearings=snapshots)
 
         def answer(home):
             cols, _ = columns(home)
@@ -271,7 +271,7 @@ def test_same_named_answers_and_legacy_records() -> None:
             dialog.selected = 0
             flow.record_answered_call(dialog)
 
-        with patch.object(flow, "bearings_snapshot", side_effect=lambda home: snapshots[home.path]):
+        with patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
             answer(homes[0])
             cols, totals = columns(homes[1])
             check(not cols["captains_call"][0].answered_hidden and totals["captains_call"] == 1,

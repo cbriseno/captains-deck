@@ -359,12 +359,13 @@ class Board:
         env['FM_HOME'] = home.path
         return env
 
-    def content(self, card, home):
+    def content(self, card, home, *, translate=CANONICAL_TEXT):
         # The confirmed owning home is the active context, never aggregate All.
-        content = fm.decision_card_content(card, self.homes(), home, translate=CANONICAL_TEXT)
+        snap = self.collector.snapshot()
+        content = fm.decision_card_content(card, snap.homes, home, translate=translate, bearings=snap.bearings)
         if os.path.realpath(content['home_path']) != fm.delivery_home_identity(home):
             raise Refusal('The intake does not match the owning home.')
-        context = fm.flow_context(card, translate=CANONICAL_TEXT)
+        context = fm.flow_context(card, translate=translate)
         if context['phase'] == 'human' and not content.get('about'):
             content['about'] = context['reason']
         return content
@@ -388,9 +389,7 @@ class Board:
         result['call']['occurrence'] = digest(home_id(home), card.task, identity, content['stamp'],
                                             fm.flow_context(card, translate=CANONICAL_TEXT)['reason'], result['call'])
         result['call']['error'] = error
-        display = fm.decision_card_content(card, self.homes(), home, translate=self.t)
-        if not display.get('about') and result['context']['phase'] == 'human':
-            display['about'] = result['context']['reason']
+        display = self.content(card, home, translate=self.t)
         result['call']['presentation'] = {k: display[k] for k in ('about', 'decide', 'freeform_hint', 'options')}
         result['call']['error'] = self.t(error)
         result['call']['answer_limit'] = min(fm.ANSWER_LIMIT, 512)

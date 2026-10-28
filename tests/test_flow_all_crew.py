@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 FLOW = ROOT / "scripts" / "flow_tui.py"
@@ -169,6 +172,76 @@ def test_all_dialog_uses_each_homes_question_sources(tmp_path):
         assert ui.dialog.title == "Pick a color"
         assert [o["value"] for o in ui.dialog.options] == ["reconcile"]
         assert ui.dialog.home_path == homes[1].path
+
+
+def test_legacy_matching_reuses_collector_snapshots_on_repaint(tmp_path):
+    homes = [Home(name, str(tmp_path / name), "captain") for name in ("A", "B")]
+    now = time.time()
+    collector = flow.Collector()
+    for home in homes:
+        path = Path(home.path, "state/decision-cards/docs.json")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"generated": "stamp", "card": {"title": home.label + " question"}}))
+        collector._raw[home.label] = (_held("docs"), now, home.path)
+    crew = flow.inject_all_crew(homes)
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"),
+                    FM_FLOW_HIDE_ANSWERED="1", FM_FLOW_ANSWER_MATCH="generated"):
+        flow.save_answered_calls({"docs": {"home": homes[0].path, "generated": "stamp", "answered_at": now}})
+        with patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
+            for _ in range(2):
+                collector._publish_fleet(crew, {}, {}, now)
+                assert collector.snapshot().totals["captains_call"] == 2
+            collector._raw[homes[1].label] = ({"decisions_open": []}, now, homes[1].path)
+            for _ in range(2):
+                collector._publish_fleet(crew, {}, {}, now)
+                assert collector.snapshot().totals["captains_call"] == 0
+                assert collector.snapshot().hidden_calls == 1
+            collector._raw.pop(homes[1].label)
+            _, cols, totals, _, _ = collector._load_bearings(homes[0], now, {}, {}, crew)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+        with patch.object(flow, "bearings_snapshot", return_value=_held("docs")) as walk:
+            collector._load_bearings(homes[0], now + flow._bearings_ttl() + 1, {}, {}, crew)
+            walk.assert_called_once_with(homes[0])
+
+
+def test_parent_content_uses_cached_ownership_for_fingerprints_and_dialogs(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = flow.inject_all_crew([captain, mate])
+    path = Path(captain.path, "state/decision-cards/docs.json")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"generated": "parent-stamp", "card": {
+        "title": "The delegated question", "options": [{"value": "yes", "label": "Proceed"}]
+    }}))
+    now = time.time()
+    collector = flow.Collector()
+    collector._raw = {
+        captain.label: (_held("docs", "lane"), now, captain.path),
+        mate.label: (_held("docs"), now, mate.path),
+    }
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"), FM_FLOW_HIDE_ANSWERED="1"):
+        with patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
+            collector._publish_fleet(homes, {}, {}, now)
+            ui = flow.UI()
+            ui.collector = collector
+            ui.open_decision(collector.snapshot().cols["captains_call"][0])
+            assert ui.dialog.title == "The delegated question"
+            assert ui.dialog.home_path == mate.path
+            ui.dialog.selected = 0
+            flow.record_answered_call(ui.dialog)
+            for match in ("generated", "content"):
+                with patch.dict(os.environ, FM_FLOW_ANSWER_MATCH=match):
+                    collector._publish_fleet(homes, {}, {}, now)
+                    snapshot = collector.snapshot()
+                    assert snapshot.totals["captains_call"] == 0
+                    assert snapshot.hidden_calls == 1
+                    ui.open_decision(snapshot.cols["captains_call"][0])
+                    assert ui.dialog.stamp == "parent-stamp"
+                    assert ui.dialog.options[0]["value"] == "yes"
+            without_evidence = flow.decision_card_content(snapshot.cols["captains_call"][0], homes, snapshot.home)
+            assert without_evidence["title"] == "Pick a color"
+            assert [o["value"] for o in without_evidence["options"]] == ["reconcile"]
 
 
 def test_merge_folds_parent_mirror_of_a_mate_call(tmp_path):

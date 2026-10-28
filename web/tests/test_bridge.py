@@ -236,6 +236,34 @@ class WebTests(unittest.TestCase):
         self.assertEqual([o['value'] for o in ticket['call']['presentation']['options']],['reconcile'])
         self.assertFalse(ticket['call']['error'])
 
+    def test_parent_ticket_reuses_published_ownership_without_snapshot_walks(self):
+        f=bridge.fm
+        second,mate=fixture(self.root/'second')
+        mate.label='2ndmate-lane';mate.mate_id='lane';mate.kind='secondmate'
+        (Path(mate.path)/'state/decision-cards/ask.json').unlink()
+        snap=self.board.collector.snap
+        snap.homes.append(mate)
+        parent_raw=self.board.collector._raw[self.home.label][0]
+        parent_raw['decisions_open'][0]['owner']='lane'
+        mate_raw=second.collector._raw['Firstmate'][0]
+        snap.bearings={f.delivery_home_identity(self.home):parent_raw,f.delivery_home_identity(mate):mate_raw}
+        with patch.object(f,'bearings_snapshot',side_effect=AssertionError('unexpected snapshot walk')):
+            parts=[]
+            for home,raw in [(self.home,parent_raw),(mate,mate_raw)]:
+                cols,totals=f.make_cards(home,raw,{}, {}, {},snap.homes,bearings=snap.bearings)
+                parts.append((home,cols,totals))
+            snap.cols,snap.totals=f.merge_fleet_columns(parts)
+            cards=self.init()['columns'][2]['cards']
+            self.assertEqual(len(cards),1)
+            for _ in range(2):
+                status,ticket=self.req('/api/ticket/'+cards[0]['key'])
+                self.assertEqual(status,200);self.assertFalse(ticket['call']['error'])
+                self.assertEqual(ticket['owner'],mate.label)
+                self.assertEqual(ticket['call']['options'][0]['value'],'scope')
+                self.assertEqual(ticket['call']['presentation']['options'][0]['value'],'scope')
+                self.assertEqual(self.board.content(snap.cols['captains_call'][0],mate)['stamp'],
+                                 '2026-10-25T15:00:00Z')
+
     def test_history_demo_research_summary_report_and_safe_paths(self):
         self.init();status,data=self.req('/api/history?q=DEMO')
         self.assertEqual(status,200);self.assertEqual(len(data['records']),1)
