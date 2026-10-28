@@ -451,8 +451,10 @@ function receiptView(receipt) {
   const box = node('div', 'receipt'); box.setAttribute('role', 'status');
   append(box, node('h3', '', receipt.saved ? t("Answer recorded") : receipt.saved === false ? t("Answer not sent") : t("Submission needs verification")), node('p', '', t(receipt.message)));
   const dl = node('dl');
-  for (const [label, text] of [[t("Saved"), receipt.saved === true ? t("Confirmed by intake") : t("Unconfirmed")], [t("Owner notification"), receipt.notice === 'queued' ? t("Queued") : t("Unconfirmed")], [t("Owner ACK"), receipt.ack === 'acknowledged' ? t("Received") : t("Unconfirmed")], [t("Answer consumption"), receipt.consumed === 'consumed' ? t("Confirmed") : t("Unconfirmed")]]) append(dl, node('dt', '', label), node('dd', '', text));
-  append(box, dl, node('p', '', t("Saving and ACK are separate facts. This receipt does not confirm that the agent resumed.")));
+  for (const [label, text] of [[t("Saved"), receipt.saved === true ? t("Confirmed by intake") : t("Unconfirmed")], [t("Owner notification"), receipt.primary === 'sent' ? t("Sent to Firstmate") : receipt.notice === 'queued' ? t("Queued") : t("Unconfirmed")], [t("Owner ACK"), receipt.ack === 'acknowledged' ? t("Received") : t("Unconfirmed")], [t("Answer consumption"), receipt.consumed === 'consumed' ? t("Confirmed") : t("Unconfirmed")]]) append(dl, node('dt', '', label), node('dd', '', text));
+  append(box, dl);
+  if (receipt.primary === 'unreachable') append(box, node('p', 'notice', t("Firstmate could not be reached now; it will see this answer at its next turn.")));
+  append(box, node('p', '', t("Saving and ACK are separate facts. This receipt does not confirm that the agent resumed.")));
   if (receipt.detail) append(box, append(node('details', 'source-details'), node('summary', '', t("Receipt details")), prose(receipt.detail)));
   return box;
 }

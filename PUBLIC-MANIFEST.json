@@ -82,12 +82,12 @@
     {
       "mode": "100644",
       "path": "herdr-plugin.toml",
-      "sha256": "c1da8d81b9df4489df64890263059ee6f37371d2b8c97a95e11a6aea9f5bbafe"
+      "sha256": "7a5a361037e955e43e9de423c68c6c584f5b2755ef77d2ce85aa9dffee4a633f"
     },
     {
       "mode": "100644",
       "path": "public-export.json",
-      "sha256": "e996a3ea4427738f1bebf2e6b4198b903196dec5062747aeaf107956dfbfdd99"
+      "sha256": "3973d1a512d9d03a503d583d261765e34848742be740e6d34764ab96c2f5e72f"
     },
     {
       "mode": "100644",
@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "429ddf6907cb3bba7ca10286b5f69409980b1123543c01c0cf502d7f03fb9fec"
+      "sha256": "4662f16c80db41983a3d5e1ecd854e7289fe3abca585408945e554ad3137785f"
     },
     {
       "mode": "100755",
@@ -256,11 +256,6 @@
     },
     {
       "mode": "100644",
-      "path": "tests/test_flow_first_paint.py",
-      "sha256": "662536977678f3dd37de70f2fe0b421d205ce82ee074297fe3aedd8c005236cd"
-    },
-    {
-      "mode": "100644",
       "path": "tests/test_flow_help.py",
       "sha256": "f9af29c4eef02a63e2c51b9eb809b4e579f0b7d42cb147052b95e8ac7ac90fce"
     },
@@ -312,7 +307,7 @@
     {
       "mode": "100644",
       "path": "tests/test_open_scripts.py",
-      "sha256": "4ae4f27276de2e6dae149ba5920043522941d01162f1a153142583e26a393e26"
+      "sha256": "aebf98c8bd1bdc9de7480114e7c780c7274081bdd7f16cfcb76aa3c67a83d00b"
     },
     {
       "mode": "100644",
@@ -332,22 +327,22 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "1629d8be49e2cd1ca72dc980bfd3f23f165c43c419d59739665a8cbba3629f85"
+      "sha256": "87546579fe7a3484e5cc2a95dbca8d27c9c379e5576332d8afc0e91b3dddc704"
     },
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "09ced140837ebaa75702c800b1926f142f14a0560cae0c3e9c43167d311c464b"
+      "sha256": "b6c5ba6aa2909dd2692502bc5a2884b5f46ec92ee6773b7d9a55df9333f50e93"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "a49be3defb8bbbcd9beecc914306b2b65ce71ade59c8d23657a745a9b9e830e5"
+      "sha256": "63e68465f0babc4ecda1e29f1b065d0ef2e5f7f8e4df7f89170bacb13088d895"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "3587265f2b3c7f031e8fa02137be992ffe71adb2bbfe0906c4d871fcbc1d8d4c"
+      "sha256": "719f8eb22dea6a78be663bbae667ca3eb5ee90b7de139099281ffc290cdf432f"
     },
     {
       "mode": "100644",
@@ -382,7 +377,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "a35bbbbd39374f0b339199ee2c1d4f37a9399695fdc3847aa21ef0601ce518b4"
+      "sha256": "35419fa1b48cfcfe97a8f78aa140834478a994ae5407be445b0636949bf138d3"
     },
     {
       "mode": "100644",
@@ -422,7 +417,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "9b4ea5a3b790c4449f0cd432efab046d6e4e4be905ad0595a8696bad560042e8"
+      "sha256": "532b2ccaaf4df96c4fbf09df13791e60e306427e0a8d63dd0de4eebd68462b7e"
     },
     {
       "mode": "100644",
@@ -447,7 +442,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "0bfc2d19162e2a88f95f4685d319faf336038905efd8247c2d8efee73c5cf5f9"
+      "sha256": "d5327bd5a67b5f4a57957044b93b55473fa0be21855e02fa9757a2dc98cf19a1"
     },
     {
       "mode": "100644",

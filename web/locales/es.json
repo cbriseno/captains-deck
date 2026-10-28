@@ -416,5 +416,7 @@
   "Until {date}": "Hasta {date}",
   "An approval at its validation gate.": "Una aprobación en su validación.",
   "Firstmate does not export when this hold ends.": "Firstmate no exporta cuándo termina esta retención.",
-  "Firstmate does not export when this pause ends.": "Firstmate no exporta cuándo termina esta pausa."
+  "Firstmate does not export when this pause ends.": "Firstmate no exporta cuándo termina esta pausa.",
+  "Sent to Firstmate": "Enviado a Firstmate",
+  "Firstmate could not be reached now; it will see this answer at its next turn.": "No se pudo contactar a Firstmate ahora; verá esta respuesta en su próximo turno."
 }

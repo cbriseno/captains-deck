@@ -416,5 +416,7 @@
   "Until {date}": "Until {date}",
   "An approval at its validation gate.": "An approval at its validation gate.",
   "Firstmate does not export when this hold ends.": "Firstmate does not export when this hold ends.",
-  "Firstmate does not export when this pause ends.": "Firstmate does not export when this pause ends."
+  "Firstmate does not export when this pause ends.": "Firstmate does not export when this pause ends.",
+  "Sent to Firstmate": "Sent to Firstmate",
+  "Firstmate could not be reached now; it will see this answer at its next turn.": "Firstmate could not be reached now; it will see this answer at its next turn."
 }
