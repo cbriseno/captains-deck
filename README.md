@@ -36,6 +36,9 @@ printf '%s\n' /absolute/path/to/firstmate > "$(herdr plugin config-dir herdr-fir
 The `fm_home` reader skips blank lines and `#` comments and uses the first remaining line as the home path.
 For several homes, write one `label=/absolute/path` line per home to `homes.conf` in that same directory instead.
 
+Captain's Call keeps same-named tasks in different answering homes separate, including in the **All** crew view.
+A delegated call mirrored by its parent and its answering home appears once; answering it does not hide another home's same-named call.
+
 Open the board with the plugin's **Open captain's deck** (full workspace) or **Open flow board** (overlay) action.
 From a shell inside Herdr that is:
 

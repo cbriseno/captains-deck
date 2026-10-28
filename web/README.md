@@ -197,10 +197,11 @@ The current Firstmate owner must expose `fm-captain-hold.sh capabilities --json`
 The bridge sends that exact identity via `--expected-identity` on the public keyed-answer or reconcile-request intake.
 Firstmate compares it under the existing owner task-control lock.
 Without this capability, the question remains readable and submission fails closed.
-The bridge also binds the rendered question/options to an opaque occurrence token and revalidates home, task, question and state.
+The bridge binds the rendered question and ordered options to an opaque occurrence token and revalidates home, task, question and state.
+Presentation and answer selection use that same normalized question content.
 One durable receipt per occurrence prevents double submission across browsers and restarts.
 Interrupted calls remain explicitly uncertain; a retry reads that receipt rather than automatically invoking the intake again.
-Conflicts preserve the session draft and require reviewing the current question.
+If the question content or option order changes before intake, submission is refused with "The question changed" and the session draft is preserved; refresh and review the current question before retrying.
 The keyed intake currently accepts a single-line answer of up to 512 bytes; over-limit answers are rejected before submission, never silently truncated.
 
 Intake acceptance confirms a saved answer or review request.
