@@ -464,28 +464,29 @@ def fleet_planned_running_count(
 
 
 def _pick_captains_call_duplicate(cards: list[Card]) -> Card:
-    """When the fleet merges two snapshots for one task, keep the routable row."""
+    """Keep the explicitly owned row when a parent mirrors a home's call."""
     explicit = [c for c in cards if c.owner and c.owner != "(main)"]
-    if explicit:
-        return explicit[0]
-    with_path = [c for c in cards if c.home_path]
-    if with_path:
-        return with_path[0]
-    return cards[0]
+    return explicit[0] if explicit else cards[0]
+
+
+def _captains_call_identity(card: Card) -> tuple:
+    """One call is one task in one answering home.
+
+    A parent's mirror of a delegated call already resolves to the owning
+    home, so it shares that home's identity. Same-named tasks in independent
+    homes, and rows whose answering home is unknown, never fold together.
+    """
+    identity = getattr(card, "delivery_identity", "")
+    return (identity or id(card), card.task)
 
 
 def _dedupe_captains_call(cards: list[Card]) -> list[Card]:
-    by_task: dict[str, list[Card]] = {}
-    order: list[str] = []
+    groups: dict[tuple, list[Card]] = {}
     for card in cards:
-        if card.task not in by_task:
-            order.append(card.task)
-            by_task[card.task] = []
-        by_task[card.task].append(card)
+        groups.setdefault(_captains_call_identity(card), []).append(card)
     return [
         group[0] if len(group) == 1 else _pick_captains_call_duplicate(group)
-        for task in order
-        for group in [by_task[task]]
+        for group in groups.values()
     ]
 
 
@@ -2864,6 +2865,10 @@ def make_cards(
         # answer runs the intake in that home rather than the board on screen.
         c.owner = (entry.get("owner") or "").strip()
         c.home_path = answer_home_path(c, homes, home)
+        # Like a delivery, the call belongs to its answering home; a parent's
+        # mirror carries the owner's identity so the fleet merge folds it.
+        answering = resolve_owner_home(homes, c.owner, home) if c.home_path else None
+        c.delivery_identity = delivery_home_identity(answering) if answering else ""
         cols["captains_call"].append(c)
         totals["captains_call"] += 1
 
@@ -2884,8 +2889,13 @@ def make_cards(
                     content.get("options"),
                     content.get("close") or "",
                 )
+                # Records are keyed by task; another home's same-named call
+                # never hides this one.
+                record = records.get(card.task)
+                if isinstance(record, dict) and not _same_path(record.get("home") or "", card.home_path):
+                    record = None
                 card.answered_hidden = answered_row_hidden(
-                    records.get(card.task), content.get("stamp") or "", digest, now
+                    record, content.get("stamp") or "", digest, now
                 )
                 if card.answered_hidden:
                     hidden += 1
