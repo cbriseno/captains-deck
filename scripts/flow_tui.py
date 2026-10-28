@@ -2170,7 +2170,7 @@ def _run_captain_hold(home_path: str, args: list[str], stdin_text: str) -> tuple
     """Run the firstmate answer intake in the home that owns the task."""
     script = _hold_script(home_path)
     if not os.path.isfile(script):
-        return False, f"no fm-captain-hold.sh in {home_path}"
+        return False, tr("Firstmate here can’t take answers yet: no fm-captain-hold.sh in {path}.", path=home_path)
     env = _child_env()
     env["FM_HOME"] = home_path
     try:
@@ -2184,7 +2184,7 @@ def _run_captain_hold(home_path: str, args: list[str], stdin_text: str) -> tuple
         )
     except Exception as exc:
         _debug(f"captain hold failed: {exc!r}")
-        return False, f"could not run the answer intake: {exc!r}"
+        return False, tr("Couldn’t send your answer to Firstmate: {error}", error=repr(exc))
     lines = [ln for ln in ((p.stdout or "") + (p.stderr or "")).splitlines() if ln.strip()]
     detail = lines[-1].strip() if lines else ""
     return p.returncode == 0, detail
@@ -2196,7 +2196,7 @@ def ensure_decision_binding(home_path: str) -> tuple[bool, str]:
     require the source to exist anywhere else."""
     script = _hold_script(home_path)
     if not os.path.isfile(script):
-        return False, f"no fm-captain-hold.sh in {home_path}"
+        return False, tr("Firstmate here can’t take answers yet: no fm-captain-hold.sh in {path}.", path=home_path)
     env = _child_env()
     env["FM_HOME"] = home_path
     try:
@@ -2211,7 +2211,7 @@ def ensure_decision_binding(home_path: str) -> tuple[bool, str]:
         if p.returncode == 0 and (p.stdout or "").strip():
             return True, ""
     except Exception as exc:
-        return False, f"could not read the decision binding: {exc!r}"
+        return False, tr("Couldn’t check Deck’s re-check access: {error}", error=repr(exc))
     return _run_captain_hold(home_path, ["bind", DECISION_SOURCE_ID], "")
 
 
@@ -2226,10 +2226,10 @@ def wake_owner(dialog: DecisionDialog) -> str:
         return ""
     if not KEY_RE.fullmatch(dialog.wake_lane):
         _debug(f"wake lane refused: {dialog.wake_lane!r}")
-        return "owner wake skipped: the lane id is malformed"
+        return tr("Saved, but the agent wasn’t woken: {detail}", detail=tr("its name looks wrong"))
     script = endpoint_path(dialog.wake_home, "fm-send.sh")
     if not os.path.isfile(script):
-        return f"wake skipped: no fm-send.sh in {dialog.wake_home}"
+        return tr("Saved, but the agent wasn’t woken: {detail}", detail=tr("no fm-send.sh in {path}", path=dialog.wake_home))
     option = dialog.selected_option()
     if option and option["value"] == "reconcile":
         text = (
@@ -2258,13 +2258,13 @@ def wake_owner(dialog: DecisionDialog) -> str:
         )
     except Exception as exc:
         _debug(f"owner wake failed: {exc!r}")
-        return f"answer recorded, but the owner wake failed: {exc!r}"
+        return tr("Saved, but waking the agent failed: {error}", error=repr(exc))
     if p.returncode == 0:
         return ""
     lines = [ln for ln in ((p.stderr or "") + (p.stdout or "")).splitlines() if ln.strip()]
-    detail = lines[-1].strip() if lines else "fm-send refused"
+    detail = lines[-1].strip() if lines else tr("fm-send said no")
     _debug(f"owner wake refused: {detail}")
-    return f"answer recorded, but the owner was not woken: {detail}"
+    return tr("Saved, but the agent wasn’t woken: {detail}", detail=detail)
 
 
 def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
@@ -2273,14 +2273,9 @@ def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
     Reconcile takes the separate reconcile-request path; everything else is a
     keyed answer."""
     if not dialog.home_path:
-        return False, (
-            f"cannot tell which home owns {dialog.key}; "
-            "answer it from the Lavish board or chat"
-        )
+        return False, tr("Can’t tell which crew owns {task}. Answer it from the Lavish board or chat.", task=dialog.key)
     if not KEY_RE.fullmatch(dialog.key):
-        return False, (
-            f"refusing a malformed task key: {_flatten_field(dialog.key)[:80]!r}"
-        )
+        return False, tr("This task id looks wrong: {key}", key=repr(_flatten_field(dialog.key)[:80]))
     option = dialog.selected_option()
     reconcile = bool(option and option["value"] == "reconcile")
     if reconcile:
@@ -2389,12 +2384,24 @@ def send_to_firstmate(pane_id: str, text: str) -> tuple[bool, str]:
         return False, last or f"herdr agent prompt exited {p.returncode}"
 
 
+TASK_UPDATE_SOURCES = {
+    (True, False): "{path}: latest task update [at=Unix seconds]; only the current run counts; ignores polling, heartbeats, harness activity and control messages",
+    (False, False): "{path}: latest task update [at=Unix seconds]; can’t tell which run this is; ignores polling, heartbeats, harness activity and control messages",
+    (True, True): "{path}: latest task update [at=Unix seconds]; only the current run counts; the worker’s done report, not delivery or review time",
+    (False, True): "{path}: latest task update [at=Unix seconds]; can’t tell which run this is; the worker’s done report, not delivery or review time",
+}
+
+
 class CardTime:
     """An event supplied by its producer, never a Deck observation time."""
 
-    def __init__(self, label: str, value: object = None, source: str = ""):
+    def __init__(self, label: str, value: object = None, source: str = "", values: dict | None = None,
+                 *, authored: bool = False):
         self.label = label
-        self.source = source or "Event timestamp not exported by Firstmate"
+        self.source_key = source or "Event timestamp not exported by Firstmate"
+        self.source_values = dict(values or {})
+        self.source = self.source_key.format_map(self.source_values) if self.source_values else self.source_key
+        self.authored_source = authored and bool(source)
         self.producer_kind = ""
         self.event_id = ""
         self.rejected_producer = ""
@@ -2489,7 +2496,7 @@ def producer_card_time(raw: object, bucket: str, fallback: CardTime) -> CardTime
     value = raw.get("value")
     if not isinstance(value, str) or not value:
         return reject("value must be an ISO date or offset timestamp string")
-    event = CardTime(allowed[kind], value, source)
+    event = CardTime(allowed[kind], value, source, authored=True)
     if event.problem:
         return reject(event.problem)
     if (precision == "date") != (event.day is not None):
@@ -2570,7 +2577,8 @@ def card_time_detail(event: CardTime, *, translate=None) -> str:
             value += tr('; future timestamp: check producer/terminal clock')
     else:
         value = tr(event.problem) if translate else event.problem
-    detail = tr('{label}: {value}. Source: {source}.', label=tr(event.label), value=value, source=tr(event.source))
+    source = event.source if event.authored_source else tr(event.source_key, **event.source_values)
+    detail = tr('{label}: {value}. Source: {source}.', label=tr(event.label), value=value, source=source)
     if event.producer_kind:
         precision = "date" if event.day is not None else "second"
         detail += tr(' Producer event: {kind}; precision: {precision}.', kind=event.producer_kind, precision=precision)
@@ -2837,13 +2845,11 @@ def make_cards(
             label = "Done report" if completed else "Updated"
             if completed and update_state != "done":
                 update_at = 0
-            card.event_time = CardTime(label, update_at or None, tr(
-                "{path}: latest task update [at=Unix seconds]; {boundary}; {scope}", path=status_file,
-                boundary=tr("only the current run counts" if card.spawn_epoch else "can’t tell which run this is"),
-                scope=tr("the worker’s done report, not delivery or review time" if completed
-                         else "ignores polling, heartbeats, harness activity and control messages")))
             if time_home is None or is_remote_home(time_home):
-                card.event_time.source = "Remote or unknown crew: no local task updates, so no time is guessed"
+                source, values = "Remote or unknown crew: no local task updates, so no time is guessed", None
+            else:
+                source, values = TASK_UPDATE_SOURCES[bool(card.spawn_epoch), completed], {"path": status_file}
+            card.event_time = CardTime(label, update_at or None, source, values)
         time_bucket = 'awaiting_merge' if card.bucket == 'underway' and entry.get('state') == 'done' and not (entry.get('doing') or '').lower().startswith('harness state unavailable') else card.bucket
         card.event_time = producer_card_time(entry.get("card_time"), time_bucket, card.event_time)
 
@@ -3460,8 +3466,8 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
                 closed=record.get('closed') or tr('date unavailable'),
                 source=record.get('source') or tr('recent view'))
     header += tr('Completion time: ') + card_time_detail(CardTime(
-        "Delivered", record.get("closed"),
-        tr('{source}: the task’s closed date', source=record.get('source') or tr('recent view'))), translate=translate) + "\n"
+        "Delivered", record.get("closed"), '{source}: the task’s closed date',
+        {'source': record.get('source') or tr('recent view')}), translate=translate) + "\n"
     if board_time is not None:
         header += tr('Board time: ') + card_time_detail(board_time, translate=translate) + "\n"
     if record.get('body'):
@@ -3837,7 +3843,7 @@ class Collector(threading.Thread):
         if not raw:
             # A remote home with no cached snapshot yet is offline, not an
             # error: the tab carries the offline marker itself.
-            err = "" if home.route else f"bearings snapshot failed for {home.path}"
+            err = "" if home.route else "Couldn’t read this crew’s board. Check that Firstmate is running there."
             return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
         cols, totals = make_cards(
             home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered,
@@ -3946,7 +3952,7 @@ class Collector(threading.Thread):
                         )
                 if not homes:
                     snap = Snapshot()
-                    snap.error = "no Firstmate homes found (set FM_FLOW_HOMES or homes.conf)"
+                    snap.error = "No Firstmate crews found. Set FM_FLOW_HOMES or list them in homes.conf."
                     self._publish(snap)
                 else:
                     active = next((h for h in homes if h.label == self._active), homes[0])
@@ -4028,7 +4034,7 @@ class Collector(threading.Thread):
                         )
                         if fleet_total is not None:
                             self._counts[ALL_CREW_LABEL] = fleet_total
-                        error = "" if raw else f"bearings snapshot failed for {active.path}"
+                        error = "" if raw else "Couldn’t read this crew’s board. Check that Firstmate is running there."
                         _debug("iter: publish final")
                         self._publish(
                             self._snapshot(homes, active, cols, agents, panes, totals, error=error)
@@ -4137,7 +4143,7 @@ def ansi_width(text: str) -> int:
 def supervisor_caption(value: dict) -> str:
     if not value:
         return tr('Firstmate: current activity unknown (no declaration).')
-    event = CardTime('Declared', value.get('observed_at'), value.get('source', ''))
+    event = CardTime('Declared', value.get('observed_at'), value.get('source', ''), authored=True)
     ttl = _float(value.get('ttl', value.get('ttl_seconds')), 0)
     stale = value.get('freshness') == 'stale' or bool(event.epoch and ttl > 0 and time.time() - event.epoch > ttl)
     age = local_time_caption(event)
@@ -4162,7 +4168,7 @@ def durable_report(card: Card) -> tuple[str, str, CardTime]:
                 and event.producer_kind in ('updated', 'done_report')):
             same = declared == local_state and flow['reason'] == local_text
             event = CardTime('Updated', (local_at or None) if same else None,
-                             flow.get('source') or 'flow.declared_state')
+                             flow.get('source') or 'flow.declared_state', authored=True)
         return declared, flow['reason'], event
     return local_state, local_text, CardTime('Updated', local_at or None, 'task status declaration [at]')
 
@@ -4964,7 +4970,7 @@ class UI:
         if d is None:
             return
         if not d.freeform:
-            self.say("this call takes a listed option")
+            self.say(tr("this call takes a listed option"))
             return
         d.note += text
         d.focus = "note"
@@ -5003,12 +5009,12 @@ class UI:
             return
         answer = d.display_answer()
         if not answer:
-            d.error = "choose an option or type an answer"
+            d.error = tr("Pick an option or type an answer.")
             d.busy = False
             self.dirty = True
             return
         if len(answer.encode("utf-8")) > ANSWER_LIMIT:
-            d.error = f"answer is too long ({ANSWER_LIMIT} bytes maximum)"
+            d.error = tr("That answer is too long (up to {limit} bytes).", limit=ANSWER_LIMIT)
             self.dirty = True
             return
         d.error = ""
@@ -5026,7 +5032,7 @@ class UI:
             # a wake problem is shown beside the queued state: the answer is
             # already durable, so it must not read as a failed submit
             d.error = detail
-            self.say(f"answer queued: {d.key}")
+            self.say(tr("answer queued: {task}", task=d.key))
         else:
             d.error = detail or tr("Firstmate didn’t accept this answer")
             d.busy = False
@@ -5364,7 +5370,7 @@ class UI:
         if self.flash and time.time() - self.flash_at < 6:
             lines[-1] = f"{fg(C_WARN)}{clip(self.flash, w)}{RESET}"
         elif snap.error:
-            lines[-1] = f"{fg(C_BAD)}{clip(snap.error, w)}{RESET}"
+            lines[-1] = f"{fg(C_BAD)}{clip(tr(snap.error), w)}{RESET}"
         else:
             x = 1
             for label, action in _FOOTER_HINTS:
@@ -5483,7 +5489,7 @@ class UI:
             first = True
             for ln in wrap_text(value, max(10, inner - 9)):
                 if first:
-                    add_segments([(pad(key, 8), fg(C_DIM)), (ln, "")], "ctx")
+                    add_segments([(pad(key, max(8, display_width(key) + 1)), fg(C_DIM)), (ln, "")], "ctx")
                     first = False
                 else:
                     add(" " * 9 + ln, "ctx")
@@ -5509,7 +5515,7 @@ class UI:
             styled += " " * max(0, cw - used)
             rows.append(f"{border_style}\u2502 {RESET}{styled}{border_style} \u2502{RESET}")
 
-        badge = d.ctype.upper()
+        badge = {"decision": tr("DECISION"), "review": tr("REVIEW")}.get(d.ctype, d.ctype.upper())
         # header: the type badge on the left, the routing repo on the right
         add_segments(
             [
@@ -5524,11 +5530,11 @@ class UI:
         if d.about or d.decide or d.detail:
             add("", "blank")
         if d.about:
-            add_kv("ABOUT", d.about)
+            add_kv(tr("ABOUT"), d.about)
         if d.decide:
-            add_kv("DECIDE", d.decide)
+            add_kv(tr("DECIDE"), d.decide)
         if d.detail:
-            add_kv("DETAIL", d.detail)
+            add_kv(tr("DETAIL"), d.detail)
 
         # every option is its own bordered card, the way the board renders it:
         # the selected one keeps the DECISION colour and a filled radio, the
@@ -5544,10 +5550,10 @@ class UI:
             lead = "\u25b8 " if cursor else "  "
             mark = "\u25cf " if selected else "\u25cb "
             rec = opt["value"] == d.recommend
-            rec_text = " REC " if rec else ""
+            rec_text = tr(" REC ") if rec else ""
             # A card's label is prose; show the value too whenever the two
             # differ, because the value is what gets submitted.
-            value_text = "" if opt["value"] == opt["label"] else f" \u00b7 {opt['value']}"
+            value_text = "" if opt["value"] in (opt["label"], "reconcile") else f" \u00b7 {opt['value']}"
             room = cw - display_width(lead + mark) - display_width(rec_text)
             label = clip(opt["label"], max(4, room - display_width(value_text)))
             gap = max(
@@ -5632,7 +5638,7 @@ class UI:
             footer_kinds.append(kind)
 
         add_footer("", "blank")
-        status = "queueing\u2026" if d.busy else ("\u2713 queued" if d.queued else "")
+        status = tr("queueing…") if d.busy else (tr("✓ queued") if d.queued else "")
         current = d.selected_option()
         reconcile = bool(current and current["value"] == "reconcile")
         if reconcile:
@@ -5672,12 +5678,7 @@ class UI:
             "hint",
             C_DIM,
         )
-        help_bits = [
-            "esc close",
-            "\u2191\u2193 move",
-            "space pick",
-            "enter queue",
-        ]
+        help_bits = [tr("esc close"), tr("↑↓ move"), tr("space pick"), tr("enter queue")]
         # Keep Queue answer + help visible; scroll only the card body above them.
         # The whole modal must fit in the terminal (borders add two rows).
         max_inner_rows = max(6, h - 2)
@@ -5685,7 +5686,7 @@ class UI:
         scroll_max = max(0, len(body_rows) - budget)
         self._dialog_scroll_max = scroll_max
         if scroll_max:
-            help_bits.insert(1, "pgup/pgdn or wheel scroll")
+            help_bits.insert(1, tr("pgup/pgdn or wheel scroll"))
         if self._dialog_scroll_follow and d.focus == "note":
             self.dialog_scroll = scroll_max
             self._dialog_scroll_follow = False
@@ -5693,7 +5694,7 @@ class UI:
         if scroll_max:
             top = self.dialog_scroll + 1
             bottom = min(len(body_rows), self.dialog_scroll + budget)
-            help_bits.insert(0, f"lines {top}-{bottom} of {len(body_rows)}")
+            help_bits.insert(0, tr("lines {top}-{bottom} of {total}", top=top, bottom=bottom, total=len(body_rows)))
         add_footer(" \u00b7 ".join(help_bits), "help", C_DIM)
 
         if scroll_max:
@@ -5786,9 +5787,9 @@ class UI:
             fields.append(('Dependency identity', f"{dep['id']} · {dep.get('title') or tr('name not recorded')} · {dep.get('owner') or tr('crew not recorded')} · {dep.get('state') or tr('unknown state')}"))
         blockers = getattr(card, "blockers", [])
         for b in blockers:
-            fields.append(("Reason", b["text"] or "No reason recorded"))
-            fields.append(("Blocker key", b["key"] or "unkeyed declaration"))
-            fields.append(("Reported at", str(b["at"] or "unknown")))
+            fields.append(("Reason", b["text"] or tr("No reason recorded")))
+            fields.append(("Blocker key", b["key"] or tr("update without a key")))
+            fields.append(("Reported at", str(b["at"] or tr("unknown"))))
         if card.bucket == "captains_call":
             next_step = "Answer the authored question in Captain's Call (Enter after closing details)."
         elif card.blocked_by not in ("", "-"):
@@ -5804,8 +5805,8 @@ class UI:
         else:
             next_step = "Firstmate supervises this task; open its agent pane with o for live context."
         fields.append(("Routing detail", tr(next_step)))
-        fields.append(("Firstmate", f"{getattr(card, 'snapshot_state', '') or 'unavailable'}; {card.doing or 'no activity detail'}"))
-        fields.append(("Herdr", card.live_status or "unavailable"))
+        fields.append(("Firstmate", f"{getattr(card, 'snapshot_state', '') or tr('unavailable')}; {card.doing or tr('no activity detail')}"))
+        fields.append(("Herdr", card.live_status or tr("unavailable")))
         fields.append(('Agent', UI.card_agent_line(card)))
         fields.append(('Run totals', UI.card_run_stats_suffix(card) or tr('Not recorded')))
         fields.append(('Branch', card.branch or tr('no branch recorded')))
@@ -5824,15 +5825,15 @@ class UI:
         inner = dw - 4
         rows = []
         for label, value in self.detail_fields(card):
-            rows.extend(wrap_text(f"{label}: {value}", inner))
+            rows.extend(wrap_text(f"{tr(label)}: {value}", inner))
             rows.append("")
         budget = max(1, h - 6)
         self.details_max = max(0, len(rows) - budget)
         self.details_scroll = min(self.details_scroll, self.details_max)
         start = self.details_scroll
         visible = rows[start:start + budget]
-        footer = f"{start + 1}-{start + len(visible)}/{len(rows)} · ↑↓/PgUp/PgDn · Esc close"
-        title = clip(" Details · read only ", dw - 2)
+        footer = f"{start + 1}-{start + len(visible)}/{len(rows)} · ↑↓/PgUp/PgDn · " + tr("Esc close")
+        title = clip(tr(" Details · read only "), dw - 2)
         box = ["╭" + title + "─" * max(0, dw - 2 - display_width(title)) + "╮"]
         box += ["│ " + pad(row, inner) + " │" for row in visible]
         box += ["│ " + pad(clip(footer, inner), inner) + " │", "╰" + "─" * (dw - 2) + "╯"]
@@ -5916,7 +5917,7 @@ class UI:
     def render_help(self, lines: list[str], w: int, h: int) -> None:
         """Draw the keybinding help as a centered modal (footer ``? help``)."""
         self.help_box = None
-        rows = [(key, tr(desc)) for key, desc in self.HELP_ROWS]
+        rows = [(tr(key), tr(desc)) for key, desc in self.HELP_ROWS]
         keyw = max(display_width(key) for key, _ in rows)
         cw = keyw + 3 + max(display_width(desc) for _, desc in rows)
         dw = min(max(34, cw + 4), max(34, w - 4))
@@ -5925,7 +5926,8 @@ class UI:
         y0 = max(0, min(max(0, h - box_h - 1), (h - box_h) // 2))
         x0 = max(0, (w - dw) // 2)
         border = fg(C_BORDER)
-        box = [f"{border}\u256d─ Help " + "─" * max(0, dw - 9) + f"\u256e{RESET}"]
+        title = tr("Help")
+        box = [f"{border}\u256d─ {title} " + "─" * max(0, dw - 5 - display_width(title)) + f"\u256e{RESET}"]
         for key, desc in rows:
             key_text = pad(key, keyw + 3)
             desc_text = clip(desc, max(0, inner - keyw - 3))
@@ -6019,15 +6021,15 @@ class UI:
             identity = getattr(card, 'delivery_identity', '')
             if not identity:
                 return tr('crew unknown · Delivery')
-            return ("read" if delivery_seen(identity, card.task) else "new") + " · Delivery"
+            return tr("read · Delivery") if delivery_seen(identity, card.task) else tr("new · Delivery")
         if getattr(card, "bucket", "") == "captains_call":
-            return "Human action"
+            return tr("Human action")
         lead = getattr(card, "account", "") or card.agent
         model = card.model
         if lead and model.startswith(lead + "/"):
             model = model.split("/", 1)[1]
         parts = [p for p in (lead, model, card.effort) if p]
-        return "\u00b7".join(parts) if parts else "no agent yet"
+        return "\u00b7".join(parts) if parts else tr("no agent yet")
 
     @staticmethod
     def card_run_stats_suffix(card: Card) -> str:

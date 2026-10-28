@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,6 +16,19 @@ ROOT = HERE.parent
 SPANISH = json.loads((ROOT / 'web/locales/es.json').read_text(encoding='utf-8'))
 # Catalog entries whose Spanish differs from the English source message.
 SPANISH_LABELS = {v.strip() for k, v in SPANISH.items() if v != k and len(v.strip()) >= 5}
+# Authored fixture text, and the words both languages show as they are:
+# product, key and protocol-state names, the loanwords the Spanish keeps and
+# words spelled the same in both.
+AUTHORED = 'Zorblat flux glim quux Flarn one two blip fixture'
+NEUTRAL = {'firstmate', 'herdr', 'deck', 'captain', 'call', 'lavish', 'esc', 'enter', 'tab', 'pgup', 'pgdn',
+           'paused', 'unix', 'utc', 'harness', 'worker', 'bytes', 'chat', 'control', 'decide', 'local',
+           'supervisor', 'terminal'}
+JARGON = re.compile(r'intake|\bhomes?\b|backend|retain|retention|retenid|retenci|occurrence|ocurrencia|receipt|recibo|'
+                    r'\bguard\b|identifier|identificador|ledger|snapshot|owner|reconcil|conciliaci', re.I)
+
+
+def words(text):
+    return {w.lower() for w in re.findall(r'[^\W\d_]{3,}', text)}
 
 
 class LanguageTests(unittest.TestCase):
@@ -58,6 +72,69 @@ class LanguageTests(unittest.TestCase):
         ui.delivery_back(); ui.delivery_back()
         f.parse_input(b'H', ui); texts.append(self.render(ui, snap))
         return '\n'.join(texts)
+
+    def terminal_surfaces(self, language):
+        """The terminal Captain's Call dialog, its errors, help, details and status line, as shown."""
+        (self.config / 'language').write_text(language + '\n')
+        f._LOCALIZATION = None
+        (self.root / 'state/zq-flarn.status').write_text('paused [at=1792920000]: Glim quux\n')
+        call = {'question': 'Zorblat glim?', 'recommended': 'flarn', 'context': 'Zorblat flux glim',
+                'options': [{'id': 'flarn', 'label': 'Flarn one', 'detail': 'Flarn quux'}, {'id': 'blip', 'label': 'Flarn two'}]}
+        payload = {'in_flight': [{'id': 'zq-flarn', 'name': 'Zorblat flux', 'state': 'paused'}],
+                   'decisions_open': [{'id': 'zq-glim', 'title': 'Zorblat glim', 'owner': '(main)',
+                                       'reason': 'Glim quux', 'call': call}]}
+        ui, snap = clarity.ClarityTests.ui(self, payload)
+
+        def modal(draw):
+            lines = [' ' * 120 for _ in range(70)]
+            draw(lines, 120, 70)
+            return '\n'.join(lines)
+
+        texts = []
+        ui.open_decision(snap.cols['captains_call'][0])
+        d = ui.dialog
+        texts.append(modal(ui.render_dialog))
+        d.selected, d.note = -1, ''
+        ui.dialog_submit(); texts.append(modal(ui.render_dialog))
+        d.note = 'zorblat ' * 80
+        ui.dialog_submit(); texts.append(modal(ui.render_dialog))
+        d.note, d.selected = '', 0
+        d.home_path = str(self.root / 'zq-nowhere')
+        ui._submit_worker(d); texts.append(modal(ui.render_dialog))
+        d.home_path = ''
+        ui._submit_worker(d); texts.append(modal(ui.render_dialog))
+        d.home_path, d.key = str(self.root), 'zq\nglim'
+        ui._submit_worker(d); texts.append(modal(ui.render_dialog))
+        d.wake_home, d.wake_lane = str(self.root), '../zq'
+        texts.append(f.wake_owner(d))
+        d.wake_lane = 'zq-lane'
+        texts.append(f.wake_owner(d))
+        ui.dialog = None
+        ui.details = snap.cols['underway'][0]
+        texts.append(modal(ui.render_details))
+        ui.details = None
+        texts.append(modal(ui.render_help))
+        collector = f.Collector()
+        collector._discover = lambda: []
+        publish = collector._publish
+        collector._publish = lambda shot: (publish(shot), collector._stop.set(), collector._wake.set())
+        collector.run()
+        empty = f.UI(); empty.collector = collector
+        texts.append(self.render(empty, collector.snapshot()).splitlines()[-1])
+        # File paths, file names and environment variable names are shown as they are.
+        return re.sub(r'\S*/\S*|\S+\.(?:sh|conf|status)\b|\b[A-Z]+(?:_[A-Z]+)+\b', ' ', f._ANSI_RE.sub('', '\n'.join(texts)))
+
+    def test_spanish_terminal_dialog_help_and_details_leave_no_english_chrome(self):
+        english, spanish = self.terminal_surfaces('en'), self.terminal_surfaces('es')
+        chrome = words(english) - words(AUTHORED) - NEUTRAL
+        self.assertGreater(len(chrome), 60)
+        self.assertEqual(sorted(chrome & words(spanish)), [])
+
+    def test_terminal_only_messages_use_no_internal_terms(self):
+        for language in ('en', 'es'):
+            with self.subTest(language=language):
+                text = self.terminal_surfaces(language)
+                self.assertIsNone(JARGON.search(text), text)
 
     def test_english_is_the_default_without_configuration(self):
         self.assertEqual(f.deck_language(), '')

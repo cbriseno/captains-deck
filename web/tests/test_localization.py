@@ -59,8 +59,8 @@ class LocaleTests(unittest.TestCase):
     def test_displayed_copy_has_no_internal_terms_in_either_language(self):
         # Every catalog entry is shown somewhere, so none may use Firstmate's
         # plumbing words. Placeholders are filled at display time and do not count.
-        # Allowed: keyboard key names that only look like a term.
-        allowed = ('Home/End',)
+        # Allowed: keyboard key and file names that only look like a term.
+        allowed = ('Home/End', 'homes.conf')
         jargon = re.compile(r'intake|\bhomes?\b|backend|retain|retention|retenid|retenci|occurrence|ocurrencia|receipt|recibo|'
                             r'\bguard\b|identifier|identificador|ledger|snapshot|owner|reconcil|conciliaci', re.I)
         en, es = Localization('en'), Localization('es')
@@ -213,6 +213,24 @@ class LocalizedOwnerTests(unittest.TestCase):
         self.assertIn(note, mutation['input']); self.assertIn('scope', mutation['input'])
         self.assertEqual(self.en.receipts('local')[0]['message'], 'Answer saved by Firstmate.')
         self.assertEqual(len((Path(self.home.path) / 'mutations.jsonl').read_text().splitlines()), 1)
+
+    def test_board_time_source_follows_the_reader_not_the_terminal_language(self):
+        # The terminal's language file says Spanish; this web instance stays English.
+        from fixtures import fixture
+        config = self.root / 'terminal-config'; config.mkdir()
+        (config / 'language').write_text('es\n')
+        env = {k: v for k, v in os.environ.items() if k != 'CD_WEB_LANGUAGE'}
+        env['HERDR_PLUGIN_CONFIG_DIR'] = str(config)
+        self.addCleanup(setattr, bridge.fm, '_LOCALIZATION', None)
+        with patch.dict(os.environ, env, clear=True):
+            bridge.fm._LOCALIZATION = None
+            english, _ = fixture(self.root / 'terminal-es')
+            spanish = bridge.Board(english.data_dir, collector=english.collector, language='es')
+            time = lambda board: next(c for col in board.board()['columns'] for c in col['cards'] if c['task'] == 'web')['time']
+            self.assertIn('latest task update', time(english)['detail'])
+            self.assertNotIn('última', time(english)['detail'])
+            self.assertIn('latest task update', time(english)['source'])
+            self.assertIn('última actualización de la tarea', time(spanish)['detail'])
 
     def test_delivery_history_and_fallbacks_keep_authored_content(self):
         home = bridge.home_id(self.home)

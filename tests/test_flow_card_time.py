@@ -228,6 +228,20 @@ class CardTimeTests(unittest.TestCase):
                 self.assertIsNone(card.event_time.epoch)
                 self.assertIn("event kind does not match", flow.card_time_detail(card.event_time))
 
+    def test_time_sources_translate_only_board_wording(self):
+        # "Recap" is a catalog entry; a producer that writes it keeps its own word.
+        self.addCleanup(setattr, flow, "_LOCALIZATION", None)
+        with patch.dict(os.environ, CD_WEB_LANGUAGE="es"):
+            flow._LOCALIZATION = None
+            produced, _ = self.board(card_time=dict(kind="updated", value="2026-10-24T12:00:00Z",
+                                                    precision="second", source="Recap"))
+            board, _ = self.board(log=f"working [at={NOW - 120}]: Editing renderer\n")
+            produced_detail, board_detail = (flow.card_time_detail(c.event_time) for c in (produced, board))
+        self.assertIn("Recap.", produced_detail)
+        self.assertNotIn("Resumen", produced_detail)
+        self.assertIn("última actualización de la tarea", board_detail)
+        self.assertIn("task.status: latest task update", board.event_time.source)
+
     def test_producer_invalid_contract_retains_honest_source_and_age(self):
         good = dict(kind="updated", value="2026-10-24T12:00:00Z", precision="second", source="authored event")
         invalid = [[], "bad", {}, {**good, "kind": []}, {**good, "precision": "minute"},

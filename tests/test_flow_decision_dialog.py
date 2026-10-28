@@ -576,7 +576,7 @@ def main() -> int:
         bad_dialog = flow.DecisionDialog(bad_key)
         bad_dialog.home_path = mate_home.path
         bad_ok, bad_detail = flow.run_submit(bad_dialog)
-        check(not bad_ok and "malformed task key" in bad_detail,
+        check(not bad_ok and "This task id looks wrong" in bad_detail,
               "a key with a line break in it is refused visibly")
 
         # a lane owner outside the slug charset never becomes a wake target
