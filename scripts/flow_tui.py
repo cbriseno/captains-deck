@@ -1862,12 +1862,23 @@ def _presentation_text(message, **values):
 tr = _presentation_text
 
 
+def call_option_id(opt, taken) -> str:
+    """The id the board shows a call option under, or "" when it drops it.
+
+    An id must be a short slug and unique among ``taken``; ``reconcile`` stays
+    reserved for the board's own re-check choice.
+    """
+    oid = opt["id"].strip() if isinstance(opt, dict) and isinstance(opt.get("id"), str) else ""
+    if not CALL_OPTION_ID_RE.fullmatch(oid) or oid == RECONCILE_OPTION["value"] or oid in taken:
+        return ""
+    return oid
+
+
 def structured_call(raw) -> dict:
     """The row's ``call`` object, bounded and validated, or {} when absent.
 
-    Options are only ever read from this object, never inferred from prose.
-    An id must be a short slug and unique; ``reconcile`` stays reserved for
-    the board's own re-check choice.
+    Options are only ever read from this object, never inferred from prose,
+    and only those ``call_option_id`` keeps.
     """
     if not isinstance(raw, dict):
         return {}
@@ -1876,13 +1887,11 @@ def structured_call(raw) -> dict:
         value = raw.get(key)
         return _trunc(_flatten_field(value), CALL_LIMITS[key]) if isinstance(value, str) else ""
 
+    raw_options = raw.get("options")
     options: list[dict[str, str]] = []
-    for opt in raw.get("options") or []:
-        if not isinstance(opt, dict) or not isinstance(opt.get("id"), str):
-            continue
-        oid = opt["id"].strip()
-        if (not CALL_OPTION_ID_RE.fullmatch(oid) or oid == RECONCILE_OPTION["value"]
-                or any(o["id"] == oid for o in options)):
+    for opt in raw_options if isinstance(raw_options, list) else []:
+        oid = call_option_id(opt, [o["id"] for o in options])
+        if not oid:
             continue
         label = opt.get("label") if isinstance(opt.get("label"), str) else ""
         detail = opt.get("detail") if isinstance(opt.get("detail"), str) else ""

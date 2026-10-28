@@ -528,6 +528,54 @@ test('long context and card text lead with one short line and keep the rest on d
   assert.ok(shown.querySelector('.card-reason').textContent.endsWith('…'));
 });
 
+test('a lead line does not stop at an abbreviation', async () => {
+  const lead = 'Upgrade the CI image to Node 20 vs. Node 18, e.g. for the newer test runner.';
+  const text = lead + ' Then rerun every sample check and compare the timings with the previous image.'.repeat(3);
+  const view = await mountBoard(board([{...card('abbr', ''), presentation: {summary: text}}]));
+  assert.equal(cardsIn(underwayList(view.doc))[0].querySelector('.card-reason').textContent, lead);
+  const call = structuredTicket('abbr', [{value: 'staged', label: 'Staged', hint: ''}, reconcile], {about: text});
+  const callView = await questionView({abbr: call}); await callView.open('abbr');
+  const context = descendants(callView.doc.getElementById('detail-content')).find(n => n.className === 'call-context');
+  assert.equal(context.children[0].textContent, lead);
+});
+
+test('a card status keeps the server’s state-specific label over the generic phase name', async () => {
+  const at = (key, phase, label) => ({...card(key, 'Summary ' + key), activity: {kind: 'unknown', agent: 'unknown', until: '', gap: ''},
+    context: {reason: '', phase, label, firstmate_action: null}, native: {}, report: null, agent: '', herdr_url: ''});
+  const tickets = {last: at('last', 'reported', 'Last report'), ready: at('ready', 'integration', 'Ready for integration'), bare: at('bare', 'reported', '')};
+  const view = await mountBoard(board(Object.values(tickets)), undefined, tickets);
+  const chips = Object.fromEntries(cardsIn(underwayList(view.doc)).map(c => [c.dataset.key, c.querySelector('.phase').textContent]));
+  assert.deepEqual(chips, {last: 'Last report', ready: 'Ready for integration', bare: 'Reported done'});
+  cardsIn(underwayList(view.doc)).find(c => c.dataset.key === 'last').querySelector('.card-open').listeners.click[0]();
+  await view.flush();
+  assert.equal(view.doc.getElementById('detail-kicker').textContent, 'Last report');
+});
+
+test('a failed question check blocks sending only until a later check confirms the same question', async () => {
+  const tickets = {flaky: structuredTicket('flaky', [{value: 'staged', label: 'Staged rollout', hint: ''}, reconcile])};
+  const view = await questionView(tickets); await view.open('flaky');
+  const content = view.doc.getElementById('detail-content'), warning = view.doc.getElementById('call-change');
+  const choices = descendants(content).filter(n => n.tagName === 'BUTTON' && n.className.includes('option-choice'));
+  const note = view.doc.getElementById('answer-note'), send = view.doc.getElementById('answer-submit');
+  note.value = 'Ship it next week'; note.listeners.input[0]({type: 'input'});
+  assert.deepEqual(choices.map(b => b.dataset.value), ['staged', 'reconcile']);
+  assert.ok(choices.every(b => !b.disabled)); assert.equal(send.disabled, false);
+  const ticket = tickets.flaky; delete tickets.flaky;
+  await view.poll(); await view.flush();
+  assert.equal(warning.hidden, false); assert.equal(warning.textContent, 'Couldn’t check the question. Your draft is safe.');
+  assert.ok(choices.every(b => b.disabled)); assert.equal(send.disabled, true);
+  tickets.flaky = ticket;
+  await view.poll(); await view.flush();
+  assert.equal(warning.hidden, true);
+  assert.ok(choices.every(b => !b.disabled)); assert.equal(send.disabled, false);
+  assert.equal(view.doc.getElementById('answer-note'), note); assert.equal(note.value, 'Ship it next week');
+  ticket.call.occurrence = 'synthetic-new-occurrence';
+  await view.poll(); await view.flush();
+  assert.equal(warning.hidden, false); assert.ok(warning.textContent.startsWith('The question changed.'));
+  assert.ok(choices.every(b => b.disabled)); assert.equal(send.disabled, true);
+  assert.ok(view.requests.every(r => r.method === 'GET'));
+});
+
 test('the Captain’s Call dialog reads naturally in Spanish', async () => {
   const messages = JSON.parse(fs.readFileSync(path.join(root, 'locales/es.json'), 'utf8'));
   const tickets = {es: structuredTicket('es', [{value: 'staged', label: 'Por etapas', hint: ''}, reconcile])};

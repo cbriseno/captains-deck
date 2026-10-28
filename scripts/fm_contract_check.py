@@ -33,6 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from deck_platform import endpoint_path
+from flow_tui import call_option_id
 
 SNAPSHOT_SCRIPT = os.path.join("bin", "fm-bearings-snapshot.sh")
 HOLD_SCRIPT = os.path.join("bin", "fm-captain-hold.sh")
@@ -284,15 +285,21 @@ def _call_problems(where: str, call) -> list[str]:
         return [f"{where} is not an object"]
     problems = [f"{where}.{field} is not a str" for field in ("question", "recommended", "context", "link")
                 if field in call and not isinstance(call[field], str)]
-    options = call.get("options", [])
-    if not isinstance(options, list):
+    options = call.get("options")
+    if options is None:
+        options = []
+    elif not isinstance(options, list):
         return problems + [f"{where}.options is not a list"]
-    ids = []
+    ids: list[str] = []
     for index, option in enumerate(options):
+        oid = call_option_id(option, ids)
+        if oid:
+            ids.append(oid)
         if not isinstance(option, dict) or not isinstance(option.get("id"), str) or not isinstance(option.get("label"), str):
             problems.append(f"{where}.options[{index}] needs a str id and label")
-        else:
-            ids.append(option["id"])
+        elif not oid:
+            problems.append(f"{where}.options[{index}].id {option['id']!r} is dropped: "
+                            "ids must be unique short slugs other than 'reconcile'")
     if call.get("recommended") and call.get("recommended") not in ids:
         problems.append(f"{where}.recommended names no option")
     return problems

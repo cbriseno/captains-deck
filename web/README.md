@@ -206,6 +206,7 @@ Conflicts preserve the session draft and require reviewing the current question.
 The keyed intake currently accepts a single-line answer of up to 512 bytes; over-limit answers are rejected before submission, never silently truncated.
 
 A Firstmate captain call row can carry a structured `call` object: `question`, `options` (each `id`, `label` and optional `detail`), `recommended`, `context` and `link`.
+An option `id` is a slug of 1 to 40 letters, digits, `.`, `_` or `-` that starts with a letter or digit, unique within the call and not `reconcile`; the board drops any other option, and `scripts/fm_contract_check.py` warns about it.
 Its options become one-click choices with the recommended one marked; answering in your own words and the re-check request stay available as secondary paths.
 The chosen option id goes through the same keyed-answer intake, and `link` opens the full report.
 Options are never inferred from prose: a row without the object keeps the own-words flow.

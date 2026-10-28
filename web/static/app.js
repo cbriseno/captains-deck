@@ -12,6 +12,7 @@ const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waitin
 const runLabels = { running: t('Checks running'), fixing: t('Fixing failed checks'), passed: t('Checks passed'), failed: t('Checks failed') };
 // Firstmate's crew state and endpoint probe, as projected by the bridge.
 const agentLines = { working: t('Agent is working'), validation: t('Checks are running'), open: t('Agent is open'), present: t('Agent is open but idle'), none: t('No agent running'), unknown: t('Agent status unknown') };
+const staleDraftNote = t("The question changed since you started. Your draft is still here: pick an option or edit it to send.");
 const gapLines = { hold_until: t('No end time given for this hold.'), wait_until: t('No end time given for this pause.') };
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 $('timezone').textContent = t("Times in ") + zone;
@@ -69,7 +70,7 @@ function phaseText(card) {
   if (card.bucket === 'landed') return t('Delivered');
   const run = card.presentation?.run_step;
   if (run) return runLabels[run.state];
-  return activityText(card) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : phaseLabels[card.context.phase] || card.context.label);
+  return activityText(card) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : card.context.label || phaseLabels[card.context.phase]);
 }
 function agentLine(card) {
   const agent = card.activity?.agent || 'unknown', line = node('p', 'activity-note', agentLines[agent] || agentLines.unknown);
@@ -84,7 +85,7 @@ function notice(text, error = false) { $('notice').hidden = !text; $('notice').c
 function syncSubmit() {
   const call = S.modal?.type === 'call' ? S.modal.ticket?.call : null;
   if (!call) return;
-  const blocked = S.busy || !S.online || !!call.error || !!S.receipt;
+  const blocked = S.busy || !S.online || !!call.error || !!S.modal.checkFailed || !!S.receipt;
   for (const b of $('detail-content').querySelectorAll('.option-choice')) {
     b.disabled = blocked;
     b.setAttribute('aria-pressed', String(b.dataset.value === S.modal.value));
@@ -399,7 +400,7 @@ async function openStableLink(params) {
 function shortLine(text, limit = 140) {
   const flat = String(text || '').replace(/\s+/g, ' ').trim();
   if (flat.length <= limit) return flat;
-  const first = flat.match(/^.+?[.!?](?=\s|$)/)?.[0] || flat;
+  const first = flat.match(/^.{40,}?[.!?](?=\s+[\p{Lu}¿¡]|$)/u)?.[0] || flat;
   return first.length <= limit ? first : first.slice(0, limit - 1).replace(/\s+\S*$/, '') + '…';
 }
 function leadText(cls, text) {
@@ -436,7 +437,7 @@ function renderCall(ticket, draftOverride) {
     if (instructions) content.append(instructions);
     addTechnical(ticket, ...technical); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); return;
   }
-  const error = node('p', 'notice', c.error || (staleDraft ? t("The question changed since you started. Your draft is still here: pick an option or edit it to send.") : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
+  const error = node('p', 'notice', c.error || (staleDraft ? staleDraftNote : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
   const about = c.presentation?.about || c.about;
   if (about) content.append(leadText('call-context', about));
   content.append(node('p', 'question', (c.presentation?.decide || c.decide)));
@@ -478,15 +479,17 @@ async function checkCall() {
   modal.checking = true;
   try {
     const latest = await api('api/ticket/' + encodeURIComponent(modal.key));
-    if (S.modal !== modal || S.busy) return;
+    const warning = $('call-change');
+    if (S.modal !== modal || S.busy || !warning) return;
     if (!latest.call || latest.call.occurrence !== modal.ticket.call.occurrence || latest.call.error) {
-      const warning = $('call-change'); if (!warning) return;
       warning.hidden = false; warning.replaceChildren(document.createTextNode(latest.call?.error || t("The question changed. Your draft is still here.")));
       if (latest.call) warning.append(button(t("See the new question"), () => { saveDraft(); renderCall(latest); }));
       modal.ticket.call.error = t("Check the new question before sending.");
-      syncSubmit();
+    } else if (modal.checkFailed) {
+      modal.checkFailed = false; warning.hidden = !modal.draftNeedsReview; warning.textContent = modal.draftNeedsReview ? staleDraftNote : '';
     }
-  } catch (err) { if (S.modal === modal && $('call-change')) { $('call-change').hidden = false; $('call-change').textContent = t("Couldn’t check the question. Your draft is safe."); modal.ticket.call.error = $('call-change').textContent; syncSubmit(); } }
+    syncSubmit();
+  } catch (err) { if (S.modal === modal && $('call-change')) { $('call-change').hidden = false; $('call-change').textContent = t("Couldn’t check the question. Your draft is safe."); modal.checkFailed = true; syncSubmit(); } }
   finally { modal.checking = false; }
 }
 function receiptView(receipt) {

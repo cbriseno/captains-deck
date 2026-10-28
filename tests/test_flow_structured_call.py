@@ -70,6 +70,17 @@ class StructuredCallTests(unittest.TestCase):
         for empty in (None, "text", [], {}, {"context": "only context"}, {"options": [{"label": "no id"}]}):
             self.assertEqual(flow.structured_call(empty), {}, empty)
 
+    def test_non_list_options_only_lose_the_choices(self):
+        for options in (3, 2.5, True, "staged", {"id": "staged"}):
+            with self.subTest(options=options):
+                call, gate = self.cards(call={"question": "Is the sample ready?", "options": options, "recommended": "staged"})
+                self.assertEqual(call.call, {"question": "Is the sample ready?", "options": [], "recommended": "",
+                                             "context": "", "link": ""})
+                self.assertEqual(gate.call, call.call)
+                content = flow.decision_card_content(call, [self.home], self.home)
+                self.assertEqual([o["value"] for o in content["options"]], ["reconcile"])
+                self.assertEqual(content["decide"], "Is the sample ready?")
+
     def test_dialog_content_offers_the_call_options_ahead_of_prose(self):
         card, _ = self.cards(call=CALL)
         content = flow.decision_card_content(card, [self.home], self.home)
