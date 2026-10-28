@@ -74,9 +74,6 @@ class Collector(fm.Collector):
     """Track source-read failures separately from cheap card repaint times."""
     def __init__(self):
         super().__init__(fm.ALL_CREW_LABEL)
-        # The TUI's first snapshot defaults to empty. Web clients can poll
-        # before discovery/Herdr/bearings finish; that is loading, not empty.
-        self._snap.loading = True
         self.source_errors = {}
 
     def _load_bearings(self, home, now, agents, panes, homes):
