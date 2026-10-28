@@ -246,7 +246,8 @@ class WebTests(unittest.TestCase):
         parent_raw=self.board.collector._raw[self.home.label][0]
         parent_raw['decisions_open'][0]['owner']='lane'
         mate_raw=second.collector._raw['Firstmate'][0]
-        snap.bearings={f.delivery_home_identity(self.home):parent_raw,f.delivery_home_identity(mate):mate_raw}
+        snap.bearings={f.delivery_home_identity(self.home):(parent_raw,f.time.time()),
+                       f.delivery_home_identity(mate):(mate_raw,f.time.time())}
         with patch.object(f,'bearings_snapshot',side_effect=AssertionError('unexpected snapshot walk')):
             parts=[]
             for home,raw in [(self.home,parent_raw),(mate,mate_raw)]:
@@ -263,6 +264,13 @@ class WebTests(unittest.TestCase):
                 self.assertEqual(ticket['call']['presentation']['options'][0]['value'],'scope')
                 self.assertEqual(self.board.content(snap.cols['captains_call'][0],mate)['stamp'],
                                  '2026-10-25T15:00:00Z')
+            received=snap.bearings[f.delivery_home_identity(self.home)][1]
+            with patch.object(f,'_bearings_ttl',return_value=60.0), \
+                    patch.object(f.time,'time',return_value=received+61.0):
+                status,ticket=self.req('/api/ticket/'+cards[0]['key'])
+                self.assertEqual(status,200);self.assertFalse(ticket['call']['error'])
+                self.assertEqual([o['value'] for o in ticket['call']['options']],['reconcile'])
+                self.assertEqual([o['value'] for o in ticket['call']['presentation']['options']],['reconcile'])
 
     def test_history_demo_research_summary_report_and_safe_paths(self):
         self.init();status,data=self.req('/api/history?q=DEMO')

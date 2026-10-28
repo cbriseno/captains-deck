@@ -276,9 +276,9 @@ def main() -> int:
         write_board(main_home, [BOARD_CARD])
         mate_tab_card = make_card(owner="demo-lane")
         homes = [main_home, mate_only_board]
-        evidence = {flow.delivery_home_identity(main_home): {
+        evidence = {flow.delivery_home_identity(main_home): ({
             "decisions_open": [{"id": BOARD_CARD["key"], "owner": "demo-lane"}]
-        }}
+        }, time.time())}
         with mock.patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
             mate_tab_content = flow.decision_card_content(mate_tab_card, homes, mate_only_board, bearings=evidence)
         check(
@@ -291,9 +291,9 @@ def main() -> int:
             "authored options survive when only the mate tab is on screen",
         )
         for owners in (["(main)"], ["(main)", "demo-lane"], ["vanished-mate"]):
-            evidence = {flow.delivery_home_identity(main_home): {
+            evidence = {flow.delivery_home_identity(main_home): ({
                 "decisions_open": [{"id": BOARD_CARD["key"], "owner": owner} for owner in owners]
-            }}
+            }, time.time())}
             with mock.patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
                 unowned = flow.decision_card_content(mate_tab_card, homes, mate_only_board, bearings=evidence)
             check(unowned["title"] == "summary" and unowned["home_path"] == mate_only_board.path,
