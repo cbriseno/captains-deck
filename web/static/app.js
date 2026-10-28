@@ -85,7 +85,7 @@ function notice(text, error = false) { $('notice').hidden = !text; $('notice').c
 function syncSubmit() {
   const call = S.modal?.type === 'call' ? S.modal.ticket?.call : null;
   if (!call) return;
-  const blocked = S.busy || !S.online || !!call.error || !!S.modal.checkFailed || !!S.receipt;
+  const blocked = S.busy || !S.online || !!S.modal.checkFailed || !!S.receipt;
   for (const b of $('detail-content').querySelectorAll('.option-choice')) {
     b.disabled = blocked;
     b.setAttribute('aria-pressed', String(b.dataset.value === S.modal.value));
@@ -397,11 +397,15 @@ async function openStableLink(params) {
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
 // Long authored text leads with one short line; the rest opens on demand.
+const abbreviation = /(?:^|[^\p{L}.])(?:vs|e\.g|i\.e|etc|approx|aprox|mrs?|dra?|sra?|no|p\. ?ej)$/iu;
 function shortLine(text, limit = 140) {
   const flat = String(text || '').replace(/\s+/g, ' ').trim();
   if (flat.length <= limit) return flat;
-  const first = flat.match(/^.{40,}?[.!?](?=\s+[\p{Lu}¿¡]|$)/u)?.[0] || flat;
-  return first.length <= limit ? first : first.slice(0, limit - 1).replace(/\s+\S*$/, '') + '…';
+  for (const end of flat.matchAll(/[.!?](?=\s+[\p{Lu}¿¡]|$)/gu)) {
+    if (end.index >= limit) break;
+    if (end.index >= 40 && !abbreviation.test(flat.slice(0, end.index))) return flat.slice(0, end.index + 1);
+  }
+  return flat.slice(0, limit - 1).replace(/\s+\S*$/, '') + '…';
 }
 function leadText(cls, text) {
   const lead = shortLine(text), full = String(text || '').trim();
@@ -416,13 +420,13 @@ function reportLink(link) {
 }
 function choose(value) {
   if (S.busy || S.receipt || S.modal?.type !== 'call') return;
-  S.modal.value = value; S.modal.draftNeedsReview = false; $('call-change').hidden = !S.modal.ticket.call.error;
+  S.modal.value = value; S.modal.draftNeedsReview = false; $('call-change').hidden = true;
   saveDraft(); submitAnswer();
 }
 function renderCall(ticket, draftOverride) {
   const key = ticket.key, c = ticket.call, draft = draftOverride || readDraft(key);
   const staleDraft = !!draft.occurrence && draft.occurrence !== c.occurrence && !!(draft.note || draft.value);
-  S.modal = { type: 'call', key, ticket, value: staleDraft ? '' : draft.value || '', request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence };
+  S.modal = { type: 'call', key, ticket, value: staleDraft ? '' : draft.value || '', request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence, checkFailed: !!c.error };
   $('detail-kicker').textContent = t('CAPTAIN’S CALL'); $('detail-title').textContent = ticket.title;
   const content = $('detail-content'); content.replaceChildren();
   if (c.title && ![ticket.title, ticket.original_title].includes(c.title)) content.append(node('h3', 'call-question-title', c.title));
@@ -481,10 +485,11 @@ async function checkCall() {
     const latest = await api('api/ticket/' + encodeURIComponent(modal.key));
     const warning = $('call-change');
     if (S.modal !== modal || S.busy || !warning) return;
-    if (!latest.call || latest.call.occurrence !== modal.ticket.call.occurrence || latest.call.error) {
+    const changed = !latest.call || latest.call.occurrence !== modal.ticket.call.occurrence;
+    if (changed || latest.call.error) {
       warning.hidden = false; warning.replaceChildren(document.createTextNode(latest.call?.error || t("The question changed. Your draft is still here.")));
-      if (latest.call) warning.append(button(t("See the new question"), () => { saveDraft(); renderCall(latest); }));
-      modal.ticket.call.error = t("Check the new question before sending.");
+      if (changed && latest.call && !latest.call.error) warning.append(button(t("See the new question"), () => { saveDraft(); renderCall(latest); }));
+      modal.checkFailed = true;
     } else if (modal.checkFailed) {
       modal.checkFailed = false; warning.hidden = !modal.draftNeedsReview; warning.textContent = modal.draftNeedsReview ? staleDraftNote : '';
     }

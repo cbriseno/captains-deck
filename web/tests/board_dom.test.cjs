@@ -539,6 +539,16 @@ test('a lead line does not stop at an abbreviation', async () => {
   assert.equal(context.children[0].textContent, lead);
 });
 
+test('a lead line skips abbreviations anywhere and otherwise cuts at a word', async () => {
+  const lead = 'We need to pick the database for the new billing service, Postgres vs. MySQL, before the schema freeze on Friday.';
+  const safe = lead + ' Postgres has the better tooling for the sample reports and the team already knows it well.';
+  const unsafe = 'Pick the cache for the sample service, Redis vs. Memcached, e.g. for session data, i.e. The login tokens, approx. Ten thousand keys per node, as Dr. Example said.';
+  const view = await mountBoard(board([{...card('safe', ''), presentation: {summary: safe}}, {...card('unsafe', ''), presentation: {summary: unsafe}}]));
+  const reasons = Object.fromEntries(cardsIn(underwayList(view.doc)).map(c => [c.dataset.key, c.querySelector('.card-reason').textContent]));
+  assert.equal(reasons.safe, lead);
+  assert.equal(reasons.unsafe, 'Pick the cache for the sample service, Redis vs. Memcached, e.g. for session data, i.e. The login tokens, approx. Ten thousand keys per…');
+});
+
 test('a card status keeps the server’s state-specific label over the generic phase name', async () => {
   const at = (key, phase, label) => ({...card(key, 'Summary ' + key), activity: {kind: 'unknown', agent: 'unknown', until: '', gap: ''},
     context: {reason: '', phase, label, firstmate_action: null}, native: {}, report: null, agent: '', herdr_url: ''});
@@ -573,6 +583,32 @@ test('a failed question check blocks sending only until a later check confirms t
   await view.poll(); await view.flush();
   assert.equal(warning.hidden, false); assert.ok(warning.textContent.startsWith('The question changed.'));
   assert.ok(choices.every(b => b.disabled)); assert.equal(send.disabled, true);
+  assert.ok(view.requests.every(r => r.method === 'GET'));
+});
+
+test('a server error on the same question blocks sending only until a clean check', async () => {
+  const error = 'This home’s intake needs an occurrence guard for web answers.';
+  const tickets = {guard: structuredTicket('guard', [{value: 'staged', label: 'Staged rollout', hint: ''}, reconcile], {error})};
+  const ticket = tickets.guard;
+  const view = await questionView(tickets); await view.open('guard');
+  const content = view.doc.getElementById('detail-content'), warning = view.doc.getElementById('call-change');
+  const choices = descendants(content).filter(n => n.tagName === 'BUTTON' && n.className.includes('option-choice'));
+  const note = view.doc.getElementById('answer-note'), send = view.doc.getElementById('answer-submit');
+  note.value = 'Ship it next week'; note.listeners.input[0]({type: 'input'});
+  const locked = () => choices.every(b => b.disabled) && send.disabled;
+  const open = () => choices.every(b => !b.disabled) && !send.disabled;
+  assert.equal(warning.hidden, false); assert.equal(warning.textContent, error); assert.ok(locked());
+  ticket.call.error = '';
+  await view.poll(); await view.flush();
+  assert.equal(warning.hidden, true); assert.ok(open());
+  ticket.call.error = error;
+  await view.poll(); await view.flush();
+  assert.equal(warning.hidden, false); assert.equal(warning.textContent, error); assert.ok(locked());
+  assert.equal(descendants(warning).some(n => n.tagName === 'BUTTON'), false);
+  ticket.call.error = '';
+  await view.poll(); await view.flush();
+  assert.equal(warning.hidden, true); assert.ok(open());
+  assert.equal(view.doc.getElementById('answer-note'), note); assert.equal(note.value, 'Ship it next week');
   assert.ok(view.requests.every(r => r.method === 'GET'));
 });
 
