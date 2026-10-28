@@ -16,6 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OPEN_FLOW = ROOT / "scripts" / "open-flow.sh"
 OPEN_DECK = ROOT / "scripts" / "open-captain-deck.sh"
+# A launcher run takes under a second when idle; the margin is for loaded CI
+# runners and laptops, where every fake herdr call is a fresh interpreter.
+LAUNCHER_TIMEOUT_SECS = 120
 
 FAKE_HERDR = r'''#!/usr/bin/env python3
 """Minimal herdr stand-in for launcher tests; state lives in FAKE_HERDR_STATE."""
@@ -156,9 +159,20 @@ def _run(script: Path, fake: Path, state: Path, log: Path, cfg: Path):
     env["FAKE_HERDR_LOG"] = str(log)
     env["HERDR_PLUGIN_CONFIG_DIR"] = str(cfg)
     env.pop("HERDR_CONFIG_DIR", None)
-    return subprocess.run(
-        ["bash", str(script)], env=env, capture_output=True, text=True, timeout=20
-    )
+    try:
+        return subprocess.run(
+            ["bash", str(script)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=LAUNCHER_TIMEOUT_SECS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # Name the timeout so a stalled host is not mistaken for a wrong answer.
+        raise AssertionError(
+            f"TIMEOUT: {script.name} did not finish within {LAUNCHER_TIMEOUT_SECS}s"
+            f"; stderr so far: {exc.stderr!r}"
+        ) from None
 
 
 def _pane(pane_id: str, label: str = "Flow", argv=None, focused: bool = False, ws: str = "w1"):

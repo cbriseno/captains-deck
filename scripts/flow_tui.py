@@ -3596,6 +3596,9 @@ class Collector(threading.Thread):
         super().__init__(daemon=True)
         self.lock = threading.Lock()
         self._snap = Snapshot()
+        # Nothing is collected yet: the first paint says so instead of showing
+        # empty columns, which read as a home with no work.
+        self._snap.loading = True
         self._active = active_label
         self._reveal_answered = False
         self._wake = threading.Event()
@@ -5218,7 +5221,12 @@ class UI:
             x0 = vi * (colw + 1)
             col_lines = [" " * colw] * body_h
             if not cards:
-                placeholder = "  (loading\u2026)" if snap.loading else "  (empty)"
+                if not snap.loading:
+                    placeholder = "  (empty)"
+                elif snap.home is None:
+                    placeholder = "  " + _presentation_text("Loading board\u2026")
+                else:
+                    placeholder = "  " + _presentation_text("Loading this crew\u2026")
                 col_lines[0] = f"{fg(C_DIM)}{pad(placeholder, colw)}{RESET}"
             for i, card in enumerate(cards):
                 top = body_top + i * CARD_ROWS - off

@@ -43,6 +43,8 @@ From a shell inside Herdr that is:
 herdr plugin action invoke herdr-firstmate-flow.open-captain-deck
 ```
 
+The terminal board shows **Loading board…** at startup and **Loading this crew…** while waiting for an uncached crew snapshot.
+
 To bind it to a key, add a `[[keys.command]]` entry with `type = "plugin_action"` and `command = "herdr-firstmate-flow.open-captain-deck"` to Herdr's `config.toml`.
 On the board, `?` lists the keys, and `m` messages the Firstmate primary running in a Herdr pane whose working directory is the home.
 

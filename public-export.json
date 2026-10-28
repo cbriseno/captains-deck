@@ -54,6 +54,7 @@
     "tests/test_flow_decision_dialog.py",
     "tests/test_flow_deliveries.py",
     "tests/test_flow_durable_reports.py",
+    "tests/test_flow_first_paint.py",
     "tests/test_flow_help.py",
     "tests/test_flow_homes.py",
     "tests/test_flow_landed_outcomes.py",
