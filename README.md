@@ -45,6 +45,9 @@ printf '%s\n' es-MX > "$(herdr plugin config-dir herdr-firstmate-flow)/language"
 
 It accepts the same values as the [web language setting](web/README.md#language-and-appearance) and applies the next time the board opens.
 
+Captain's Call keeps same-named tasks in different answering homes separate, including in the **All** crew view.
+A delegated call mirrored by its parent and its answering home appears once; answering it does not hide another home's same-named call.
+
 Open the board with the plugin's **Open captain's deck** (full workspace) or **Open flow board** (overlay) action.
 From a shell inside Herdr that is:
 

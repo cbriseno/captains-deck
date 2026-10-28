@@ -334,7 +334,11 @@ def _answered_call_task(key: str) -> str:
 
 
 def load_answered_calls() -> dict[str, dict]:
-    """Read home/task records and legacy task-only records."""
+    """Read records keyed by canonical home/task JSON pairs or legacy task slugs.
+
+    A legacy record can hide a row only in its recorded home, with fresh
+    bearings proving no other home currently holds that task.
+    """
     try:
         with open(answered_ledger_path(), "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -1896,6 +1900,11 @@ def decision_card_content(
 ) -> dict:
     """Normalized dialog content for a Captain's Call ticket.
 
+    Look in the answering home first; another home's composed card requires
+    fresh bearings proving it belongs solely to that answering home.
+    This lookup never refreshes snapshots. Canonical content stays untranslated;
+    ``presentation`` carries localized UI wording from that same content.
+
     With no composed card (no board yet, or a card not composed for this key),
     the ticket's durable title and hold reason become the title and about line,
     and the captain answers in their own words - or sends Reconcile to have the
@@ -2955,7 +2964,7 @@ def make_cards(
         cols["captains_call"].append(c)
         totals["captains_call"] += 1
 
-    # An answered call leaves the column until its owning agent takes the work.
+    # An answered call stays hidden until its owning agent takes the work.
     # Firstmate keeps a live captain hold after an answer, so without this the
     # same row returns with no new question and the calls pile up.
     if hide_answered_default() and not reveal_answered:
