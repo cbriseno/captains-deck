@@ -8,6 +8,29 @@ from pathlib import Path
 import re
 
 CATALOGS = Path(__file__).resolve().parent / 'locales'
+# Receipt files keep the message they were saved with: earlier English and
+# Spanish receipt wording maps to the current message.
+RECEIPT_MESSAGES = {
+    'Submission started. If the connection drops, check this receipt before retrying.':
+        'Sending started. If the connection dropped, check the answer status before sending again.',
+    'Envío iniciado. Si la conexión se interrumpe, verifica este recibo antes de repetir.':
+        'Sending started. If the connection dropped, check the answer status before sending again.',
+    'Review request saved.': 'Saved. Firstmate will check again.',
+    'Solicitud de revisión guardada.': 'Saved. Firstmate will check again.',
+    'Respuesta guardada por Firstmate.': 'Answer saved by Firstmate.',
+    'The intake did not confirm submission. Check the receipt; your draft is preserved.':
+        'Firstmate didn’t confirm it got your answer. Check the answer status; your draft is safe.',
+    'El intake no confirmó el envío. Verifica el recibo; tu borrador se conserva.':
+        'Firstmate didn’t confirm it got your answer. Check the answer status; your draft is safe.',
+    'The occurrence changed before saving. The answer was not sent; your draft is preserved.':
+        'The question changed before saving, so nothing was sent. Your draft is safe.',
+    'La ocurrencia cambió antes de guardar. No se envió la respuesta; tu borrador se conserva.':
+        'The question changed before saving, so nothing was sent. Your draft is safe.',
+    'Could not confirm submission. Your draft is preserved.':
+        'Couldn’t confirm your answer was sent. Check the answer status; your draft is safe.',
+    'No se pudo confirmar el envío. Tu borrador se conserva.':
+        'Couldn’t confirm your answer was sent. Check the answer status; your draft is safe.',
+}
 
 
 def normalize_language(value):
@@ -25,7 +48,6 @@ class Localization:
         self.locale = normalize_language(language)
         self.language = self.locale.split('-')[0]
         self.messages = json.loads((CATALOGS / 'en.json').read_text(encoding='utf-8'))
-        self.spanish = json.loads((CATALOGS / 'es.json').read_text(encoding='utf-8'))
         if self.language != 'en':
             self.messages.update(json.loads((CATALOGS / (self.language + '.json')).read_text(encoding='utf-8')))
 
@@ -35,16 +57,8 @@ class Localization:
         return text.format_map(values) if values else text
 
     def receipt_message(self, message):
-        keys = (
-            'Submission started. If the connection drops, check this receipt before retrying.',
-            'Review request saved.', 'Answer saved by Firstmate.',
-            'The intake did not confirm submission. Check the receipt; your draft is preserved.',
-            'The occurrence changed before saving. The answer was not sent; your draft is preserved.',
-            'Could not confirm submission. Your draft is preserved.',
-        )
         # Compatibility is restricted to known receipt chrome, never task prose.
-        key = next((k for k in keys if self.spanish.get(k) == message), message)
-        return self.t(key)
+        return self.t(RECEIPT_MESSAGES.get(message, message))
 
     def client(self):
         return {'locale': self.locale, 'language': self.language, 'messages': self.messages}

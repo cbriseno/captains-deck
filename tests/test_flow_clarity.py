@@ -65,8 +65,8 @@ class ClarityTests(unittest.TestCase):
         self.assertFalse(snap.cols['awaiting_merge'])
         frame=self.render(ui,snap)
         self.assertNotIn('Awaiting Merge',frame)
-        self.assertIn('Technical hold',frame)
-        self.assertIn('Integration pending',frame)
+        self.assertIn('On hold',frame)
+        self.assertIn('Finishing up',frame)
         ui.col_idx=1; f.parse_input(b'\r',ui)
         self.assertIsNotNone(ui.details)
         self.assertIn('FINAL_RAZON',str(f.UI.detail_fields(ui.details)))
@@ -86,7 +86,7 @@ class ClarityTests(unittest.TestCase):
         self.assertIn('Comprobar atención en el teléfono · fixture',f.dependency_caption(card))
         self.assertEqual(f.flow_context(card)['phase'],'dependency')
         card.dependencies[0]['reconciliation_required']=True
-        self.assertIn('pending reconciliation',f.dependency_caption(card))
+        self.assertIn('link needs a check',f.dependency_caption(card))
         card.blocked_by='';card.dependencies=[];card.live_status='working'
         self.assertEqual(f.flow_context(card)['phase'],'unknown')
         card.flow={'phase':'human','reason':'Elegir el alcance','waiting_for':'Respuesta de la persona','firstmate_action':'Coordinar opciones'}
@@ -123,7 +123,7 @@ class ClarityTests(unittest.TestCase):
         (self.root/'data/old/delivery.md').write_text('# Entrega\n\n## Resultado\n**Skill instalada** para conexión local.\n\n## Por qué\nEvita pedir ayuda antes de intentar Wi-Fi.\n\n## Verificado\nPruebas dirigidas pasaron.\n\n## Pendiente\nLa aceptación móvil sigue pendiente.\n[Informe](report.md)\n[Receipt](receipt.json)\n')
         ui,snap=self.ui();ui.open_delivery(snap.cols['landed'][0])
         text=self.render(ui,snap,126,46)
-        self.assertIn('Skill instalada',text);self.assertIn('Ask Firstmate for an explanation',text)
+        self.assertIn('Skill instalada',text);self.assertIn('Ask Firstmate to explain',text)
         self.assertNotIn('END_OF_REPORT',ui.delivery)
         self.assertNotIn('##',ui.delivery);self.assertNotIn('**',ui.delivery);self.assertNotIn('](report.md)',ui.delivery)
         self.assertIn('date only; time not recorded',text)
@@ -132,14 +132,14 @@ class ClarityTests(unittest.TestCase):
         (self.root/'data/old/delivery.md').write_text('# Entrega\n## Resultado\nResultado conservado.\n\n'+('Datos técnicos.\n'*500)+'FINAL_RESUMEN')
         ui.open_delivery(snap.cols['landed'][0])
         self.assertLess(len(ui.delivery),1200)
-        self.assertIn('Abbreviated',ui.delivery)
+        self.assertIn('Short version',ui.delivery)
         ui.delivery_set_view('details');self.assertIn('FINAL_RESUMEN',ui.delivery)
 
     def test_technical_receipt_does_not_become_the_initial_delivery_brief(self):
         receipt='Ready in branch fm/example; HEAD abc123.\n\n'+('Technical transport receipt.\n'*200)
         (self.root/'data/old/delivery.md').write_text(receipt)
         ui,snap=self.ui();ui.open_delivery(snap.cols['landed'][0])
-        self.assertIn('no brief result summary',ui.delivery)
+        self.assertIn('no short summary',ui.delivery)
         self.assertNotIn('Ready in branch',ui.delivery)
         self.assertNotIn('Technical transport',ui.delivery)
         ui.delivery_set_view('details')
@@ -183,7 +183,7 @@ class ClarityTests(unittest.TestCase):
     def test_explanation_missing_backend_and_wrong_home_are_visible(self):
         ui,snap=self.ui();ui.open_delivery(snap.cols['landed'][0]);f.parse_input(b'e',ui)
         self.assertEqual(ui.explanation['state'],'unsupported')
-        self.assertIn('backend',self.render(ui,snap,60,18))
+        self.assertIn('Update Firstmate to ask for explanations',self.render(ui,snap,60,18))
         self.endpoint()
         with patch.object(f.subprocess,'run',return_value=type('Result',(),{'returncode':0,'stdout':json.dumps({'ok':True,'home':'/wrong','task':'old','request_id':'wrong','state':'queued'})})()):
             result=f.explanation_request(self.home,'old')

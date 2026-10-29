@@ -211,7 +211,7 @@ def test_submit_wake_compatibility() -> None:
                         lines = [" " * 120 for _ in range(40)]
                         ui.render_dialog(lines, 120, 40)
                         rendered = ANSI.sub("", "\n".join(lines))
-                        check(("queues owner wake" in rendered) == owns_wake
+                        check(("wakes the task’s agent" in rendered) == owns_wake
                               and ("steers demo-lane" in rendered) == (enabled and not owns_wake),
                               f"rendered Reconcile footer matches the wake: {label}")
 
@@ -496,7 +496,7 @@ def main() -> int:
             ui.render(snap)
         text = ANSI.sub("", frame.getvalue())
         for needle in ("DECISION", "demo-repo", "Draft the release checklist for #29",
-                       "ABOUT", "DECIDE", "Hold it", "REC", "Reconcile",
+                       "ABOUT", "DECIDE", "Hold it", "REC", "Check again first",
                        "Queue answer", "typed note", "esc close"):
             check(needle in text, f"dialog renders {needle!r}")
 
@@ -587,7 +587,7 @@ def main() -> int:
         bad_dialog = flow.DecisionDialog(bad_key)
         bad_dialog.home_path = mate_home.path
         bad_ok, bad_detail = flow.run_submit(bad_dialog)
-        check(not bad_ok and "malformed task key" in bad_detail,
+        check(not bad_ok and "This task id looks wrong" in bad_detail,
               "a key with a line break in it is refused visibly")
 
         # a lane owner outside the slug charset never becomes a wake target

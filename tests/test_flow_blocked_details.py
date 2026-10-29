@@ -125,7 +125,7 @@ class BlockedDetailsTests(unittest.TestCase):
             flow.parse_input(b"\x1b[6~", ui)
             seen += self.frame(ui, snap, 80, 24)
         assert "END_OF_REASON" in seen
-        assert "Owner: Firstmate · crew" in seen
+        assert "Crew: Firstmate · crew" in seen
         assert "Worker: task" in seen
         assert "Dependency: None recorded" in seen and "Next:" in seen
         assert "Blocker key: identity" in seen
@@ -145,7 +145,7 @@ class BlockedDetailsTests(unittest.TestCase):
         assert "approval" not in dict(flow.UI.detail_fields(blocked))["Routing detail"]
         decision, snap = self.board("needs-decision [at=101] [key=scope]: Need scope reconciliation\n")
         assert not snap.cols["captains_call"]
-        assert "reconcile the declared decision" in dict(flow.UI.detail_fields(decision))["Routing detail"]
+        assert "check this decision against" in dict(flow.UI.detail_fields(decision))["Routing detail"]
 
     def test_unconfirmed_native_status_does_not_invent_task_progress(self):
         for native in (None, "unknown", "garbled", "done"):
@@ -196,7 +196,7 @@ class BlockedDetailsTests(unittest.TestCase):
         card, snap = self.board(f"blocked [at=101] [key=identity]: {reason}\n")
         assert dict(flow.UI.detail_fields(card))["Reason"] == reason
         fields = dict(flow.UI.detail_fields(card))
-        assert "may be abbreviated" in fields["Evidence"]
+        assert "may be shortened" in fields["Evidence"]
         assert fields["Dependency"].startswith("None recorded")
 
 

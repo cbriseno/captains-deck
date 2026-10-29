@@ -73,7 +73,7 @@ class DeliveryTests(unittest.TestCase):
         old = next(r for r in rows if r['id'] == 'old')
         self.assertEqual((old['source'], old['closed'], old['verb']), ('archive', '2026-10-21', 'done'))
         self.assertIn('done-archive.md', note)
-        self.assertIn('Retained', note)
+        self.assertIn('Shows what Firstmate still keeps', note)
         self.assertTrue(all(path.read_bytes() == data for path, data in before.items()))
 
     def test_reopened_current_row_wins_and_captain_questions_are_not_deliveries(self):
@@ -86,13 +86,13 @@ class DeliveryTests(unittest.TestCase):
     def test_curated_recap_full_report_and_linked_receipt_are_plain_text(self):
         rows, _, _ = flow.delivery_records(self.home)
         text = flow.delivery_content(next(r for r in rows if r['id'] == 'old'), self.home)
-        for part in ('Curated recap', 'Only the skill authoring', 'Evals not run', 'END_OF_REPORT', 'RECEIPT_END', '2026-10-21', 'broader intent is not inferred'):
+        for part in ('Recap', 'Only the skill authoring', 'Evals not run', 'END_OF_REPORT', 'RECEIPT_END', '2026-10-21', 'Scope: this task only'):
             self.assertIn(part, text)
 
     def test_missing_recap_and_artifacts_have_clear_fallback(self):
         text = flow.delivery_content({'id': 'missing', 'title': 'Recorded study', 'state': 'done', 'verb': 'reported'}, self.home)
-        self.assertIn('No curated recap', text)
-        self.assertIn('Report unavailable', text)
+        self.assertIn('No recap yet', text)
+        self.assertIn('No full report for this task yet', text)
         self.assertIn('date unavailable', text)
         self.assertNotIn('no agent yet', text)
 
@@ -131,12 +131,12 @@ class DeliveryTests(unittest.TestCase):
         rows, note, complete = flow.delivery_records(self.home)
         self.assertFalse(complete)
         self.assertEqual(rows, [])
-        self.assertIn('read-only completed-record/archive export', note)
+        self.assertIn('doesn’t share finished tasks with Deck', note)
         remote = flow.Home('remote', self.home.path, 'secondmate', route='remote')
         rows, note, complete = flow.delivery_records(remote)
         self.assertFalse(complete)
-        self.assertIn('Remote history', note)
-        self.assertIn('Remote report/recap unavailable', flow.delivery_content({'id': 'old'}, remote))
+        self.assertIn('remote crews don’t share history', note)
+        self.assertIn('This crew is remote', flow.delivery_content({'id': 'old'}, remote))
 
     def test_configured_archive_and_unsafe_backend_paths(self):
         (self.root / 'data/retained.md').write_text((self.root / 'data/done-archive.md').read_text())
@@ -229,7 +229,7 @@ class DeliveryTests(unittest.TestCase):
         flow.parse_input(b'r', ui)
         self.assertIn('END_OF_REPORT', ui.delivery)
         flow.parse_input(b'\x1b\x15no-such-result', ui)
-        self.assertIn('No matching retained deliveries', self.frame(ui, snap))
+        self.assertIn('No matching deliveries', self.frame(ui, snap))
         self.assertFalse(ui.quitting)
 
     def test_history_source_info_is_scrollable_and_never_marks_read(self):
@@ -238,13 +238,13 @@ class DeliveryTests(unittest.TestCase):
         flow.parse_input(b'H', ui)
         self.assertIn('incomplete sources', self.frame(ui, snap))
         flow.parse_input(b'\t', ui)
-        self.assertIn('read-only completed-record/archive export', ui.delivery)
+        self.assertIn('doesn’t share finished tasks with Deck', ui.delivery)
         self.assertFalse(flow.delivery_seen(self.home.path, 'old'))
         seen = self.frame(ui, snap, 60, 12)
         while ui.delivery_scroll < ui.delivery_max:
             flow.parse_input(b'\x1b[6~', ui)
             seen += self.frame(ui, snap, 60, 12)
-        self.assertIn('automatic messages', seen)
+        self.assertIn('never send messages', seen)
 
     def test_stale_recent_card_displays_reopened_canonical_state(self):
         ui, snap = self.ui()
@@ -285,7 +285,7 @@ class DeliveryTests(unittest.TestCase):
         snap.home = remote
         snap.cols, snap.totals = flow.make_cards(remote, {'landed': [{'id': 'old', 'what': 'Remote delivery'}]}, {}, {}, {}, snap.homes)
         ui.activate()
-        self.assertIn('Remote report/recap unavailable', ui.delivery)
+        self.assertIn('This crew is remote', ui.delivery)
         self.assertNotIn('END_OF_REPORT', ui.delivery)
         self.assertFalse(flow.delivery_seen(self.home.path, 'old'))
         self.assertTrue(flow.delivery_seen(flow.delivery_home_identity(remote), 'old'))
@@ -299,7 +299,7 @@ class DeliveryTests(unittest.TestCase):
         with patch.object(flow, 'delivery_content') as content:
             ui.activate()
             content.assert_not_called()
-        self.assertIn('owner unavailable', ui.delivery)
+        self.assertIn('Can’t tell which crew', ui.delivery)
 
 
 if __name__ == '__main__':

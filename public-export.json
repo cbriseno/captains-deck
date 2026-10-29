@@ -64,6 +64,7 @@
     "tests/test_flow_remote_homes.py",
     "tests/test_flow_run_stats.py",
     "tests/test_flow_status_followup.py",
+    "tests/test_flow_structured_call.py",
     "tests/test_fm_contract_check.py",
     "tests/test_landed_outcomes_pty.py",
     "tests/test_open_scripts.py",

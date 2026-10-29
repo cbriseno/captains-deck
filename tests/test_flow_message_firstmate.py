@@ -107,7 +107,7 @@ def test_enter_sends_once_to_the_supervisor_of_the_tab_on_screen():
         flow.parse_input(b"\r", ui)
     assert sent == [("wM:p1", "start two tasks")]
     assert ui.message is None
-    assert ui.flash == "sent to firstmate (wM:p1)"
+    assert ui.flash == "Sent to Firstmate (wM:p1)"
 
 
 def test_the_all_tab_sends_to_the_captain_home_supervisor():
@@ -157,7 +157,7 @@ def test_a_missing_supervisor_is_refused():
         flow.parse_input(b"hello", ui)
         flow.parse_input(b"\r", ui)
     assert sent == []
-    assert "no Firstmate pane" in ui.message.error
+    assert "Couldn’t find Firstmate for" in ui.message.error
 
 
 def test_a_blocked_reply_shows_the_refusal_and_keeps_the_text():

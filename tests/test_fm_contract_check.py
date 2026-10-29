@@ -70,6 +70,51 @@ def test_contract_flags_missing_snapshot_field():
         assert "in_flight[0].doing" in _fail_details(report)
 
 
+def test_contract_accepts_a_structured_call_and_warns_on_a_malformed_one():
+    with tempfile.TemporaryDirectory() as tmp:
+        dst = _copy_fixtures(Path(tmp))
+        snap_path = dst / "bearings_snapshot.json"
+        data = json.loads(snap_path.read_text())
+        data["decisions_open"][0]["call"] = {"question": "Ship it?", "recommended": "yes",
+                                             "options": [{"id": "yes", "label": "Ship it", "detail": ""}]}
+        snap_path.write_text(json.dumps(data))
+        report = checker.check_home(str(dst / "home"))
+        assert report.is_ok(), _fail_details(report)
+        assert not any(c["check"] == "snapshot.decisions_open.call" for c in report.checks)
+        data["decisions_open"][0]["call"] = {"options": [{"id": 3}], "recommended": "no"}
+        snap_path.write_text(json.dumps(data))
+        report = checker.check_home(str(dst / "home"))
+        assert report.is_ok(), _fail_details(report)
+        warned = [c for c in report.checks if c["check"] == "snapshot.decisions_open.call"]
+        assert warned and warned[0]["status"] == "warn"
+        assert "options[0]" in warned[0]["detail"]
+
+
+def test_contract_warns_on_each_call_option_the_board_drops():
+    with tempfile.TemporaryDirectory() as tmp:
+        dst = _copy_fixtures(Path(tmp))
+        snap_path = dst / "bearings_snapshot.json"
+        data = json.loads(snap_path.read_text())
+
+        def warnings(call):
+            data["decisions_open"][0]["call"] = call
+            snap_path.write_text(json.dumps(data))
+            report = checker.check_home(str(dst / "home"))
+            assert report.is_ok(), _fail_details(report)
+            return [c["detail"] for c in report.checks if c["check"] == "snapshot.decisions_open.call"]
+
+        assert warnings({"question": "Ship it?", "options": None}) == []
+        for options, index in (([{"id": "Option A", "label": "A"}], 0),
+                               ([{"id": "b", "label": "B"}, {"id": "b", "label": "B again"}], 1),
+                               ([{"id": "reconcile", "label": "Check again"}], 0)):
+            found = warnings({"question": "Ship it?", "options": options})
+            assert len(found) == 1 and found[0].startswith("1 issue(s)"), found
+            assert f"options[{index}].id" in found[0] and "is dropped" in found[0], found
+        found = warnings({"question": "Ship it?", "recommended": "Option A",
+                          "options": [{"id": "Option A", "label": "A"}, {"id": "b", "label": "B"}]})
+        assert found and found[0].startswith("2 issue(s)"), found
+
+
 def test_contract_flags_missing_meta_harness():
     with tempfile.TemporaryDirectory() as tmp:
         dst = _copy_fixtures(Path(tmp))

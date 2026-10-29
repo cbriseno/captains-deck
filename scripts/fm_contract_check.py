@@ -33,6 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from deck_platform import endpoint_path
+from flow_tui import call_option_id
 
 SNAPSHOT_SCRIPT = os.path.join("bin", "fm-bearings-snapshot.sh")
 HOLD_SCRIPT = os.path.join("bin", "fm-captain-hold.sh")
@@ -230,10 +231,13 @@ def _check_snapshot(data: dict, report: Report) -> None:
             )
             continue
         problems: list[str] = []
+        call_problems: list[str] = []
         for index, item in enumerate(items):
             if not isinstance(item, dict):
                 problems.append(f"{section}[{index}] is not an object")
                 continue
+            if "call" in item:
+                call_problems += _call_problems(f"{section}[{index}].call", item["call"])
             for field in ITEM_FIELDS.get(section, ()):
                 if not isinstance(item.get(field), str):
                     problems.append(
@@ -256,6 +260,13 @@ def _check_snapshot(data: dict, report: Report) -> None:
             )
         else:
             report.ok(f"snapshot.{section}", f"{len(items)} item(s)")
+        # The structured call is optional; a malformed one only loses its
+        # choices (the card falls back to the reason), so it warns.
+        if call_problems:
+            report.warn(
+                f"snapshot.{section}.call",
+                f"{len(call_problems)} issue(s); first: {call_problems[0]}",
+            )
     paths = data.get("paths")
     if isinstance(paths, list):
         for index, item in enumerate(paths):
@@ -265,6 +276,33 @@ def _check_snapshot(data: dict, report: Report) -> None:
                     "status is not a str (the card falls back to state/<task>.status)",
                 )
                 break
+
+
+def _call_problems(where: str, call) -> list[str]:
+    """Shape issues in a row's optional `call` object
+    ({question, options:[{id,label,detail}], recommended, context, link})."""
+    if not isinstance(call, dict):
+        return [f"{where} is not an object"]
+    problems = [f"{where}.{field} is not a str" for field in ("question", "recommended", "context", "link")
+                if field in call and not isinstance(call[field], str)]
+    options = call.get("options")
+    if options is None:
+        options = []
+    elif not isinstance(options, list):
+        return problems + [f"{where}.options is not a list"]
+    ids: list[str] = []
+    for index, option in enumerate(options):
+        oid = call_option_id(option, ids)
+        if oid:
+            ids.append(oid)
+        if not isinstance(option, dict) or not isinstance(option.get("id"), str) or not isinstance(option.get("label"), str):
+            problems.append(f"{where}.options[{index}] needs a str id and label")
+        elif not oid:
+            problems.append(f"{where}.options[{index}].id {option['id']!r} is dropped: "
+                            "ids must be unique short slugs other than 'reconcile'")
+    if call.get("recommended") and call.get("recommended") not in ids:
+        problems.append(f"{where}.recommended names no option")
+    return problems
 
 
 def _check_state(home: str, report: Report) -> None:

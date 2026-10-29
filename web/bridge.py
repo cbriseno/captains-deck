@@ -35,7 +35,7 @@ from deck_platform import endpoint_path, private_directory, safe_file_reads, she
 
 STATIC = HERE / 'static'
 COLUMNS = [('charted', 'Up next'), ('underway', 'Underway'),
-           ('captains_call', 'Your decision'), ('landed', 'Delivered')]
+           ('captains_call', 'Needs you'), ('landed', 'Delivered')]
 MAX_BODY = 16384
 # The fixed line the Deck's message-Firstmate path sends after a main-owned
 # answer is recorded. It points at the record and never carries the answer.
@@ -125,7 +125,7 @@ class Board:
     def home(self, identity):
         matches = [h for h in self.homes() if home_id(h) == identity]
         if len(matches) != 1:
-            raise Refusal('The home is unavailable or its identity is ambiguous.', 404)
+            raise Refusal('Deck can’t find this crew right now. Refresh the board.', 404)
         return matches[0]
 
     def owner(self, card):
@@ -138,7 +138,7 @@ class Board:
         else:
             matches = [h for h in homes if h.path == card.home_path]
         if len(matches) != 1:
-            raise Refusal('The owner of this task is unconfirmed.')
+            raise Refusal('Deck isn’t sure which crew this task belongs to yet.')
         return matches[0]
 
     def key(self, card):
@@ -171,7 +171,7 @@ class Board:
             link = self.herdr_origin + '/?' + urlencode({'machine': 'local', 'pane': pane, 'view': 'chat'})
         return {'key': self.key(card), 'task': card.task, 'title': human_title(card.title, self.t),
                 'original_title': card.title,
-                'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unconfirmed owner'),
+                'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unknown crew'),
                 'home': home_id(owner) if owner else '', 'context': context,
                 'presentation': project(card, context),
                 'activity': fm.card_activity(card),
@@ -184,7 +184,9 @@ class Board:
                 'time': self.event_json(getattr(card, 'event_time', None)),
                 'summary': excerpt(getattr(card, 'delivery_summary', '') or ''),
                 'answered': bool(getattr(card, 'answered_hidden', False)),
-                'agent': fm.UI.card_agent_line(card), 'herdr_url': link}
+                # A structured Captain's Call leads its card with the short question.
+                'question': (getattr(card, 'call', None) or {}).get('question', ''),
+                'agent': fm.UI.card_agent_line(card, self.t), 'herdr_url': link}
 
     def board(self, selected=''):
         snap = self.collector.snapshot()
@@ -211,15 +213,14 @@ class Board:
                 'error': self.t(snap.error), 'sources': sources,
                 'homes': [{'id': home_id(h), 'label': h.label} for h in homes],
                 'columns': columns, 'home': selected,
-                'source_ttl': fm._bearings_ttl(),
-                'retention': self.t('Recent is a limited view. History searches retained deliveries only; it cannot recover deleted records.')}
+                'source_ttl': fm._bearings_ttl()}
 
     def receipts(self, actor):
         directory = self.data_dir / 'answers'
         if not directory.exists():
             return []
         if directory.is_symlink():
-            raise Refusal('Unsafe receipt directory.')
+            raise Refusal('Deck’s answer folder isn’t safe to use.')
         result = []
         for path in sorted(directory.glob('*.json'))[:1000]:
             if not re.fullmatch(r'[a-f0-9]{64}\.json', path.name):
@@ -239,7 +240,7 @@ class Board:
         if view == 'delivery':
             try:
                 return {'view': 'delivery', 'delivery': self.delivery(identity, task),
-                        'notice': self.t('The delivery is identified by home and task. History cannot verify the original notification identifier.') if item else ''}
+                        'notice': self.t('This is the delivery for this task. Deck can’t confirm it’s the one from your notification.') if item else ''}
             except Refusal as exc:
                 return {'view': 'unavailable', 'task': task, 'owner': home.label, 'message': self.t(str(exc)), 'receipts': []}
         matches = []
@@ -249,7 +250,7 @@ class Board:
                     matches.append(card)
             except Refusal:
                 continue
-        message = 'This task is no longer among current questions. It may have been resolved, reopened or changed state; this link does not prove which. Check the board or its receipts.'
+        message = 'This question isn’t waiting anymore. It may be done or changed; check the board.'
         current_key = self.key(matches[0]) if len(matches) == 1 else ''
         occurrence = re.fullmatch(r'hold:([1-9][0-9]{0,8})', item)
         if current_key:
@@ -260,8 +261,7 @@ class Board:
                 ordinal = int(current.rsplit('#', 1)[1]) + 1
                 if occurrence and int(occurrence[1]) == ordinal:
                     return {'view': 'call', 'key': current_key}
-                message = ('The notification refers to an earlier question or an unverifiable identity. '
-                           'The current question is not presented as the notification’s question. You can explicitly open it for review.')
+                message = 'This link may be for an earlier version of the question. You can open the current one below.'
             except Refusal:
                 pass
         if occurrence and not fm.is_remote_home(home):
@@ -271,7 +271,7 @@ class Board:
                                         capture_output=True, text=True, timeout=15,
                                         stdin=subprocess.DEVNULL)
                 if result.returncode == 0:
-                    message = 'The question from this notification is resolved according to Firstmate’s canonical intake. This link does not resend an answer.'
+                    message = 'This question is already closed. Opening this link doesn’t send anything again.'
             except (OSError, subprocess.SubprocessError):
                 pass
         return {'view': 'unavailable', 'task': task, 'owner': home.label,
@@ -304,7 +304,7 @@ class Board:
                                'time': self.event_json(event), 'closed': row.get('closed') or ''})
         result.sort(key=lambda row: (row['closed'], row['task'], row['home']), reverse=True)
         return {'records': result[:1000], 'omitted': max(0, len(result) - 1000),
-                'details': details, 'scope': self.t('Deliveries retained by Firstmate. Recent has a separate limit; searching does not change retention.')}
+                'details': details, 'scope': self.t('Includes everything Firstmate still keeps, not just recent ones.')}
 
     def delivery(self, identity, task):
         home = self.home(identity)
@@ -313,7 +313,7 @@ class Board:
         rows, note = self.records(home, force=True)
         matches = [r for r in rows if r['id'] == task]
         if len(matches) != 1:
-            raise Refusal('This delivery is no longer retained or the task was reopened.', 404)
+            raise Refusal('This delivery isn’t in history anymore, or the task was reopened.', 404)
         record = matches[0]
         content = fm.delivery_content(record, home, split_views=True, translate=self.t, report_heading=False)
         if not isinstance(content, dict):
@@ -329,22 +329,22 @@ class Board:
             raise Refusal('Invalid task identity.', 400)
         rows, _ = self.records(home, force=not status)
         if len([row for row in rows if row['id'] == task]) != 1:
-            raise Refusal('This delivery is no longer retained or the task was reopened.', 404)
+            raise Refusal('This delivery isn’t in history anymore, or the task was reopened.', 404)
         return fm.explanation_request(home, task, status=status, translate=self.t)
 
     def call_identity(self, home, task):
         if fm.is_remote_home(home) or not fm.KEY_RE.fullmatch(task):
-            raise Refusal('This home does not offer verifiable web answers.')
+            raise Refusal('You can’t answer this one from the web. Answer it in Firstmate.')
         script = Path(endpoint_path(home.path, 'fm-captain-hold.sh'))
         try:
             result = subprocess.run(shell_command(script, 'open', task, '--identity'),
                                     env=self.child_env(home), capture_output=True, text=True,
                                     stdin=subprocess.DEVNULL, timeout=15)
         except (OSError, subprocess.SubprocessError):
-            raise Refusal('Could not check the current question. Your draft is preserved.')
+            raise Refusal('Couldn’t check this question right now. Try again in a moment.')
         identity = result.stdout.strip()
         if result.returncode != 0 or not re.fullmatch(r'[^\s#]+#\d+', identity):
-            raise Refusal('The question is no longer open or its occurrence cannot be verified.')
+            raise Refusal('This question isn’t open anymore, or it changed. Refresh the board to check.')
         return identity
 
     @staticmethod
@@ -364,7 +364,7 @@ class Board:
         snap = self.collector.snapshot()
         content = fm.decision_card_content(card, snap.homes, home, translate=self.t, bearings=snap.bearings)
         if os.path.realpath(content['home_path']) != fm.delivery_home_identity(home):
-            raise Refusal('The intake does not match the owning home.')
+            raise Refusal('This question belongs to a different crew than expected. Refresh the board.')
         context = fm.flow_context(card, translate=CANONICAL_TEXT)
         if context['phase'] == 'human' and not content.get('about'):
             content['about'] = context['reason']
@@ -385,11 +385,11 @@ class Board:
         try:
             identity = self.call_identity(home, card.task)
             guarded = self.guarded_intake(home)
-            error = '' if guarded else 'This home’s intake needs an occurrence guard for web answers.'
+            error = '' if guarded else 'This Firstmate can’t take answers from the web yet. Update Firstmate or answer there.'
         except Refusal as exc:
             identity, error = '', str(exc)
-        call = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'options',
-                                      'recommend', 'freeform', 'freeform_hint', 'close')}
+        call = {k: content[k] for k in ('title', 'about', 'decide', 'detail', 'background', 'link',
+                                      'options', 'recommend', 'freeform', 'freeform_hint', 'close')}
         call['identity'] = identity
         call['occurrence'] = digest(home_id(home), card.task, identity, content['stamp'],
                                     fm.flow_context(card, translate=CANONICAL_TEXT)['reason'], call)
@@ -417,27 +417,27 @@ class Board:
             raise Refusal('Invalid answer format.', 400)
         request_id = body.get('request_id', '')
         if not re.fullmatch(r'[a-zA-Z0-9_-]{16,80}', request_id):
-            raise Refusal('Missing submission identifier.', 400)
+            raise Refusal('Something’s missing from this send. Refresh the page and try again.', 400)
         occurrence = body.get('occurrence', '')
         if not re.fullmatch(r'[a-f0-9]{64}', occurrence):
-            raise Refusal('Missing question occurrence.', 400)
+            raise Refusal('This page is missing the question version. Refresh it and try again.', 400)
         # One immutable receipt per occurrence, across clients and server restarts.
         # Lock is held across validation/intake; Firstmate additionally owns CAS.
         if not safe_file_reads():
-            raise Refusal('The secure answer backend requires POSIX; run Deck and Firstmate in WSL.', 503)
+            raise Refusal('Answering from the web needs Linux or macOS. On Windows, run Deck and Firstmate in WSL.', 503)
         with self.mutation_lock:
             receipt_dir = self.data_dir / 'answers'
             if receipt_dir.is_symlink():
-                raise Refusal('Unsafe receipt directory.')
+                raise Refusal('Deck’s answer folder isn’t safe to use.')
             path = receipt_dir / (digest(key, occurrence) + '.json')
             payload_hash = digest(key, occurrence, body.get('value', ''), body.get('note', ''))
             if path.exists() or path.is_symlink():
                 try:
                     previous = json.loads(fm.delivery_read(str(self.data_dir), str(path), 65536))
                 except (OSError, ValueError):
-                    raise Refusal('Unverifiable receipt; Firstmate must review this submission.')
+                    raise Refusal('Deck can’t read its record of this answer. Ask Firstmate to check it.')
                 if previous.get('payload_hash') != payload_hash or previous.get('actor') != actor:
-                    raise Refusal('This occurrence already has another submission. Your draft is preserved.')
+                    raise Refusal('Another answer was already sent for this question.')
                 return self.present_receipt(dict(previous, replay=True))
             card = self.card(key)
             if card.bucket != 'captains_call':
@@ -448,21 +448,21 @@ class Board:
             if call['error']:
                 raise Refusal(call['error'])
             if not secrets.compare_digest(call['occurrence'], occurrence):
-                raise Refusal('The question changed. Review the current version; your draft is preserved.')
+                raise Refusal('The question changed. Look at the new version first.')
             value, note = body.get('value', '').strip(), body.get('note', '').strip()
             # The installed keyed intake bounds each field to 512 bytes. Reject
             # rather than silently truncate the captain's words.
             if any(ch in value + note for ch in ('\x00', '\t', '\n', '\r')):
-                raise Refusal('The answer must be a single line; it has not been sent.', 400)
+                raise Refusal('Keep the answer on one line. Nothing was sent.', 400)
             if len(note.encode()) > min(fm.ANSWER_LIMIT, 512):
-                raise Refusal('The answer exceeds 512 bytes; shorten it before sending.', 400)
+                raise Refusal('That answer is too long. Shorten it and send again.', 400)
             options = content['options']
             if value and value not in [o['value'] for o in options]:
                 raise Refusal('That option is no longer available.')
             if (not value and (not call['freeform'] or not note)):
                 raise Refusal('Choose an option or write an answer.', 400)
             if self.content(card, home) != content:
-                raise Refusal('The question changed. Review the current version; your draft is preserved.')
+                raise Refusal('The question changed. Look at the new version first.')
             dialog = fm.DecisionDialog(content)
             dialog.selected = next((i for i, opt in enumerate(options) if opt['value'] == value), -1)
             dialog.note = note
@@ -474,7 +474,7 @@ class Board:
                 fields[2] = fm._flatten_field(card.title)[:80]
                 line = '\t'.join(fields)
             if any(len(field.encode()) > 512 for field in line.split('\t')):
-                raise Refusal('The option and text together exceed the intake limit.', 400)
+                raise Refusal('Your choice plus note is too long. Shorten the note and send again.', 400)
             # No write until all checks pass. The pending marker is deliberately
             # durable: after an interrupted call retry cannot submit twice.
             receipt_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -482,7 +482,7 @@ class Board:
                        'home': home_id(home), 'task': card.task, 'title': card.title, 'occurrence': occurrence,
                        'at': time.time(), 'saved': None, 'notice': 'unknown',
                        'ack': 'unknown', 'consumed': 'unknown', 'state': 'uncertain',
-                       'message': 'Submission started. If the connection drops, check this receipt before retrying.'}
+                       'message': 'Sending started. If the connection dropped, check the answer status before sending again.'}
             self.store_receipt(path, receipt, exclusive=True)
             try:
                 args = ['reconcile-requests', '--source-id', fm.DECISION_SOURCE_ID,
@@ -498,7 +498,7 @@ class Board:
                                                  env=self.child_env(home), capture_output=True, text=True,
                                                  stdin=subprocess.DEVNULL, timeout=15)
                         if binding.returncode:
-                            raise Refusal('Could not bind the review intake.')
+                            raise Refusal('Couldn’t register Deck for re-check requests.')
                 args += ['--expected-identity', call['identity']]
                 process = subprocess.run(shell_command(endpoint_path(home.path, 'fm-captain-hold.sh'), *args),
                                          input=line + '\n', text=True, capture_output=True,
@@ -506,9 +506,9 @@ class Board:
                 output = (process.stdout + '\n' + process.stderr).strip()
                 receipt.update(state='saved' if process.returncode == 0 else 'uncertain',
                                saved=True if process.returncode == 0 else None,
-                               message=('Review request saved.' if value == 'reconcile' else
+                               message=('Saved. Firstmate will check again.' if value == 'reconcile' else
                                         'Answer saved by Firstmate.') if process.returncode == 0 else
-                                       'The intake did not confirm submission. Check the receipt; your draft is preserved.',
+                                       'Firstmate didn’t confirm it got your answer. Check the answer status; your draft is safe.',
                                detail=fm.delivery_text(output)[-4000:])
                 if process.returncode == 3:
                     try:
@@ -517,7 +517,7 @@ class Board:
                         conflict = {}
                     if conflict.get('error') == 'identity-conflict':
                         receipt.update(state='conflict', saved=False, notice='none',
-                                       message='The occurrence changed before saving. The answer was not sent; your draft is preserved.')
+                                       message='The question changed before saving, so nothing was sent. Your draft is safe.')
                 if process.returncode == 0 and value != 'reconcile':
                     # The answer is durable before anything points Firstmate at it.
                     self.store_receipt(path, receipt)
@@ -528,7 +528,7 @@ class Board:
                 # wake acknowledgement or consumption by the owning agent.
                 self.collector.refresh_now()
             except (OSError, subprocess.SubprocessError, Refusal) as exc:
-                receipt.update(message='Could not confirm submission. Your draft is preserved.', detail=str(exc))
+                receipt.update(message='Couldn’t confirm your answer was sent. Check the answer status; your draft is safe.', detail=str(exc))
             self.store_receipt(path, receipt)
             return self.present_receipt(receipt)
 
@@ -621,12 +621,12 @@ class Security:
             session = self.sessions.get(sid)
             if not session or session[0] != actor:
                 if unsafe:
-                    raise Refusal('The session expired. Refresh without losing your draft.', 403)
+                    raise Refusal('Your session expired. Refresh the page.', 403)
                 sid = secrets.token_urlsafe(32)
                 session = (actor, secrets.token_urlsafe(32), now)
                 self.sessions[sid] = session
             if unsafe and not secrets.compare_digest(handler.headers.get('X-Deck-CSRF', ''), session[1]):
-                raise Refusal('Invalid action token. Refresh without losing your draft.', 403)
+                raise Refusal('This page is out of date. Refresh it.', 403)
         return actor, session[1], sid, expected.startswith('https:')
 
 
@@ -725,7 +725,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         except Exception as exc:
             print(f'bridge request failed: {type(exc).__name__}: {exc}', file=sys.stderr)
-            self.respond(500, json.dumps({'error': self.server.i18n.t('Could not complete the request. Your draft is preserved.')}).encode())
+            self.respond(500, json.dumps({'error': self.server.i18n.t('Deck hit a problem and couldn’t finish.')}).encode())
 
     def read_binary(self, relative):
         # Icons are repo-owned static files, never a report path from a client.

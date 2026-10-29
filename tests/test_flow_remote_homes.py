@@ -147,6 +147,20 @@ def test_a_failed_remote_fetch_keeps_the_last_snapshot_and_marks_it_offline():
     assert remote.label in collector._remote_offline
 
 
+def test_a_failed_local_board_names_its_crew_in_the_fleet_status():
+    # The All tab joins one error per failing crew, so each must say which crew.
+    collector = flow.Collector()
+    alpha = Home("alpha", "/srv/alpha", "captain")
+    beta = Home("beta", "/srv/beta", "secondmate")
+    gamma = Home("gamma", "/srv/gamma", "secondmate")
+    shots = []
+    collector._publish = shots.append
+    with _patched("bearings_snapshot", lambda home: EMPTY_SNAP if home is alpha else {}):
+        collector._publish_fleet(flow.inject_all_crew([alpha, beta, gamma]), {}, {}, 200.0)
+    error = shots[-1].error
+    assert "beta" in error and "gamma" in error and "alpha" not in error
+
+
 def test_a_good_remote_fetch_clears_the_offline_mark():
     collector = flow.Collector()
     remote = Home("vps", "/srv/fm/home", "secondmate", route="vps", via="/tmp/x")

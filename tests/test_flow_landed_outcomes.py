@@ -81,7 +81,7 @@ class LandedOutcomeTests(unittest.TestCase):
         for expected in ('FULL_REPORT_firstmate', 'date only', 'backlog.completion.done', 'archive', 'State: done'):
             self.assertIn(expected, all_text)
         self.assertNotIn('FULL_REPORT_mate', all_text)
-        self.assertNotIn('Home: All', all_text)
+        self.assertNotIn('Crew: All', all_text)
         self.assertNotIn('unsafe path', all_text)
         self.assertTrue(flow.delivery_seen(firstmate.path, 'old'))
         self.assertFalse(flow.delivery_seen(self.parts[1][0].path, 'old'))
@@ -191,7 +191,7 @@ class LandedOutcomeTests(unittest.TestCase):
                 self.assertEqual(card.delivery_identity, '')
                 self.ui.open_delivery(card)
                 read.assert_not_called()
-                self.assertIn('Delivery owner unavailable', self.ui.delivery)
+                self.assertRegex(self.ui.delivery, 'Can’t (tell which crew|open this delivery from All)')
         self.assertEqual(flow.delivery_home_identity(self.snap.home), '')
 
     def test_explicit_mate_owner_survives_parent_snapshot(self):

@@ -356,7 +356,7 @@ class WebTests(unittest.TestCase):
             self.assertEqual([o['value'] for o in call['options']],['scope','wait','reconcile'])
             self.assertEqual([o['value'] for o in call['presentation']['options']],['scope','wait','reconcile'])
             self.assertEqual(call['presentation']['options'][:-1],call['options'][:-1])
-            self.assertEqual(call['presentation']['options'][-1]['label'],'Reconciliar')
+            self.assertEqual(call['presentation']['options'][-1]['label'],'Revisar otra vez primero')
             expired=board.ticket(key)['call']
             self.assertEqual([o['value'] for o in expired['options']],['reconcile'])
             self.assertEqual([o['value'] for o in expired['presentation']['options']],['reconcile'])
@@ -414,7 +414,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(restarted.resolve(identity,'ask','call','local')['key'],data['key'])
         self.board.collector.snap.cols['captains_call']=[]
         status,data=self.req(route);self.assertEqual(status,200);self.assertEqual(data['view'],'unavailable')
-        self.assertIn('no longer among current questions',data['message'])
+        self.assertIn('isn’t waiting anymore',data['message'])
         self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
         self.assertEqual(self.req(f'/api/resolve?home={identity}&task=demo-research&view=delivery')[1]['view'],'delivery')
         self.assertEqual(self.req('/api/resolve?home=unknown&task=demo-research&view=delivery')[0],404)
@@ -426,12 +426,12 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.req(route)[1]['view'],'call')
         self.assertTrue(self.req('/api/ticket/'+key+'/answer',body)[1]['saved'])
         status,data=self.req(route);self.assertEqual(status,200)
-        self.assertEqual(data['view'],'unavailable');self.assertIn('is resolved',data['message'])
+        self.assertEqual(data['view'],'unavailable');self.assertIn('already closed',data['message'])
         (Path(self.home.path)/'identity').write_text('2026-10-25T17:00:00Z#1')
         (Path(self.home.path)/'open').touch()
         self.board.collector.snap.cols['captains_call']=[card]
         status,data=self.req(route);self.assertEqual(data['view'],'unavailable')
-        self.assertIn('earlier question',data['message']);self.assertTrue(data['current_key'])
+        self.assertIn('earlier version of the question',data['message']);self.assertTrue(data['current_key'])
         self.assertEqual(self.req(route.replace('hold:1','hold:2'))[1]['view'],'call')
         self.assertEqual(len((Path(self.home.path)/'mutations.jsonl').read_text().splitlines()),1)
 
@@ -531,6 +531,31 @@ class WebTests(unittest.TestCase):
         status,receipt=self.req('/api/ticket/'+key+'/answer',body)
         self.assertEqual(status,200);self.assertIs(receipt['saved'],True);self.assertNotIn('primary',receipt)
         self.assertEqual(self.sends(log),[])
+
+    def test_structured_call_options_reach_the_ticket_and_an_option_id_answers(self):
+        # A row with a structured call and no composed card: the options come
+        # from the row, never from the prose reason beside it.
+        (Path(self.home.path)/'state/decision-cards/ask.json').unlink()
+        card=self.board.collector.snap.cols['captains_call'][0]
+        card.call=bridge.fm.structured_call({'question':'¿Entregamos ahora?','context':'El tablero está listo.',
+            'options':[{'id':'ship','label':'Entregar ahora','detail':'La validación queda pendiente'},{'id':'wait','label':'Esperar'}],
+            'recommended':'ship','link':'https://example.com/informe'})
+        board=self.init()
+        listed=next(c for c in board['columns'] if c['id']=='captains_call')['cards'][0]
+        self.assertEqual(listed['question'],'¿Entregamos ahora?')
+        status,ticket=self.req('/api/ticket/'+listed['key']);self.assertEqual(status,200)
+        call=ticket['call']
+        self.assertEqual([o['value'] for o in call['options']],['ship','wait','reconcile'])
+        self.assertEqual((call['recommend'],call['decide'],call['about'],call['link']),
+                         ('ship','¿Entregamos ahora?','El tablero está listo.','https://example.com/informe'))
+        self.assertTrue(call['background'])
+        status,_=self.req('/api/ticket/'+listed['key']+'/answer',dict(value='other',note='',occurrence=call['occurrence'],request_id='t'*32))
+        self.assertEqual(status,409);self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
+        status,receipt=self.req('/api/ticket/'+listed['key']+'/answer',dict(value='ship',note='',occurrence=call['occurrence'],request_id='s'*32))
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True)
+        mutation=json.loads((Path(self.home.path)/'mutations.jsonl').read_text())
+        self.assertEqual(mutation['args'][0],'answers')
+        self.assertEqual(mutation['input'].split('\t')[:2],['ask','ship'])
 
 
 if __name__=='__main__':unittest.main()

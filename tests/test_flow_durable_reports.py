@@ -62,11 +62,11 @@ class DurableReportsTests(unittest.TestCase):
         self.assertEqual(context['phase'], 'waiting')
         self.assertIn('evidencia ' * 30, context['reason'])
         details = dict(f.UI.detail_fields(card))
-        self.assertIn('Firstmate', details['Owner'])
+        self.assertIn('Firstmate', details['Crew'])
         self.assertIn('2026-10-25', details['Report time'])
         for width in (32, 60, 126):
             rows = [f._ANSI_RE.sub('', row) for row in f.UI().render_card(card, width, False)]
-            self.assertIn('Declared wait', '\n'.join(rows))
+            self.assertIn('Waiting', '\n'.join(rows))
             self.assertIn('Firstmate', '\n'.join(rows))
             self.assertTrue(all(f.display_width(row) <= width for row in rows))
 

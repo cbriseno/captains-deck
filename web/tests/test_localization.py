@@ -3,6 +3,7 @@ import http.client
 import json
 import os
 import pickle
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -41,6 +42,80 @@ class LocaleTests(unittest.TestCase):
         self.assertEqual(es.t('{label}: {path}\n{text}', label='x', path='url', text=payload), 'x: url\n' + payload)
         self.assertEqual(en.receipt_message('Respuesta guardada por Firstmate.'), 'Answer saved by Firstmate.')
         self.assertEqual(es.receipt_message('Answer saved by Firstmate.'), 'Respuesta guardada por Firstmate.')
+
+    def test_receipts_saved_with_earlier_wording_show_the_current_message(self):
+        en, es = Localization('en'), Localization('es')
+        current = 'Couldn’t confirm your answer was sent. Check the answer status; your draft is safe.'
+        for stored in ('Could not confirm submission. Your draft is preserved.',
+                       'No se pudo confirmar el envío. Tu borrador se conserva.', current):
+            with self.subTest(stored=stored):
+                self.assertEqual(en.receipt_message(stored), current)
+                self.assertEqual(es.receipt_message(stored), es.messages[current])
+        self.assertEqual(en.receipt_message('Solicitud de revisión guardada.'), 'Saved. Firstmate will check again.')
+        self.assertEqual(es.receipt_message('The occurrence changed before saving. The answer was not sent; your draft is preserved.'),
+                         'La pregunta cambió antes de guardar, así que no se envió nada. Tu borrador está a salvo.')
+        self.assertEqual(en.receipt_message('Ship the sample.'), 'Ship the sample.')
+
+    def test_displayed_copy_has_no_internal_terms_in_either_language(self):
+        # Every catalog entry is shown somewhere, so none may use Firstmate's
+        # plumbing words. Placeholders are filled at display time and do not count.
+        # Allowed: keyboard key and file names that only look like a term.
+        allowed = ('Home/End', 'homes.conf')
+        jargon = re.compile(r'intake|\bhomes?\b|backend|retain|retention|retenid|retenci|occurrence|ocurrencia|receipt|recibo|'
+                            r'\bguard\b|identifier|identificador|ledger|snapshot|owner|reconcil|conciliaci', re.I)
+        en, es = Localization('en'), Localization('es')
+        for key in en.messages:
+            for text in (en.messages[key], es.messages[key]):
+                shown = re.sub(r'\{\w+\}', '', text)
+                for name in allowed:
+                    shown = shown.replace(name, '')
+                with self.subTest(key=key):
+                    self.assertIsNone(jargon.search(shown), text)
+
+    def test_card_and_call_copy_is_short_plain_and_translated(self):
+        # Primary card, drawer and Captain's Call copy: one short line, no
+        # internal plumbing words, and a real Spanish version of each.
+        primary = ['Needs you', 'Waiting on your answer', 'Recommended', 'Pick one', 'Answer in my own words',
+                   'Your answer', 'Send', 'Check again first', 'Answer saved', 'See answer status',
+                   'Firstmate saves your answer and lifts the hold.', 'Firstmate saves your answer and takes it from there.',
+                   'Firstmate looks at the latest state again. Nothing is decided yet.',
+                   'Firstmate has your answer and will pick it up next.', 'Read the full report ↗', 'Read more',
+                   'The question changed since you started. Your draft is still here: pick an option or edit it to send.',
+                   'Answer in your own words, or ask Firstmate to check again first.', 'Pick one below, or answer in your own words.',
+                   'Agent: {name}', 'No summary yet.', 'Waiting on another task', 'In progress', 'Finishing up',
+                   'Checks running', 'Agent is working', 'Done, not closed yet', 'Nothing needs you right now.',
+                   'Answer →', 'Details →', 'See result →', 'Who’s on it', 'Waiting for', 'No next step yet.',
+                   'Not sure it was sent', 'Couldn’t reach Firstmate right now. It will see your answer on its next check.',
+                   'You can’t answer this one from the web. Answer it in Firstmate.',
+                   'Couldn’t check this question right now. Try again in a moment.',
+                   'This question isn’t open anymore, or it changed. Refresh the board to check.',
+                   'This Firstmate can’t take answers from the web yet. Update Firstmate or answer there.',
+                   'Another answer was already sent for this question.', 'The question changed. Look at the new version first.',
+                   'Deck can’t read its record of this answer. Ask Firstmate to check it.',
+                   'Sending started. If the connection dropped, check the answer status before sending again.',
+                   'Saved. Firstmate will check again.',
+                   'Firstmate didn’t confirm it got your answer. Check the answer status; your draft is safe.',
+                   'The question changed before saving, so nothing was sent. Your draft is safe.',
+                   'Couldn’t confirm your answer was sent. Check the answer status; your draft is safe.',
+                   ' Your draft is safe.', ' Your draft is safe. Try the same answer again.',
+                   'Deck took too long to answer.', 'Couldn’t reach Deck.', 'Couldn’t read Deck’s reply.',
+                   'No summary yet. Read the report or ask Firstmate to explain.',
+                   'There’s only a technical report here, no short summary. See Details or ask Firstmate to explain.',
+                   'Short version. Details has the full text.', 'Includes everything Firstmate still keeps, not just recent ones.',
+                   'This is the delivery for this task. Deck can’t confirm it’s the one from your notification.',
+                   'This question isn’t waiting anymore. It may be done or changed; check the board.',
+                   'This link may be for an earlier version of the question. You can open the current one below.',
+                   'This question is already closed. Opening this link doesn’t send anything again.']
+        en, es = Localization('en'), Localization('es')
+        jargon = re.compile(r'intake|reconcil|\bACK\b|bytes|occurrence|ocurrencia|declarad|retenid', re.I)
+        for key in primary:
+            with self.subTest(key=key):
+                self.assertIn(key, en.messages)
+                for text in (en.messages[key], es.messages[key]):
+                    self.assertLessEqual(len(text), 110, text)
+                    self.assertIsNone(jargon.search(text), text)
+                if key not in ('Send', 'Answer →') and not key.startswith('Agent:'):
+                    self.assertNotEqual(es.messages[key], key)
 
     def test_native_config_persistence_precedence_and_independent_servers(self):
         with tempfile.TemporaryDirectory(prefix='deck locale ') as tmp:
@@ -120,15 +195,15 @@ class LocalizedOwnerTests(unittest.TestCase):
         for field in ('options', 'recommend', 'occurrence', 'identity', 'decide', 'close'):
             self.assertEqual(a[field], b[field])
         self.assertEqual(b['presentation']['options'][-1]['value'], 'reconcile')
-        self.assertEqual(b['presentation']['options'][-1]['label'], 'Reconciliar')
+        self.assertEqual(b['presentation']['options'][-1]['label'], 'Revisar otra vez primero')
         self.assertEqual(a['presentation']['options'][0], b['presentation']['options'][0])
         self.assertEqual(pickle.dumps(self.en.collector.snap), before)
         with patch.object(bridge.Board, 'guarded_intake', return_value=False):
             english_error = self.en.ticket(key)['call']
             spanish_error = self.es.ticket(key)['call']
             self.assertEqual(english_error['occurrence'], spanish_error['occurrence'])
-            self.assertIn('occurrence guard', english_error['error'])
-            self.assertIn('guard de ocurrencia', spanish_error['error'])
+            self.assertEqual(english_error['error'], 'This Firstmate can’t take answers from the web yet. Update Firstmate or answer there.')
+            self.assertEqual(spanish_error['error'], 'Este Firstmate aún no acepta respuestas desde la web. Actualiza Firstmate o responde ahí.')
         note = 'Mi respuesta {unchanged}: café 漢字 <script>'
         receipt = self.es.submit(key, {'value': 'scope', 'note': note, 'occurrence': b['occurrence'],
                                       'request_id': 'l' * 32}, 'local')
@@ -138,6 +213,30 @@ class LocalizedOwnerTests(unittest.TestCase):
         self.assertIn(note, mutation['input']); self.assertIn('scope', mutation['input'])
         self.assertEqual(self.en.receipts('local')[0]['message'], 'Answer saved by Firstmate.')
         self.assertEqual(len((Path(self.home.path) / 'mutations.jsonl').read_text().splitlines()), 1)
+
+    def test_board_time_source_follows_the_reader_not_the_terminal_language(self):
+        # The terminal's language file says Spanish; this web instance stays English.
+        from fixtures import fixture
+        config = self.root / 'terminal-config'; config.mkdir()
+        (config / 'language').write_text('es\n')
+        env = {k: v for k, v in os.environ.items() if k != 'CD_WEB_LANGUAGE'}
+        env['HERDR_PLUGIN_CONFIG_DIR'] = str(config)
+        self.addCleanup(setattr, bridge.fm, '_LOCALIZATION', None)
+        with patch.dict(os.environ, env, clear=True):
+            bridge.fm._LOCALIZATION = None
+            english, _ = fixture(self.root / 'terminal-es')
+            spanish = bridge.Board(english.data_dir, collector=english.collector, language='es')
+            time = lambda board: next(c for col in board.board()['columns'] for c in col['cards'] if c['task'] == 'web')['time']
+            self.assertIn('latest task update', time(english)['detail'])
+            self.assertNotIn('última', time(english)['detail'])
+            self.assertIn('latest task update', time(english)['source'])
+            self.assertIn('última actualización de la tarea', time(spanish)['detail'])
+            # The agent line follows the reader too, not the terminal's language file.
+            agent = lambda board, bucket: next(c for col in board.board()['columns'] for c in col['cards'] if c['bucket'] == bucket)['agent']
+            self.assertEqual(agent(english, 'captains_call'), 'Human action')
+            self.assertEqual(agent(spanish, 'captains_call'), 'Acción humana')
+            self.assertIn('Delivery', agent(english, 'landed'))
+            self.assertIn('Entrega', agent(spanish, 'landed'))
 
     def test_delivery_history_and_fallbacks_keep_authored_content(self):
         home = bridge.home_id(self.home)
@@ -150,14 +249,14 @@ class LocalizedOwnerTests(unittest.TestCase):
         self.assertTrue(es['details'].startswith('Detalles de la entrega'))
         self.assertEqual(en['time']['date'], es['time']['date'])
         self.assertIsNone(en['time']['epoch']); self.assertIn('sólo fecha', es['time']['detail'])
-        self.assertIn('Retained Firstmate history', self.en.history()['details'][0]['source'])
-        self.assertIn('Historial retenido de Firstmate', self.es.history()['details'][0]['source'])
+        self.assertIn('Firstmate history', self.en.history()['details'][0]['source'])
+        self.assertIn('Historial de Firstmate', self.es.history()['details'][0]['source'])
         # A generated no-report message translates; a report containing that same
         # sentence would remain authored text in both locales.
         for f in ('delivery.md', 'recap.md', 'report.md'):
             (Path(self.home.path) / 'data/demo-research' / f).unlink(missing_ok=True)
-        self.assertIn('No summary is retained.', self.en.delivery(home, 'demo-research')['summary'])
-        self.assertIn('No hay un resumen retenido.', self.es.delivery(home, 'demo-research')['summary'])
+        self.assertIn('No summary yet.', self.en.delivery(home, 'demo-research')['summary'])
+        self.assertIn('Aún no hay resumen.', self.es.delivery(home, 'demo-research')['summary'])
 
     def test_language_restart_preserves_drafts_and_receipts_with_generated_content(self):
         from fixtures import fixture

@@ -89,12 +89,13 @@ DECISION_SOURCE = "herdr-firstmate-flow captain's deck"
 ANSWER_LIMIT = 512  # bytes, the board's own bound
 RECONCILE_OPTION = {
     "value": "reconcile",
-    "label": "Reconcile",
-    "hint": (
-        "Re-check the latest state, then close this with evidence "
-        "or keep it open with a note"
-    ),
+    "label": "Check again first",
+    "hint": "Firstmate looks at the latest state again. Nothing is decided yet.",
 }
+# Bounds for the structured `call` object Firstmate exports on a captain call
+# row. The producer bounds these too; the board never trusts it to.
+CALL_LIMITS = {"question": 160, "label": 40, "detail": 120, "context": 200, "link": 500}
+CALL_OPTION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
 
 # The intake's own key bound. A key outside it is skipped there without word,
 # so the dialog refuses it visibly instead.
@@ -1894,6 +1895,55 @@ def _presentation_text(message, **values):
 tr = _presentation_text
 
 
+def call_option_id(opt, taken) -> str:
+    """The id the board shows a call option under, or "" when it drops it.
+
+    An id must be a short slug and unique among ``taken``; ``reconcile`` stays
+    reserved for the board's own re-check choice.
+    """
+    oid = opt["id"].strip() if isinstance(opt, dict) and isinstance(opt.get("id"), str) else ""
+    if not CALL_OPTION_ID_RE.fullmatch(oid) or oid == RECONCILE_OPTION["value"] or oid in taken:
+        return ""
+    return oid
+
+
+def structured_call(raw) -> dict:
+    """The row's ``call`` object, bounded and validated, or {} when absent.
+
+    Options are only ever read from this object, never inferred from prose,
+    and only those ``call_option_id`` keeps.
+    """
+    if not isinstance(raw, dict):
+        return {}
+
+    def text(key: str) -> str:
+        value = raw.get(key)
+        return _trunc(_flatten_field(value), CALL_LIMITS[key]) if isinstance(value, str) else ""
+
+    raw_options = raw.get("options")
+    options: list[dict[str, str]] = []
+    for opt in raw_options if isinstance(raw_options, list) else []:
+        oid = call_option_id(opt, [o["id"] for o in options])
+        if not oid:
+            continue
+        label = opt.get("label") if isinstance(opt.get("label"), str) else ""
+        detail = opt.get("detail") if isinstance(opt.get("detail"), str) else ""
+        options.append({
+            "id": oid,
+            "label": _trunc(_flatten_field(label), CALL_LIMITS["label"]) or oid,
+            "detail": _trunc(_flatten_field(detail), CALL_LIMITS["detail"]),
+        })
+    recommended = raw.get("recommended")
+    call = {
+        "question": text("question"),
+        "options": options,
+        "recommended": recommended if any(o["id"] == recommended for o in options) else "",
+        "context": text("context"),
+        "link": text("link"),
+    }
+    return call if call["question"] or options else {}
+
+
 def decision_card_content(
     card: Card, homes: list[Home] | None, active: Home | None, *, translate=None,
     bearings: dict[str, tuple[dict, float]] | None = None,
@@ -1908,7 +1958,8 @@ def decision_card_content(
     With no composed card (no board yet, or a card not composed for this key),
     the ticket's durable title and hold reason become the title and about line,
     and the captain answers in their own words - or sends Reconcile to have the
-    call re-checked.
+    call re-checked. A structured ``call`` on the row supplies the question,
+    its one-line context and the options, ahead of a composed card.
     """
     tr = translate or _presentation_text
     home_path = answer_home_path(card, homes, active)
@@ -1928,8 +1979,12 @@ def decision_card_content(
             if raw:
                 break
     ctype = (str(raw.get("type") or "decision").strip() or "decision")
-    options: list[dict[str, str]] = []
-    for opt in raw.get("options") or []:
+    call = getattr(card, "call", None) or {}
+    options: list[dict[str, str]] = [
+        {"value": o["id"], "label": o["label"], "hint": o["detail"]}
+        for o in call.get("options") or []
+    ]
+    for opt in [] if options else raw.get("options") or []:
         if not isinstance(opt, dict):
             continue
         value = opt.get("value")
@@ -1949,7 +2004,7 @@ def decision_card_content(
     if ctype == "decision" and all(o["value"] != "reconcile" for o in options):
         options.append(dict(RECONCILE_OPTION))
         display_options.append({k: tr(v) if k in ('label', 'hint') else v for k, v in RECONCILE_OPTION.items()})
-    recommend = raw.get("recommend_value")
+    recommend = call["recommended"] if call.get("options") else raw.get("recommend_value")
     repo = str(raw.get("repo") or "")
     if not repo and card.owner and card.owner != "(main)":
         repo = card.owner
@@ -1977,11 +2032,19 @@ def decision_card_content(
         # a truncated reason stub is noise, not context
         if about.endswith("\u2026") and len(about) < 24:
             about = ""
-        decide = 'Answer in your own words, or send Reconcile to re-check the latest state.'
+        if not call.get("options"):
+            decide = 'Answer in your own words, or ask Firstmate to check again first.'
     elif not title:
         title = str(card.title or card.task)
+    # The structured call's short wording leads; the longer prose it replaces
+    # stays available as background, never parsed for options.
+    background = ""
+    if call.get("context") and _flatten_field(call["context"]) != _flatten_field(about):
+        background, about = about, call["context"]
+    if call.get("question"):
+        decide = call["question"]
     if not decide:
-        decide = 'Pick an option below, or answer in your own words.'
+        decide = 'Pick one below, or answer in your own words.'
     content = {
         "key": card.task,
         "title": _flatten_field(title),
@@ -1990,6 +2053,8 @@ def decision_card_content(
         "about": _flatten_field(about),
         "decide": _flatten_field(decide),
         "detail": _flatten_field(raw.get("detail")),
+        "background": _flatten_field(background),
+        "link": call.get("link", ""),
         "options": options,
         "recommend": recommend if isinstance(recommend, str) else "",
         "freeform": bool(raw.get("allow_freeform")) if raw else True,
@@ -2008,7 +2073,8 @@ def decision_card_content(
     content["presentation"] = {key: content[key] for key in ("about", "decide", "freeform_hint")}
     content["presentation"]["options"] = display_options
     for key in ("decide", "freeform_hint"):
-        if not raw.get(key):
+        # An authored question from the structured call is never translated.
+        if not raw.get(key) and not (key == "decide" and call.get("question")):
             content["presentation"][key] = _flatten_field(tr(content[key]))
     if translate is None:
         # The terminal dialog shows the installation's language; the web passes
@@ -2167,7 +2233,7 @@ def _run_captain_hold(home_path: str, args: list[str], stdin_text: str) -> tuple
     """Run the firstmate answer intake in the home that owns the task."""
     script = _hold_script(home_path)
     if not os.path.isfile(script):
-        return False, f"no fm-captain-hold.sh in {home_path}"
+        return False, tr("Firstmate here can’t take answers yet: no fm-captain-hold.sh in {path}.", path=home_path)
     env = _child_env()
     env["FM_HOME"] = home_path
     try:
@@ -2181,7 +2247,7 @@ def _run_captain_hold(home_path: str, args: list[str], stdin_text: str) -> tuple
         )
     except Exception as exc:
         _debug(f"captain hold failed: {exc!r}")
-        return False, f"could not run the answer intake: {exc!r}"
+        return False, tr("Couldn’t send your answer to Firstmate: {error}", error=repr(exc))
     lines = [ln for ln in ((p.stdout or "") + (p.stderr or "")).splitlines() if ln.strip()]
     detail = lines[-1].strip() if lines else ""
     return p.returncode == 0, detail
@@ -2193,7 +2259,7 @@ def ensure_decision_binding(home_path: str) -> tuple[bool, str]:
     require the source to exist anywhere else."""
     script = _hold_script(home_path)
     if not os.path.isfile(script):
-        return False, f"no fm-captain-hold.sh in {home_path}"
+        return False, tr("Firstmate here can’t take answers yet: no fm-captain-hold.sh in {path}.", path=home_path)
     env = _child_env()
     env["FM_HOME"] = home_path
     try:
@@ -2208,7 +2274,7 @@ def ensure_decision_binding(home_path: str) -> tuple[bool, str]:
         if p.returncode == 0 and (p.stdout or "").strip():
             return True, ""
     except Exception as exc:
-        return False, f"could not read the decision binding: {exc!r}"
+        return False, tr("Couldn’t check Deck’s re-check access: {error}", error=repr(exc))
     return _run_captain_hold(home_path, ["bind", DECISION_SOURCE_ID], "")
 
 
@@ -2223,10 +2289,10 @@ def wake_owner(dialog: DecisionDialog) -> str:
         return ""
     if not KEY_RE.fullmatch(dialog.wake_lane):
         _debug(f"wake lane refused: {dialog.wake_lane!r}")
-        return "owner wake skipped: the lane id is malformed"
+        return tr("Saved, but the agent wasn’t woken: {detail}", detail=tr("its name looks wrong"))
     script = endpoint_path(dialog.wake_home, "fm-send.sh")
     if not os.path.isfile(script):
-        return f"wake skipped: no fm-send.sh in {dialog.wake_home}"
+        return tr("Saved, but the agent wasn’t woken: {detail}", detail=tr("no fm-send.sh in {path}", path=dialog.wake_home))
     option = dialog.selected_option()
     if option and option["value"] == "reconcile":
         text = (
@@ -2255,13 +2321,13 @@ def wake_owner(dialog: DecisionDialog) -> str:
         )
     except Exception as exc:
         _debug(f"owner wake failed: {exc!r}")
-        return f"answer recorded, but the owner wake failed: {exc!r}"
+        return tr("Saved, but waking the agent failed: {error}", error=repr(exc))
     if p.returncode == 0:
         return ""
     lines = [ln for ln in ((p.stderr or "") + (p.stdout or "")).splitlines() if ln.strip()]
-    detail = lines[-1].strip() if lines else "fm-send refused"
+    detail = lines[-1].strip() if lines else tr("fm-send said no")
     _debug(f"owner wake refused: {detail}")
-    return f"answer recorded, but the owner was not woken: {detail}"
+    return tr("Saved, but the agent wasn’t woken: {detail}", detail=detail)
 
 
 def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
@@ -2270,14 +2336,9 @@ def run_submit(dialog: DecisionDialog) -> tuple[bool, str]:
     Reconcile takes the separate reconcile-request path; everything else is a
     keyed answer."""
     if not dialog.home_path:
-        return False, (
-            f"cannot tell which home owns {dialog.key}; "
-            "answer it from the Lavish board or chat"
-        )
+        return False, tr("Can’t tell which crew owns {task}. Answer it from the Lavish board or chat.", task=dialog.key)
     if not KEY_RE.fullmatch(dialog.key):
-        return False, (
-            f"refusing a malformed task key: {_flatten_field(dialog.key)[:80]!r}"
-        )
+        return False, tr("This task id looks wrong: {key}", key=repr(_flatten_field(dialog.key)[:80]))
     option = dialog.selected_option()
     reconcile = bool(option and option["value"] == "reconcile")
     if reconcile:
@@ -2386,12 +2447,24 @@ def send_to_firstmate(pane_id: str, text: str) -> tuple[bool, str]:
         return False, last or f"herdr agent prompt exited {p.returncode}"
 
 
+TASK_UPDATE_SOURCES = {
+    (True, False): "{path}: latest task update [at=Unix seconds]; only the current run counts; ignores polling, heartbeats, harness activity and control messages",
+    (False, False): "{path}: latest task update [at=Unix seconds]; can’t tell which run this is; ignores polling, heartbeats, harness activity and control messages",
+    (True, True): "{path}: latest task update [at=Unix seconds]; only the current run counts; the worker’s done report, not delivery or review time",
+    (False, True): "{path}: latest task update [at=Unix seconds]; can’t tell which run this is; the worker’s done report, not delivery or review time",
+}
+
+
 class CardTime:
     """An event supplied by its producer, never a Deck observation time."""
 
-    def __init__(self, label: str, value: object = None, source: str = ""):
+    def __init__(self, label: str, value: object = None, source: str = "", values: dict | None = None,
+                 *, authored: bool = False):
         self.label = label
-        self.source = source or "Event timestamp not exported by Firstmate"
+        self.source_key = source or "Event timestamp not exported by Firstmate"
+        self.source_values = dict(values or {})
+        self.source = self.source_key.format_map(self.source_values) if self.source_values else self.source_key
+        self.authored_source = authored and bool(source)
         self.producer_kind = ""
         self.event_id = ""
         self.rejected_producer = ""
@@ -2486,7 +2559,7 @@ def producer_card_time(raw: object, bucket: str, fallback: CardTime) -> CardTime
     value = raw.get("value")
     if not isinstance(value, str) or not value:
         return reject("value must be an ISO date or offset timestamp string")
-    event = CardTime(allowed[kind], value, source)
+    event = CardTime(allowed[kind], value, source, authored=True)
     if event.problem:
         return reject(event.problem)
     if (precision == "date") != (event.day is not None):
@@ -2567,7 +2640,8 @@ def card_time_detail(event: CardTime, *, translate=None) -> str:
             value += tr('; future timestamp: check producer/terminal clock')
     else:
         value = tr(event.problem) if translate else event.problem
-    detail = tr('{label}: {value}. Source: {source}.', label=tr(event.label), value=value, source=event.source)
+    source = event.source if event.authored_source else tr(event.source_key, **event.source_values)
+    detail = tr('{label}: {value}. Source: {source}.', label=tr(event.label), value=value, source=source)
     if event.producer_kind:
         precision = "date" if event.day is not None else "second"
         detail += tr(' Producer event: {kind}; precision: {precision}.', kind=event.producer_kind, precision=precision)
@@ -2677,6 +2751,9 @@ class Card:
         "wait_until",
         # Receipt time of a snapshot kept after its refresh failed; 0 if fresh.
         "retained_at",
+        # The row's structured Captain's Call ({question, options, recommended,
+        # context, link}), normalized by structured_call(); {} on legacy rows.
+        "call",
     )
 
 
@@ -2751,6 +2828,7 @@ def make_cards(
         card.delivery_summary = ""
         card.delivery_problem = ""
         card.flow = entry.get("flow") if isinstance(entry.get("flow"), dict) else {}
+        card.call = structured_call(entry.get("call"))
         if isinstance(card.flow.get('title'), str) and card.flow['title'].strip():
             card.title = card.flow['title']
         supervisor = entry.get('supervisor', snap.get('supervisor') if owner_path == home.path else None)
@@ -2824,7 +2902,7 @@ def make_cards(
             # the original task's filing date the start of its current hold.
             card.event_time = CardTime("Asked", source="Current question/hold creation is not exported; task filing and board generation are not question time")
         elif card.bucket == "landed":
-            card.event_time = CardTime("Delivered", entry.get("closed"), "bearings.landed.closed; if absent, open the delivery for its retained completion date")
+            card.event_time = CardTime("Delivered", entry.get("closed"), "bearings.landed.closed; if missing, open the delivery to see when it finished")
         else:
             update_state, update_at = ("", 0)
             if status_file and time_home is not None and not is_remote_home(time_home):
@@ -2833,13 +2911,11 @@ def make_cards(
             label = "Done report" if completed else "Updated"
             if completed and update_state != "done":
                 update_at = 0
-            boundary = "current-spawn boundary applied" if card.spawn_epoch else "spawn boundary unavailable"
-            card.event_time = CardTime(label, update_at or None,
-                f"{status_file}: latest retained meaningful task declaration [at=Unix seconds]; {boundary}; "
-                + ("worker done report, not delivery or review-request time" if completed
-                   else "excludes poll/heartbeat, harness activity and control receipts"))
             if time_home is None or is_remote_home(time_home):
-                card.event_time.source = "No verified local owner/task declaration export; remote or unresolved owner timestamps are not inferred"
+                source, values = "Remote or unknown crew: no local task updates, so no time is guessed", None
+            else:
+                source, values = TASK_UPDATE_SOURCES[bool(card.spawn_epoch), completed], {"path": status_file}
+            card.event_time = CardTime(label, update_at or None, source, values)
         time_bucket = 'awaiting_merge' if card.bucket == 'underway' and entry.get('state') == 'done' and not (entry.get('doing') or '').lower().startswith('harness state unavailable') else card.bucket
         card.event_time = producer_card_time(entry.get("card_time"), time_bucket, card.event_time)
 
@@ -3097,7 +3173,8 @@ def delivery_read(home: str, path: str, limit: int) -> str:
     Oversize files are refused visibly rather than silently cutting a report.
     """
     if not safe_file_reads():
-        raise OSError('Safe report reads require descriptor-relative no-follow support; use a POSIX backend (WSL on Windows).')
+        # English source messages: each caller translates them for its reader.
+        raise OSError('Reading reports safely needs Linux or macOS; on Windows, use WSL.')
     if '..' in path.split('/'):
         raise ValueError('unsafe traversal path')
     root = os.path.realpath(home)
@@ -3108,7 +3185,7 @@ def delivery_read(home: str, path: str, limit: int) -> str:
     relative = os.path.relpath(path, root) if os.path.isabs(path) else path
     parts = relative.split('/')
     if not home or any(p in ('', '.', '..') for p in parts) or '\\' in path or '\x00' in path:
-        raise ValueError('unsafe path outside allowed home/task')
+        raise ValueError('unsafe path outside this task’s files')
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in parts[:-1]:
@@ -3154,7 +3231,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
     """
     tr = translate or _presentation_text
     if is_remote_home(home) or is_aggregate_home(home):
-        return [], tr('History unavailable here; choose a local home. Remote history needs a read-only archive export from Firstmate.'), False
+        return [], tr('History isn’t available here. Pick a crew on this machine; remote crews don’t share history yet.'), False
     # New public, read-only contract; old homes retain the canonical-reader
     # fallback below. Failure is visible instead of silently hiding archives.
     endpoint = endpoint_path(home.path, 'fm-delivery-history.sh')
@@ -3167,7 +3244,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
                                     text=True, timeout=15, stdin=subprocess.DEVNULL)
             data = json.loads(result.stdout)
             if result.returncode or data.get('schema') != 'fm-delivery-history.v1' or os.path.realpath(data.get('home', '')) != os.path.realpath(home.path):
-                raise ValueError(tr('invalid history response or different home'))
+                raise ValueError(tr('history reply was invalid or from another crew'))
             rows = []
             for record in data.get('records', []):
                 if not isinstance(record, dict) or not isinstance(record.get('id'), str) or not KEY_RE.fullmatch(record['id']):
@@ -3184,18 +3261,18 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
                 row.setdefault('source', 'Firstmate history')
                 if not task_id or record['id'] == task_id:
                     rows.append(row)
-            note = tr('Retained Firstmate history. ') + json.dumps(data.get('retention', {}), ensure_ascii=False)
+            note = tr('Firstmate history. ') + json.dumps(data.get('retention', {}), ensure_ascii=False)
             note += tr(' · Sources: ') + json.dumps(data.get('sources', []), ensure_ascii=False)
-            note += tr(' · Recent is limited; history includes retained records only and cannot recover deleted records.')
+            note += tr(' · The board shows only recent ones; history has everything Firstmate still keeps. Deleted tasks can’t be recovered.')
             if not data.get('complete'):
                 note += tr(' · incomplete: ') + '; '.join(map(str, data.get('limitations') or []))
             if not task_id or rows:
                 return rows, note, bool(data.get('complete'))
             # History intentionally excludes reopened tasks. Preserve the
             # existing current-record check when opening a stale Landed card.
-            endpoint_warning = tr('Public history does not retain this delivery; checking the current canonical record for reopening.')
+            endpoint_warning = tr('This delivery isn’t in history anymore. Checking whether the task was reopened.')
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-            endpoint_warning = tr('History export unavailable: {error}; local canonical reader fallback', error=exc)
+            endpoint_warning = tr('History export unavailable: {error}; reading the task files directly', error=tr(str(exc)))
     notes, rows, active_ids = ([endpoint_warning] if endpoint_warning else []), {}, set()
     complete = True
     try:
@@ -3203,9 +3280,9 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
     except FileNotFoundError:
         config = {}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return [], f'History unavailable: {exc}', False
+        return [], tr('History unavailable: {error}', error=tr(str(exc))), False
     if config.get('backend', 'markdown') != 'markdown':
-        return [], 'History unavailable: this backend needs a read-only completed-record/archive export from Firstmate/tasks-axi.', False
+        return [], tr('History unavailable: this task store doesn’t share finished tasks with Deck yet.'), False
     cfg = config.get('markdown') or {}
     backlog = cfg.get('path') or 'data/backlog.md'
     archive = cfg.get('archive') or os.path.join(os.path.dirname(backlog), 'done-archive.md')
@@ -3258,12 +3335,12 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
             notes.append(f'{source}: {path}')
         except FileNotFoundError:
             complete = False
-            notes.append(tr('{source}: {path} missing; retained history may be incomplete', source=source, path=path))
+            notes.append(tr('{source}: {path} missing; history may be incomplete', source=source, path=path))
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
             complete = False
-            notes.append(tr('{source} unavailable: {error}; retained history may be incomplete', source=source, error=exc))
+            notes.append(tr('{source} unavailable: {error}; history may be incomplete', source=source, error=tr(str(exc))))
     ordered = sorted(rows.values(), key=lambda r: (r.get('closed', ''), r['id']), reverse=True)
-    return ordered, '; '.join(notes) + tr('. Retained deliveries only; no retention changes. done_keep={count}: current backlog limit; archive retains existing records. Recent is not all history; deleted records cannot be recovered.', count=cfg.get('done_keep', tr('not specified'))), complete
+    return ordered, '; '.join(notes) + tr('. Shows what Firstmate still keeps; searching changes nothing. done_keep={count}: finished tasks kept in the backlog; older ones stay in the archive. Deleted tasks can’t be recovered.', count=cfg.get('done_keep', tr('not specified'))), complete
 
 
 def delivery_home_identity(home: Home) -> str:
@@ -3289,16 +3366,16 @@ def delivery_owner_home(homes: list[Home], source: Home, owner: str, task: str) 
         if len(matches) == 1:
             match = next(iter(matches.values()))
             if resolved is not None and delivery_home_identity(resolved) != delivery_home_identity(match):
-                return None, 'Delivery owner unavailable: producer owner and task namespace conflict; repair the owning home export.'
+                return None, tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')
             resolved = match
             continue
         problem = 'ambiguous' if matches else 'unknown'
-        return None, f'Delivery owner unavailable ({problem}: {explicit}); choose the owning home or repair its discovered identity.'
+        return None, tr('Can’t tell which crew this delivery belongs to ({problem}: {name}). Open it from its crew tab.', problem=tr(problem), name=explicit)
     if resolved is not None:
         return resolved, ''
     if delivery_home_identity(source):
         return source, ''
-    return None, 'Delivery owner unavailable: All has no filesystem home; reopen this delivery from its owning crew tab.'
+    return None, tr('Can’t open this delivery from All. Pick its crew tab first.')
 
 
 def delivery_task_prefix(task: str) -> str:
@@ -3403,11 +3480,11 @@ def concise_delivery(text: str, title: str, *, translate=None) -> str:
     tr = translate or _presentation_text
     plain = readable_markdown(re.sub(r'\A\s*# [^\n]*\n+', '', text))
     if not plain:
-        return readable_markdown(title) + '\n\n' + tr('No summary is retained. Read the report or ask Firstmate for an explanation.')
+        return readable_markdown(title) + '\n\n' + tr('No summary yet. Read the report or ask Firstmate to explain.')
     explicit_result = re.search(r'^#{1,6}\s+(?:Result|Resultado)\s*:?', text, re.M | re.I)
     technical_receipt = re.match(r'^(ready in branch|(?:para|for) (?:root|firstmate)\b|owner application status|head\s*:|commit\s*:)', plain, re.I)
     if not explicit_result and (len(plain) > 1500 or technical_receipt):
-        return readable_markdown(title) + '\n\n' + tr('The delivery retains a technical report but no brief result summary. Read Details or ask Firstmate for an explanation.')
+        return readable_markdown(title) + '\n\n' + tr('There’s only a technical report here, no short summary. See Details or ask Firstmate to explain.')
     if len(plain) <= 1500:
         return plain
     # A technical recap can be hundreds of lines. Preserve it in Details, and
@@ -3416,7 +3493,7 @@ def concise_delivery(text: str, title: str, *, translate=None) -> str:
     excerpt = readable_markdown(excerpt)
     if len(excerpt) > 900:
         excerpt = excerpt[:900].rsplit(' ', 1)[0] + '…'
-    return excerpt + '\n\n' + tr('Abbreviated summary of retained content. Details retains the full text.')
+    return excerpt + '\n\n' + tr('Short version. Details has the full text.')
 
 
 def _time_age(seconds: float) -> str:
@@ -3459,17 +3536,17 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
     tr = translate or _presentation_text
     task = record['id']
     if not delivery_home_identity(home):
-        return tr('Delivery owner unavailable: choose the owning crew tab; All is not a filesystem home.')
-    header = tr('Task: {task}\nTitle: {title}\nHome: {home}\nKind: {kind}\nState: {state}\nCompletion: {verb} · {closed}\nSource: {source}\nScope: this delivery/task only; broader intent is not inferred.\nRead marks are local reading history, not acceptance or approval.\n', task=task,
+        return tr('Can’t open this delivery from All. Pick its crew tab first.')
+    header = tr('Task: {task}\nTitle: {title}\nCrew: {home}\nKind: {kind}\nState: {state}\nFinished: {verb} · {closed}\nSource: {source}\nScope: this task only.\nRead marks only show what you opened here; they don’t approve anything.\n', task=task,
                 title=record.get('title') or record.get('what') or task,
                 home=home.label, kind=record.get('kind') or tr('not recorded'),
-                state=record.get('state') or 'landed (snapshot)',
+                state=record.get('state') or tr('delivered (recent view)'),
                 verb=record.get('verb') or tr('not recorded'),
                 closed=record.get('closed') or tr('date unavailable'),
-                source=record.get('source') or tr('recent snapshot'))
+                source=record.get('source') or tr('recent view'))
     header += tr('Completion time: ') + card_time_detail(CardTime(
-        "Delivered", record.get("closed"),
-        f"{record.get('source') or 'recent snapshot'} canonical completion field closed"), translate=translate) + "\n"
+        "Delivered", record.get("closed"), '{source}: the task’s closed date',
+        {'source': record.get('source') or tr('recent view')}), translate=translate) + "\n"
     if board_time is not None:
         header += tr('Board time: ') + card_time_detail(board_time, translate=translate) + "\n"
     if record.get('body'):
@@ -3477,7 +3554,7 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
     if record.get('artifact') not in ('', '-', None):
         header += tr('\nRecorded artifact: ') + record['artifact'] + '\n'
     if is_remote_home(home):
-        return delivery_text(tr('Remote report/recap unavailable: no local artifact export. Ask the owning home for a read-only report export. Snapshot text may be abbreviated.\n\n') + header)
+        return delivery_text(tr('This crew is remote, so its report files aren’t here. The text below may be shortened.\n\n') + header)
     try:
         prefix = delivery_task_prefix(task)
     except ValueError:
@@ -3521,7 +3598,7 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
                             prefix + 'application-receipt.json', prefix + 'package-receipt.json'):
                 sections.append(tr('Artifact missing: {path}', path=path))
         except (OSError, ValueError) as exc:
-            sections.append(tr('Artifact unavailable: {path}: {error}', path=path, error=exc))
+            sections.append(tr('Artifact unavailable: {path}: {error}', path=path, error=tr(str(exc))))
     if queue:
         sections.append(tr('Artifact link/read limit reached (32 paths); remaining artifacts not read.'))
     curated = next(((p, t) for p, t in documents if p in (prefix + 'delivery.md', prefix + 'recap.md')
@@ -3530,31 +3607,31 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
     if report is None:
         report = next(((p, t) for p, t in documents if p not in (prefix + 'delivery.md', prefix + 'recap.md')
                        and p.endswith(('.md', '.txt')) and t.strip()), None)
-    lead = tr('Full report: r / [Report]\n\n') if report else tr('Report unavailable: no full report retained for this task.\n\n')
+    lead = tr('Full report: r / [Report]\n\n') if report else tr('No full report for this task yet.\n\n')
     if curated:
         lead += re.sub(r'\A\s*# [^\n]*\n+', '', curated[1]).strip() + '\n\n'
     else:
-        lead += tr('No curated recap (delivery.md or recap.md); showing retained report prose where available.\n\n')
+        lead += tr('No recap yet (delivery.md or recap.md); showing the report text instead.\n\n')
     ordered = []
     if report:
         ordered.append(tr('Full report: {path}\n{text}', path=report[0], text=report[1]))
     for path, text in documents:
         if curated and path == curated[0] or report and path == report[0]:
             continue
-        label = tr('Curated recap (home-authored)') if path in (prefix + 'delivery.md', prefix + 'recap.md') else tr('Artifact')
+        label = tr('Recap') if path in (prefix + 'delivery.md', prefix + 'recap.md') else tr('Artifact')
         ordered.append(tr('{label}: {path}\n{text}', label=label, path=path, text=text))
     details = tr('Delivery details\n') + header
     if curated:
-        details += tr('\nCurated recap (home-authored): ') + curated[0]
+        details += tr('\nRecap file: ') + curated[0]
     if record.get('state') and record['state'] != 'done':
-        lead = tr('Current task state: {state}; the retained delivery below is historical.\n\n', state=record['state']) + lead
+        lead = tr('This task is now {state}; the delivery below is from before.\n\n', state=record['state']) + lead
     full = delivery_text(lead + '\n\n'.join(ordered) + '\n\n' + details + '\n\n' + '\n\n'.join(sections))
     if split_views:
         summary = concise_delivery(curated[1] if curated else '', record.get('title') or record.get('what') or task, translate=translate)
         if record.get('state') and record['state'] != 'done':
             summary = tr('The task was reopened; this delivery is historical.') + '\n\n' + summary
         return {'summary': summary,
-                'report': readable_markdown(tr('Full report · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report is retained for this task.'),
+                'report': readable_markdown(tr('Full report · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report for this task yet.'),
                 'details': readable_markdown(details + '\n\n' + (curated[1] if curated else '') + '\n\n' + '\n\n'.join(ordered[1:] if report else ordered) + '\n\n' + '\n\n'.join(sections))}
     return full
 
@@ -3854,7 +3931,8 @@ class Collector(threading.Thread):
         if not raw:
             # A remote home with no cached snapshot yet is offline, not an
             # error: the tab carries the offline marker itself.
-            err = "" if home.route else f"bearings snapshot failed for {home.path}"
+            # Translated here with the crew named: the All tab joins one per crew.
+            err = "" if home.route else tr("Couldn’t read {crew}’s board. Check that Firstmate is running there.", crew=home.label)
             return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
         cols, totals = make_cards(
             home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered,
@@ -3964,7 +4042,7 @@ class Collector(threading.Thread):
                         )
                 if not homes:
                     snap = Snapshot()
-                    snap.error = "no Firstmate homes found (set FM_FLOW_HOMES or homes.conf)"
+                    snap.error = "No Firstmate crews found. Set FM_FLOW_HOMES or list them in homes.conf."
                     self._publish(snap)
                 else:
                     active = next((h for h in homes if h.label == self._active), homes[0])
@@ -4048,7 +4126,7 @@ class Collector(threading.Thread):
                         )
                         if fleet_total is not None:
                             self._counts[ALL_CREW_LABEL] = fleet_total
-                        error = "" if raw else f"bearings snapshot failed for {active.path}"
+                        error = "" if raw else tr("Couldn’t read {crew}’s board. Check that Firstmate is running there.", crew=active.label)
                         _debug("iter: publish final")
                         self._publish(
                             self._snapshot(homes, active, cols, agents, panes, totals, error=error)
@@ -4157,7 +4235,7 @@ def ansi_width(text: str) -> int:
 def supervisor_caption(value: dict) -> str:
     if not value:
         return tr('Firstmate: current activity unknown (no declaration).')
-    event = CardTime('Declared', value.get('observed_at'), value.get('source', ''))
+    event = CardTime('Declared', value.get('observed_at'), value.get('source', ''), authored=True)
     ttl = _float(value.get('ttl', value.get('ttl_seconds')), 0)
     stale = value.get('freshness') == 'stale' or bool(event.epoch and ttl > 0 and time.time() - event.epoch > ttl)
     age = local_time_caption(event)
@@ -4182,7 +4260,7 @@ def durable_report(card: Card) -> tuple[str, str, CardTime]:
                 and event.producer_kind in ('updated', 'done_report')):
             same = declared == local_state and flow['reason'] == local_text
             event = CardTime('Updated', (local_at or None) if same else None,
-                             flow.get('source') or 'flow.declared_state')
+                             flow.get('source') or 'flow.declared_state', authored=True)
         return declared, flow['reason'], event
     return local_state, local_text, CardTime('Updated', local_at or None, 'task status declaration [at]')
 
@@ -4220,11 +4298,11 @@ def flow_context(card: Card, *, translate=None) -> dict[str, str]:
             phase = 'reported'
         else:
             phase = 'unknown'
-    labels = {'human': tr('Waiting for a human answer'), 'dependency': tr('Waiting for a dependency'),
-              'integration': tr('Integration pending'), 'technical': tr('Technical hold'),
-              'active': tr('Declared activity'), 'unknown': tr('Unconfirmed state'),
-              'waiting': tr('Declared wait'),
-              'reported': tr('Work reported') if report_state == 'done' else tr('Last report')}
+    labels = {'human': tr('Waiting for a human answer'), 'dependency': tr('Waiting on another task'),
+              'integration': tr('Finishing up'), 'technical': tr('On hold'),
+              'active': tr('In progress'), 'unknown': tr('Status unclear'),
+              'waiting': tr('Waiting'),
+              'reported': tr('Reported done') if report_state == 'done' else tr('Last report')}
     if phase == 'integration' and flow.get('state') == 'ready':
         labels['integration'] = tr('Ready for integration')
     actions = {'human': tr('Answer the question in Captain’s Call.'),
@@ -4379,8 +4457,8 @@ def dependency_caption(card: Card) -> str:
         return card.blocked_by if card.blocked_by not in ('', '-') else ''
     def owner_label(dep):
         owner = dep.get('owner')
-        return (getattr(card, 'owner_label', '') or 'Firstmate') if owner == '(main)' else owner or tr('owner not recorded')
-    return '; '.join(f"{d.get('title') or d['id']} · {owner_label(d)}" + (tr(' (resolved)') if d.get('unresolved') is False else '') + (tr(' (link pending reconciliation)') if d.get('reconciliation_required') is True else '')
+        return (getattr(card, 'owner_label', '') or 'Firstmate') if owner == '(main)' else owner or tr('crew not recorded')
+    return '; '.join(f"{d.get('title') or d['id']} · {owner_label(d)}" + (tr(' (resolved)') if d.get('unresolved') is False else '') + (tr(' (link needs a check)') if d.get('reconciliation_required') is True else '')
                      for d in deps)
 
 
@@ -4388,10 +4466,10 @@ def explanation_request(home: Home, task: str, *, status: bool = False, translat
     """Identity-only intake. A stable key delegates deduplication to Firstmate."""
     tr = translate or _presentation_text
     if is_remote_home(home) or not delivery_home_identity(home) or not KEY_RE.fullmatch(task):
-        return {'state': 'unsupported', 'message': tr('This home does not allow explanation requests from Deck.')}
+        return {'state': 'unsupported', 'message': tr('Explanations only work for crews on this machine.')}
     script = endpoint_path(home.path, 'fm-delivery-explain.sh')
     if not os.path.isfile(script):
-        return {'state': 'unsupported', 'message': tr('This backend does not offer the explanation intake yet. Firstmate must update this home.')}
+        return {'state': 'unsupported', 'message': tr('Update Firstmate to ask for explanations here.')}
     request_id = 'deck-explain-' + delivery_key(delivery_home_identity(home), task)[:32]
     command = [script, '--task', task, '--request-id', request_id, '--json']
     if status:
@@ -4409,7 +4487,7 @@ def explanation_request(home: Home, task: str, *, status: bool = False, translat
             raise ValueError(tr('invalid response or different identity'))
         return data
     except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-        return {'state': 'error', 'request_id': request_id, 'message': tr('Could not verify the request: {error}. Retrying uses the same identifier.', error=exc)}
+        return {'state': 'error', 'request_id': request_id, 'message': tr('Details: {error}. Asking again won’t create a duplicate.', error=exc)}
 
 
 class UI:
@@ -4500,14 +4578,14 @@ class UI:
             self.col_idx = max(0, min(self.col_idx, len(self.columns) - 1))
         set_show_landed_pref(self.show_landed)
         self.dirty = True
-        self.say(f"landed column {'shown' if self.show_landed else 'hidden'}")
+        self.say(tr("Delivered column shown") if self.show_landed else tr("Delivered column hidden"))
 
     def toggle_answered(self) -> None:
         """Show or hide the Captain's Call rows the captain already answered."""
         self.reveal_answered = not self.reveal_answered
         self.collector.set_reveal_answered(self.reveal_answered)
         self.dirty = True
-        self.say(f"answered calls {'shown' if self.reveal_answered else 'hidden'}")
+        self.say(tr("Answered calls shown") if self.reveal_answered else tr("Answered calls hidden"))
 
     def crew_tab_count(self, snap: Snapshot, home_label: str) -> int | None:
         if home_label == ALL_CREW_LABEL:
@@ -4550,7 +4628,7 @@ class UI:
         dialog; a Landed ticket opens its delivery; other tickets open full context; o focuses a pane."""
         card = self.selected()
         if card is None:
-            self.say("no ticket in this column")
+            self.say(tr("Nothing in this column"))
             return
         if card.bucket == "captains_call":
             self.open_decision(card)
@@ -4566,26 +4644,26 @@ class UI:
     def open_selected(self) -> None:
         card = self.selected()
         if card is None:
-            self.say("no ticket in this column")
+            self.say(tr("Nothing in this column"))
             return
         self.open_card_pane(card)
 
     def open_card_pane(self, card: Card) -> None:
         snap = self.collector.snapshot()
         if card.bucket == "landed" and card.pane_id not in snap.panes:
-            self.say(f"{card.task}: no live pane; Enter opens delivery")
+            self.say(tr("{task}: no agent open; Enter opens the delivery", task=card.task))
             return
         tab = card.tab_id
         if not tab and card.pane_id:
             tab = (snap.panes.get(card.pane_id) or {}).get("tab_id", "")
         if tab and self._focus([HERDR_BIN, "tab", "focus", tab]):
-            self.say(f"opened {card.task} \u2192 {tab}")
+            self.say(tr("Opened {task} \u2192 {tab}", task=card.task, tab=tab))
             return
         if card.workspace_id and self._focus([HERDR_BIN, "workspace", "focus", card.workspace_id]):
-            self.say(f"opened {card.task} \u2192 workspace {card.workspace_id}")
+            self.say(tr("Opened {task} \u2192 workspace {workspace}", task=card.task, workspace=card.workspace_id))
             return
         wt = card.worktree or "(no worktree yet)"
-        self.say(f"{card.task}: no live pane \u00b7 {wt}")
+        self.say(tr("{task}: no agent open \u00b7 {worktree}", task=card.task, worktree=wt))
 
     @staticmethod
     def _focus(cmd: list[str]) -> bool:
@@ -4600,7 +4678,7 @@ class UI:
         snap = self.collector.snapshot()
         home = snap.home
         if home is None:
-            self.say("no home selected")
+            self.say(tr("no crew selected"))
             return
         if is_aggregate_home(home):
             sources = real_homes(snap.homes)
@@ -4611,7 +4689,7 @@ class UI:
                 notes.append(source.label + ': ' + source_note)
                 complete = complete and source_complete
             rows.sort(key=lambda r: (r.get('closed', ''), r['id'], r['delivery_identity']), reverse=True)
-            note = '\n'.join(notes) or 'History unavailable: no discovered real homes; choose the owning crew tab.'
+            note = '\n'.join(notes) or tr('History unavailable: no local crews found.')
         else:
             rows, note, complete = delivery_records(home)
         self.history = {"home": home, "rows": rows, "note": note, "complete": complete, "query": "", "index": 0}
@@ -4641,16 +4719,16 @@ class UI:
         self.delivery_action_focus = 0
         self.delivery_actions = ['back']
         self.delivery_scroll = 0
-        self.delivery = ("Retained delivery history · sources and controls\n\n" +
-                         delivery_text(self.history["note"]) + "\n\nFull search text: " + self.history["query"] +
-                         "\n\nType to search task id, full title, canonical notes, date, artifact or source. "
-                         "Arrows select; Page Up/Down page; Home/End first/last; Enter/click opens. "
-                         "Ctrl+U or Clear resets search. Esc or Back returns. Tab or Info opens this source detail. "
-                         "Opening a delivery marks it read locally; searching, refresh and this source detail do not. "
-                         "Read is not acceptance or approval.\n\n" +
-                         "Delivery sheets: arrows/j/k, Page Up/Down, Home/End or wheel scroll. "
-                         "Up/Down buttons page; Back/Esc returns; o/Pane focuses a verified live pane when available. "
-                         "Missing reports and backend exports do not create automatic messages or calls.")
+        self.delivery = (tr("Delivery history · sources and controls\n\n") +
+                         delivery_text(self.history["note"]) + tr("\n\nFull search text: ") + self.history["query"] +
+                         tr("\n\nType to search by task, title, notes, date, file or source. "
+                            "Arrows select; Page Up/Down page; Home/End jump to first/last; Enter or click opens. "
+                            "Ctrl+U or Clear resets the search. Esc or Back returns. Tab or Info opens this page. "
+                            "Opening a delivery marks it read on this machine; searching and refreshing don’t. "
+                            "Read doesn’t mean approved.\n\n"
+                            "In a delivery: arrows/j/k, Page Up/Down, Home/End or the wheel scroll. "
+                            "Up/Down buttons page; Back/Esc returns; o/Pane jumps to the live agent pane when there is one. "
+                            "Missing reports never send messages or start calls."))
         self.dirty = True
 
     def history_open(self) -> None:
@@ -4678,9 +4756,9 @@ class UI:
             if home is not None:
                 resolved, owner_problem = delivery_owner_home(snap.homes, home, card.owner, card.id)
                 if resolved is None or delivery_home_identity(resolved) != identity:
-                    problem = owner_problem or 'Delivery owner unavailable: retained ownership conflicts with this card; refresh the owning crew tab.'
+                    problem = owner_problem or tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')
             if home is None or problem:
-                self.delivery = delivery_text(problem or 'Delivery owner unavailable: reopen from the owning crew tab; its discovered identity is missing or ambiguous.') + '\n' + delivery_text(card.title)
+                self.delivery = delivery_text(problem or tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')) + '\n' + delivery_text(card.title)
                 self.delivery_scroll = 0
                 self.dirty = True
                 return
@@ -4688,14 +4766,14 @@ class UI:
             record = next((r for r in rows if r["id"] == card.task), None)
             if record is None:
                 record = {"id": card.task, "what": card.title, "artifact": card.artifact,
-                          "source": "recent snapshot; canonical record unavailable (text may be abbreviated)"}
+                          "source": tr("recent view; full record unavailable (text may be shortened)")}
         else:
             record = card
             identity = record.get('delivery_identity', '')
             matches = [h for h in real_homes(snap.homes) if identity and delivery_home_identity(h) == identity]
             home = matches[0] if len(matches) == 1 else None
             if home is None:
-                self.delivery = 'Delivery owner unavailable: reopen history from the owning crew tab; its discovered identity is missing or ambiguous.'
+                self.delivery = tr('Can’t tell which crew this delivery belongs to. Open it from its crew tab.')
                 self.delivery_scroll = 0
                 self.dirty = True
                 return
@@ -4740,7 +4818,7 @@ class UI:
                 self.dirty = True
                 return
             offset += len(wrap_text(line, inner))
-        self.say('Full report unavailable; see retained sources and details.')
+        self.say(tr('No full report here; check Details.'))
 
     def delivery_set_view(self, view: str) -> None:
         if self.delivery_views:
@@ -4799,7 +4877,7 @@ class UI:
         if not self.delivery_views:
             controls = [('back', tr('Back'))]
         if self.delivery_context:
-            controls += [('explain', 'e ' + tr('Ask Firstmate for an explanation')), ('status', 's ' + tr('Status'))]
+            controls += [('explain', 'e ' + tr('Ask Firstmate to explain')), ('status', 's ' + tr('Status'))]
         self.delivery_actions = [action for action, _ in controls]
         self.delivery_action_focus = min(self.delivery_action_focus, len(controls) - 1)
         action_rows, hits = [''], []
@@ -4818,9 +4896,9 @@ class UI:
                 heading.insert(0, f'{home.label} · {task}')
         status_rows = []
         if self.delivery_context and self.explanation and (self.explanation_notice or self.explanation.get('state') not in ('absent', 'unsupported')):
-            states = {'queued': tr('Queued for Firstmate'), 'acknowledged': tr('Firstmate acknowledged receipt'),
+            states = {'queued': tr('Queued for Firstmate'), 'acknowledged': tr('Firstmate got it'),
                       'answered': tr('Firstmate answered; see Details'), 'saved_unannounced': tr('Saved; Firstmate notice unconfirmed'),
-                      'absent': tr('No request'), 'unsupported': tr('Explanation unavailable on this backend'),
+                      'absent': tr('No request'), 'unsupported': tr('Explanations aren’t available here'),
                       'error': tr('Request unverified; s checks the status')}
             state = self.explanation.get('state', 'error')
             status_rows += wrap_text(tr('Request: ') + states[state], inner)
@@ -4857,9 +4935,9 @@ class UI:
         state["index"] = min(state["index"], max(0, len(rows) - 1))
         inner = max(4, min(122, w - 2) - 4)
         budget = max(1, h - 5)
-        content = wrap_text("Search: " + state["query"] + "_", inner)
-        content += wrap_text(tr("Retained: ") + (tr("current + archive") if state["complete"] else tr("incomplete sources")) + tr(" · Tab/Info: retention and sources"), inner)
-        content += wrap_text("Type search · Enter open · ↑↓ select · Esc back", inner)
+        content = wrap_text(tr("Search: ") + state["query"] + "_", inner)
+        content += wrap_text(tr("Sources: ") + (tr("current + archive") if state["complete"] else tr("incomplete sources")) + tr(" · Tab/Info: where history comes from"), inner)
+        content += wrap_text(tr("Type to search · Enter open · ↑↓ select · Esc back"), inner)
         # Source details are fully scrollable through Tab/Info even when there
         # are no rows (offline/backend missing), without marking anything read.
         content = content[:max(1, min(4, budget - 2))]
@@ -4867,8 +4945,8 @@ class UI:
         index = state["index"]
         for i in range(index, len(rows)):
             record = rows[i]
-            unread = "new" if not delivery_seen(record['delivery_identity'], record["id"]) else "read"
-            label = f"{'>' if i == index else ' '} {unread} · {record.get('closed') or '?'} · {record['id']} · {record['source']}"
+            unread = tr("new") if not delivery_seen(record['delivery_identity'], record["id"]) else tr("read")
+            label = f"{'>' if i == index else ' '} {unread} · {record.get('closed') or '?'} · {record['id']} · {tr(record['source'])}"
             if is_aggregate_home(state['home']):
                 label += ' · ' + record['owner_label']
             entry = [delivery_text(label)] + wrap_text(delivery_text(record["title"]), inner)
@@ -4880,17 +4958,20 @@ class UI:
             if len(content) >= budget:
                 break
         if not rows:
-            content.append("No matching retained deliveries.")
-        title = f" Delivery history · {state['home'].label} · {len(rows)} matches · {index + 1 if rows else 0}/{len(rows)} "
-        actions = "[Prev] [Next] [Open] [Clear] [Back] [Info]"
+            content.append(tr("No matching deliveries."))
+        title = " " + tr("Delivery history · {home} · {count} matches · {position}/{total}", home=state['home'].label,
+                         count=len(rows), position=index + 1 if rows else 0, total=len(rows)) + " "
+        # Click ranges follow the translated button widths.
+        tokens = [("[" + tr(label) + "]", action) for label, action in
+                  (("Prev", "prev"), ("Next", "next"), ("Open", "open"), ("Clear", "clear"), ("Back", "back"), ("Info", "info"))]
+        actions = " ".join(token for token, _ in tokens)
         x, y, budget, _ = self.reader_frame(lines, w, h, title, content, actions)
         self.history_hits = [(x, x + inner, y + 1 + row, i) for row, i in mapping]
-        self.reader_hits = [(x, x + 6, y + budget + 1, "prev"),
-                            (x + 7, x + 13, y + budget + 1, "next"),
-                            (x + 14, x + 20, y + budget + 1, "open"),
-                            (x + 21, x + 28, y + budget + 1, "clear"),
-                            (x + 29, x + 35, y + budget + 1, "back"),
-                            (x + 36, x + 42, y + budget + 1, "info")]
+        self.reader_hits, offset = [], 0
+        for token, action in tokens:
+            end = offset + display_width(token)
+            self.reader_hits.append((x + offset, x + end, y + budget + 1, action))
+            offset = end + 1
 
     def reader_click(self, x: int, y: int, button: int) -> None:
         if button in (64, 65, 68, 69):
@@ -4913,7 +4994,7 @@ class UI:
                     if self.delivery_card is not None:
                         self.open_card_pane(self.delivery_card)
                     else:
-                        self.say("no live pane for this delivery")
+                        self.say(tr("No agent open for this delivery"))
                 elif action == "report":
                     self.delivery_report()
                 elif self.delivery is not None and action in ('summary', 'details', 'explain', 'status'):
@@ -4943,7 +5024,7 @@ class UI:
         if is_remote_home(snap.home):
             # Remote homes stay read-only on the board: answering a call runs
             # the local home's intake and steer, which cannot reach that home.
-            self.say("remote home \u00b7 read-only on the board")
+            self.say(tr("remote crew · read-only on the board"))
             return
         content = decision_card_content(card, snap.homes, snap.home, bearings=snap.bearings)
         self.dialog = DecisionDialog(content)
@@ -4951,7 +5032,7 @@ class UI:
         self.dialog_box = None
         self.dialog_scroll = 0
         self._dialog_scroll_follow = False
-        self.say(f"captain's call: {card.task}")
+        self.say(tr("Your call: {task}", task=card.task))
         self.dirty = True
 
     def close_dialog(self) -> None:
@@ -4984,7 +5065,7 @@ class UI:
         if d is None:
             return
         if not d.freeform:
-            self.say("this call takes a listed option")
+            self.say(tr("this call takes a listed option"))
             return
         d.note += text
         d.focus = "note"
@@ -5023,12 +5104,12 @@ class UI:
             return
         answer = d.display_answer()
         if not answer:
-            d.error = "choose an option or type an answer"
+            d.error = tr("Pick an option or type an answer.")
             d.busy = False
             self.dirty = True
             return
         if len(answer.encode("utf-8")) > ANSWER_LIMIT:
-            d.error = f"answer is too long ({ANSWER_LIMIT} bytes maximum)"
+            d.error = tr("That answer is too long (up to {limit} bytes).", limit=ANSWER_LIMIT)
             self.dirty = True
             return
         d.error = ""
@@ -5046,9 +5127,9 @@ class UI:
             # a wake problem is shown beside the queued state: the answer is
             # already durable, so it must not read as a failed submit
             d.error = detail
-            self.say(f"answer queued: {d.key}")
+            self.say(tr("answer queued: {task}", task=d.key))
         else:
-            d.error = detail or "the answer intake refused this call"
+            d.error = detail or tr("Firstmate didn’t accept this answer")
             d.busy = False
         self.dirty = True
 
@@ -5088,7 +5169,7 @@ class UI:
         self.selection_auto = True
         self.card_idx = 0
         self.scroll.clear()
-        self.say(f"crew: {label}")
+        self.say(tr("Crew: {label}", label=label))
 
     def scroll_by(self, key: str, delta: int) -> None:
         self.scroll[key] = max(0, self.scroll.get(key, 0) + delta)
@@ -5177,7 +5258,7 @@ class UI:
                         self.toggle_answered()
                     elif action == "refresh":
                         self.collector.refresh_now()
-                        self.say("refreshing\u2026")
+                        self.say(tr("Refreshing\u2026"))
                     return
         for x1, x2, label in self.tab_regions:
             if y == 0 and x1 <= x < x2:
@@ -5324,12 +5405,13 @@ class UI:
             cards = snap.cols.get(ckey) or []
             total = snap.totals.get(ckey) or len(cards)
             shown = f"{len(cards)}/{total}" if total > len(cards) else str(len(cards))
-            label = f"{title} ({shown})"
+            label = f"{tr(title)} ({shown})"
             if ckey == "underway" and cards:
                 # Same mapping as the web: agents Firstmate reports working now.
-                label = f"{title} ({shown} · ●{activity_counts(cards).get('working', 0)} working)"
+                label = tr("{title} ({shown} · ●{count} working)", title=tr(title), shown=shown,
+                           count=activity_counts(cards).get('working', 0))
             if ckey == "landed":
-                label = f"Recent Landed ({shown})" + tr(" · H history")
+                label = tr("Recent Landed ({shown})", shown=shown) + tr(" · H history")
             if len(display_columns) == 1:
                 label += f" · ←/→ {self.col_idx + 1}/{len(self.columns)}"
             blocked = sum(1 for c in cards if "blocked" in c.badge.lower())
@@ -5349,7 +5431,7 @@ class UI:
             col_lines = [" " * colw] * body_h
             if not cards:
                 if not snap.loading:
-                    placeholder = "  (empty)"
+                    placeholder = "  " + tr("(empty)")
                 elif snap.home is None:
                     placeholder = "  " + _presentation_text("Loading board\u2026")
                 else:
@@ -5377,17 +5459,19 @@ class UI:
         while len(lines) < h - 1:
             lines.append("")
         self.footer_hits = []
-        footer_text = " " + " \u00b7 ".join(label for label, _ in _FOOTER_HINTS)
+        # Click ranges follow the translated labels' own widths.
+        hints = [(tr(label), action) for label, action in _FOOTER_HINTS]
+        footer_text = " " + " \u00b7 ".join(label for label, _ in hints)
         if snap.hidden_calls and not self.reveal_answered:
-            footer_text += f" \u00b7 {snap.hidden_calls} answered"
+            footer_text += tr(" \u00b7 {count} answered", count=snap.hidden_calls)
         lines.append(f"{fg(C_DIM)}{clip(footer_text, w)}{RESET}")
         if self.flash and time.time() - self.flash_at < 6:
             lines[-1] = f"{fg(C_WARN)}{clip(self.flash, w)}{RESET}"
         elif snap.error:
-            lines[-1] = f"{fg(C_BAD)}{clip(snap.error, w)}{RESET}"
+            lines[-1] = f"{fg(C_BAD)}{clip(tr(snap.error), w)}{RESET}"
         else:
             x = 1
-            for label, action in _FOOTER_HINTS:
+            for label, action in hints:
                 end = x + display_width(label)
                 self.footer_hits.append((x, end, action))
                 x = end + display_width(" \u00b7 ")
@@ -5408,7 +5492,7 @@ class UI:
                 self.render_details(lines, w, h)
             else:
                 self.details = None
-                self.say("ticket left this board; refresh to locate it")
+                self.say(tr("That task left this board; refresh to find it"))
         if self.history is not None:
             self.render_history(lines, w, h)
         if self.delivery is not None:
@@ -5503,7 +5587,7 @@ class UI:
             first = True
             for ln in wrap_text(value, max(10, inner - 9)):
                 if first:
-                    add_segments([(pad(key, 8), fg(C_DIM)), (ln, "")], "ctx")
+                    add_segments([(pad(key, max(8, display_width(key) + 1)), fg(C_DIM)), (ln, "")], "ctx")
                     first = False
                 else:
                     add(" " * 9 + ln, "ctx")
@@ -5529,7 +5613,7 @@ class UI:
             styled += " " * max(0, cw - used)
             rows.append(f"{border_style}\u2502 {RESET}{styled}{border_style} \u2502{RESET}")
 
-        badge = d.ctype.upper()
+        badge = {"decision": tr("DECISION"), "review": tr("REVIEW")}.get(d.ctype, d.ctype.upper())
         # header: the type badge on the left, the routing repo on the right
         add_segments(
             [
@@ -5544,11 +5628,11 @@ class UI:
         if d.about or d.decide or d.detail:
             add("", "blank")
         if d.about:
-            add_kv("ABOUT", d.about)
+            add_kv(tr("ABOUT"), d.about)
         if d.decide:
-            add_kv("DECIDE", d.decide)
+            add_kv(tr("DECIDE"), d.decide)
         if d.detail:
-            add_kv("DETAIL", d.detail)
+            add_kv(tr("DETAIL"), d.detail)
 
         # every option is its own bordered card, the way the board renders it:
         # the selected one keeps the DECISION colour and a filled radio, the
@@ -5564,10 +5648,10 @@ class UI:
             lead = "\u25b8 " if cursor else "  "
             mark = "\u25cf " if selected else "\u25cb "
             rec = opt["value"] == d.recommend
-            rec_text = " REC " if rec else ""
+            rec_text = tr(" REC ") if rec else ""
             # A card's label is prose; show the value too whenever the two
             # differ, because the value is what gets submitted.
-            value_text = "" if opt["value"] == opt["label"] else f" \u00b7 {opt['value']}"
+            value_text = "" if opt["value"] in (opt["label"], "reconcile") else f" \u00b7 {opt['value']}"
             room = cw - display_width(lead + mark) - display_width(rec_text)
             label = clip(opt["label"], max(4, room - display_width(value_text)))
             gap = max(
@@ -5652,15 +5736,15 @@ class UI:
             footer_kinds.append(kind)
 
         add_footer("", "blank")
-        status = "queueing\u2026" if d.busy else ("\u2713 queued" if d.queued else "")
+        status = tr("queueing…") if d.busy else (tr("✓ queued") if d.queued else "")
         current = d.selected_option()
         reconcile = bool(current and current["value"] == "reconcile")
         if reconcile:
-            button_text = " Queue reconcile request "
+            button_text = tr(" Ask for a re-check ")
         elif d.close == "release":
-            button_text = " Queue answer \u00b7 releases hold "
+            button_text = tr(" Queue answer · releases hold ")
         else:
-            button_text = " Queue answer "
+            button_text = tr(" Queue answer ")
         button_segments = [
             (button_text, REV + BOLD + fg(C_OK if d.queued else C_ACCENT))
         ]
@@ -5672,32 +5756,27 @@ class UI:
         add_footer_segments(button_segments, "button")
         # Consent line: what a submit does beyond the answer record itself.
         if reconcile:
-            outcome = "files re-check"
+            outcome = tr("files re-check")
             if d.intake_reconcile_wakes:
-                outcome += " · queues owner wake"
+                outcome += tr(" · wakes the task’s agent")
             elif d.wake_home and d.wake_lane and d.wake_enabled:
-                outcome += f" · steers {d.wake_lane}"
-            outcome += " · binds source if unbound"
+                outcome += tr(" · steers {lane}", lane=d.wake_lane)
+            outcome += tr(" · binds source if unbound")
         else:
-            outcome = "releases hold" if d.close == "release" else "closes task"
+            outcome = tr("releases hold") if d.close == "release" else tr("closes task")
             if d.wake_home and d.wake_lane:
                 # the intake's own wake does not depend on FM_FLOW_WAKE
                 outcome += (
-                    f" \u00b7 steers {d.wake_lane}"
+                    tr(" · steers {lane}", lane=d.wake_lane)
                     if d.intake_wakes or d.wake_enabled
-                    else " \u00b7 owner wake off"
+                    else tr(" · won’t wake the task’s agent")
                 )
         add_footer(
             clip(f"\u2192 {_flatten_field(d.key)} \u00b7 {outcome}", inner),
             "hint",
             C_DIM,
         )
-        help_bits = [
-            "esc close",
-            "\u2191\u2193 move",
-            "space pick",
-            "enter queue",
-        ]
+        help_bits = [tr("esc close"), tr("↑↓ move"), tr("space pick"), tr("enter queue")]
         # Keep Queue answer + help visible; scroll only the card body above them.
         # The whole modal must fit in the terminal (borders add two rows).
         max_inner_rows = max(6, h - 2)
@@ -5705,7 +5784,7 @@ class UI:
         scroll_max = max(0, len(body_rows) - budget)
         self._dialog_scroll_max = scroll_max
         if scroll_max:
-            help_bits.insert(1, "pgup/pgdn or wheel scroll")
+            help_bits.insert(1, tr("pgup/pgdn or wheel scroll"))
         if self._dialog_scroll_follow and d.focus == "note":
             self.dialog_scroll = scroll_max
             self._dialog_scroll_follow = False
@@ -5713,7 +5792,7 @@ class UI:
         if scroll_max:
             top = self.dialog_scroll + 1
             bottom = min(len(body_rows), self.dialog_scroll + budget)
-            help_bits.insert(0, f"lines {top}-{bottom} of {len(body_rows)}")
+            help_bits.insert(0, tr("lines {top}-{bottom} of {total}", top=top, bottom=bottom, total=len(body_rows)))
         add_footer(" \u00b7 ".join(help_bits), "help", C_DIM)
 
         if scroll_max:
@@ -5758,10 +5837,10 @@ class UI:
         ("pgup/pgdn, wheel", "scroll the column"),
         ("click a crew tab", "switch mate"),
         ("enter / click", "open a call or Landed delivery"),
-        ("H", "search retained delivery history (All or local home)"),
+        ("H", "search delivery history (All or a local crew)"),
         ("delivery", "r report; d details; e explanation; s status; Tab/Enter actions"),
         ("o", "open the selected agent pane"),
-        ("d", "read full reason, owner, dependency and next step"),
+        ("d", "read the full reason, crew, dependency and next step"),
         ("m", "message Firstmate"),
         ("1-9 / tab", "switch crew (All = fleet)"),
         ("L", "show/hide Landed"),
@@ -5784,7 +5863,7 @@ class UI:
     @staticmethod
     def detail_fields(card: Card) -> list[tuple[str, str]]:
         """Evidence and routing, without turning a technical block into a call."""
-        owner = getattr(card, "owner_label", "") or card.home_path or "unknown home"
+        owner = getattr(card, "owner_label", "") or card.home_path or tr("unknown crew")
         context = flow_context(card)
         fields = [("Task", card.title or card.task), ("State", card.badge),
                   ("Phase", context['label']),
@@ -5794,7 +5873,7 @@ class UI:
                   ("Waiting for", context['waiting_for'] or tr('See the reason and next action')),
                   ("Next", context['next_action']),
                   ("Firstmate action", context['firstmate_action']),
-                  ("Owner", f"Firstmate · {owner}"), ("Worker", card.task)]
+                  ("Crew", f"Firstmate · {owner}"), ("Worker", card.task)]
         report_state, report_text, report_time = durable_report(card)
         if report_state:
             fields[4:4] = [("Task report", f"{report_state}: {report_text}"),
@@ -5803,37 +5882,37 @@ class UI:
         if event is not None:
             fields.append(("Time", card_time_detail(event)))
         for dep in getattr(card, 'dependencies', []):
-            fields.append(('Dependency identity', f"{dep['id']} · {dep.get('title') or tr('name not recorded')} · {dep.get('owner') or tr('owner not recorded')} · {dep.get('state') or tr('unknown state')}"))
+            fields.append(('Dependency identity', f"{dep['id']} · {dep.get('title') or tr('name not recorded')} · {dep.get('owner') or tr('crew not recorded')} · {dep.get('state') or tr('unknown state')}"))
         blockers = getattr(card, "blockers", [])
         for b in blockers:
-            fields.append(("Reason", b["text"] or "No reason recorded"))
-            fields.append(("Blocker key", b["key"] or "unkeyed declaration"))
-            fields.append(("Reported at", str(b["at"] or "unknown")))
+            fields.append(("Reason", b["text"] or tr("No reason recorded")))
+            fields.append(("Blocker key", b["key"] or tr("update without a key")))
+            fields.append(("Reported at", str(b["at"] or tr("unknown"))))
         if card.bucket == "captains_call":
             next_step = "Answer the authored question in Captain's Call (Enter after closing details)."
         elif card.blocked_by not in ("", "-"):
             next_step = "Firstmate: check the named dependency and resume when it clears."
         elif any(b["state"] == "blocked" for b in blockers) or "blocked" in card.badge.lower():
-            next_step = "Firstmate: take the authorized technical step or assign a named dependency owner; resume after resolution."
+            next_step = "Firstmate: fix the blocker or name who should; resume once it’s fixed."
         elif "decision" in card.badge.lower():
-            next_step = "Firstmate: reconcile the declared decision with the authoritative Captain's Call."
+            next_step = "Firstmate: check this decision against the Captain’s Call."
         elif any(s in card.badge.lower() for s in ("paused", "parked")):
             next_step = "Firstmate: check the declared wait and resume when its condition clears."
         elif getattr(card, "activity_unconfirmed", False):
             next_step = "Firstmate: verify task status; native pane activity alone does not confirm task progress."
         else:
             next_step = "Firstmate supervises this task; open its agent pane with o for live context."
-        fields.append(("Routing detail", next_step))
-        fields.append(("Firstmate", f"{getattr(card, 'snapshot_state', '') or 'unavailable'}; {card.doing or 'no activity detail'}"))
-        fields.append(("Herdr", card.live_status or "unavailable"))
+        fields.append(("Routing detail", tr(next_step)))
+        fields.append(("Firstmate", f"{getattr(card, 'snapshot_state', '') or tr('unavailable')}; {card.doing or tr('no activity detail')}"))
+        fields.append(("Herdr", card.live_status or tr("unavailable")))
         fields.append(('Agent', UI.card_agent_line(card)))
         fields.append(('Run totals', UI.card_run_stats_suffix(card) or tr('Not recorded')))
         fields.append(('Branch', card.branch or tr('no branch recorded')))
         fields.append(('Worktree', card.worktree or tr('not recorded')))
         fields.append(('Supervisor evidence', delivery_text(json.dumps(getattr(card, 'supervisor', {}), ensure_ascii=False))))
         fields.append(('Planned Firstmate action', (getattr(card, 'flow', {}) or {}).get('firstmate_action') or tr('Not exported')))
-        fields.append(('Flow source', str((getattr(card, 'flow', {}) or {}).get('source') or tr('Retained declarations; projection not exported'))))
-        fields.append(("Evidence", "Declarations are read from the latest 8192 bytes of the task log; missing dependency ownership is not inferred. Snapshot reasons may be abbreviated."))
+        fields.append(('Flow source', str((getattr(card, 'flow', {}) or {}).get('source') or tr('From task updates; no flow summary shared'))))
+        fields.append(("Evidence", tr("Read from the last 8192 bytes of the task log; a missing dependency crew isn’t guessed. Reasons may be shortened.")))
         return fields
 
     def render_details(self, lines: list[str], w: int, h: int) -> None:
@@ -5844,15 +5923,15 @@ class UI:
         inner = dw - 4
         rows = []
         for label, value in self.detail_fields(card):
-            rows.extend(wrap_text(f"{label}: {value}", inner))
+            rows.extend(wrap_text(f"{tr(label)}: {value}", inner))
             rows.append("")
         budget = max(1, h - 6)
         self.details_max = max(0, len(rows) - budget)
         self.details_scroll = min(self.details_scroll, self.details_max)
         start = self.details_scroll
         visible = rows[start:start + budget]
-        footer = f"{start + 1}-{start + len(visible)}/{len(rows)} · ↑↓/PgUp/PgDn · Esc close"
-        title = clip(" Details · read only ", dw - 2)
+        footer = f"{start + 1}-{start + len(visible)}/{len(rows)} · ↑↓/PgUp/PgDn · " + tr("Esc close")
+        title = clip(tr(" Details · read only "), dw - 2)
         box = ["╭" + title + "─" * max(0, dw - 2 - display_width(title)) + "╮"]
         box += ["│ " + pad(row, inner) + " │" for row in visible]
         box += ["│ " + pad(clip(footer, inner), inner) + " │", "╰" + "─" * (dw - 2) + "╯"]
@@ -5888,14 +5967,14 @@ class UI:
             return
         home, pane = self.message_target()
         if not pane:
-            m.error = f"no Firstmate pane found for {home.label if home else 'this tab'}"
+            m.error = tr("Couldn’t find Firstmate for {where}", where=home.label if home else tr("this tab"))
             return
         ok, detail = send_to_firstmate(pane, text)
         if not ok:
             m.error = detail or "herdr refused the message"
             return
         self.message = None
-        self.say(f"sent to firstmate ({pane})")
+        self.say(tr("Sent to Firstmate ({pane})", pane=pane))
 
     def render_message(self, lines: list[str], w: int, h: int) -> None:
         """Draw the `m` box as a centered modal: its target, the text, the keys."""
@@ -5905,15 +5984,15 @@ class UI:
         home, pane = self.message_target()
         dw = max(34, min(80, w - 4))
         inner = dw - 4
-        where = home.label if home else "this tab"
-        target = f"to {where} ({pane})" if pane else f"to {where}: no Firstmate pane found"
+        where = home.label if home else tr("this tab")
+        target = tr("to {where} ({pane})", where=where, pane=pane) if pane else tr("to {where}: Firstmate not found", where=where)
         rows: list[tuple[str, int | None]] = [(target, C_DIM)]
         rows += [(ln, None) for ln in wrap_text("> " + m.text + "\u258f", inner)[-6:]]
         if m.error:
             rows += [(ln, C_BAD) for ln in wrap_text(m.error, inner)]
-        rows.append(("enter send \u00b7 esc close \u00b7 ctrl+u clear", C_DIM))
+        rows.append((tr("enter send \u00b7 esc close \u00b7 ctrl+u clear"), C_DIM))
         border = fg(C_BORDER)
-        title = " Message Firstmate "
+        title = " " + tr("Message Firstmate") + " "
         box = [
             f"{border}\u256d\u2500{title}"
             + "\u2500" * max(0, dw - 3 - display_width(title))
@@ -5936,7 +6015,7 @@ class UI:
     def render_help(self, lines: list[str], w: int, h: int) -> None:
         """Draw the keybinding help as a centered modal (footer ``? help``)."""
         self.help_box = None
-        rows = [(key, tr(desc)) for key, desc in self.HELP_ROWS]
+        rows = [(tr(key), tr(desc)) for key, desc in self.HELP_ROWS]
         keyw = max(display_width(key) for key, _ in rows)
         cw = keyw + 3 + max(display_width(desc) for _, desc in rows)
         dw = min(max(34, cw + 4), max(34, w - 4))
@@ -5945,7 +6024,8 @@ class UI:
         y0 = max(0, min(max(0, h - box_h - 1), (h - box_h) // 2))
         x0 = max(0, (w - dw) // 2)
         border = fg(C_BORDER)
-        box = [f"{border}\u256d─ Help " + "─" * max(0, dw - 9) + f"\u256e{RESET}"]
+        title = tr("Help")
+        box = [f"{border}\u256d─ {title} " + "─" * max(0, dw - 5 - display_width(title)) + f"\u256e{RESET}"]
         for key, desc in rows:
             key_text = pad(key, keyw + 3)
             desc_text = clip(desc, max(0, inner - keyw - 3))
@@ -6016,8 +6096,8 @@ class UI:
             body += [mid(context['label'], card.badge_color)]
             body += [mid(row, C_WARN) for row in excerpt(context['reason'], 2)]
             dependency = dependency_caption(card)
-            relation = tr('Depends on: {dependency}', dependency=dependency) if dependency else context['waiting_for'] or context['next_action']
-            relation = 'Firstmate · ' + (getattr(card, 'owner_label', '') or tr('owner not recorded')) + ': ' + relation
+            relation = tr('Waiting on: {dependency}', dependency=dependency) if dependency else context['waiting_for'] or context['next_action']
+            relation = 'Firstmate · ' + (getattr(card, 'owner_label', '') or tr('crew not recorded')) + ': ' + relation
             body += [mid(row) for row in excerpt(relation, 2)]
             # The workflow report and native observation are independent.
             body += [mid(clip(context['native_status'], inner), C_DIM)]
@@ -6029,25 +6109,27 @@ class UI:
         return [line + " " * max(0, colw - cardw) for line in lines]
 
     @staticmethod
-    def card_agent_line(card: Card) -> str:
+    def card_agent_line(card: Card, translate=None) -> str:
         """``account·model·effort``; the account names the subscription store.
 
         A pi worker's model carries its provider prefix (``deepseek/...``), so
-        the prefix is dropped when the account line already shows it.
+        the prefix is dropped when the account line already shows it. The web
+        passes its own translator so the line follows the reader's language.
         """
+        tr = translate or _presentation_text
         if getattr(card, "bucket", "") == "landed":
             identity = getattr(card, 'delivery_identity', '')
             if not identity:
-                return 'owner unavailable · Delivery'
-            return ("read" if delivery_seen(identity, card.task) else "new") + " · Delivery"
+                return tr('crew unknown · Delivery')
+            return tr("read · Delivery") if delivery_seen(identity, card.task) else tr("new · Delivery")
         if getattr(card, "bucket", "") == "captains_call":
-            return "Human action"
+            return tr("Human action")
         lead = getattr(card, "account", "") or card.agent
         model = card.model
         if lead and model.startswith(lead + "/"):
             model = model.split("/", 1)[1]
         parts = [p for p in (lead, model, card.effort) if p]
-        return "\u00b7".join(parts) if parts else "no agent yet"
+        return "\u00b7".join(parts) if parts else tr("no agent yet")
 
     @staticmethod
     def card_run_stats_suffix(card: Card) -> str:
@@ -6118,15 +6200,15 @@ class UI:
     def card_footer_line(card: Card, crew: str = "") -> str:
         crew_bit = f"\u2316 {crew} \u00b7 " if crew else ""
         if card.bucket == "landed":
-            return "Enter delivery · H history"
+            return tr("Enter delivery · H history")
         if getattr(card, "blockers", []) or "blocked" in card.badge.lower() or getattr(card, "blocked_by", "") not in ("", "-"):
-            return f"d details · {crew or getattr(card, 'owner_label', '') or card.task}"
+            return tr("d details · {who}", who=crew or getattr(card, 'owner_label', '') or card.task)
         if card.worktree:
             parts = card.worktree.rstrip("/").split("/")
             short = "/".join(parts[-2:])
             return f"{crew_bit}\u2338 {short}"
         if card.bucket == "charted":
-            return f"{crew_bit}no worktree yet" if crew else "no worktree yet"
+            return f"{crew_bit}{tr('no worktree yet')}" if crew else tr("no worktree yet")
         if crew:
             return crew_bit.rstrip(" \u00b7 ")
         return card.mode or card.kind or ""
@@ -6543,7 +6625,7 @@ def main(argv: list[str]) -> int:
         discover_homes(verbose=True)
         return 0
     if os.name == 'nt':
-        print('TUI collection requires a POSIX backend; use the web UI or run with Firstmate in WSL.', file=sys.stderr)
+        print(tr('The terminal board needs Linux or macOS; on Windows, use the web board or run it in WSL.'), file=sys.stderr)
         return 2
     if "--once" in argv:
         active = ""
