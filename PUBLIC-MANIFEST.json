@@ -102,7 +102,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "3c2f271afb7407d6524d3fcb03b4fa71ed81a2b0bb908b923b09fc122903c3c2"
+      "sha256": "531773dbf1fb6c07c5d97dc71ed35ef3a4cee313a5faa3bf8acae098a5c8ad6e"
     },
     {
       "mode": "100755",
@@ -277,12 +277,12 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_language.py",
-      "sha256": "8d1485e3b1bc52491b00659eab062959502fb6b85f63aafc90b9a45ac0631fde"
+      "sha256": "8f66cf4597cc4cee701d5c1247143c1f08207a553a2a9a9ef6bdb0f27405b0bd"
     },
     {
       "mode": "100644",
       "path": "tests/test_flow_message_firstmate.py",
-      "sha256": "e3e91815b6e4bb1098e855fa1213e104edf6a283e4e3dcb6943c2cbdfdffa2af"
+      "sha256": "2ce086b8f7df0cc1f07f439b3d18d171bd104595ec01697cb5628cca54678ee6"
     },
     {
       "mode": "100644",
@@ -292,7 +292,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_remote_homes.py",
-      "sha256": "5ec24fba68e23a8bf04b0bfd27dddb105f4c5b7b09c153a84654529c7e28ac07"
+      "sha256": "7e6fd198ec0ed0cd05c2fba14b23d545343979266bad49a36fb968221abe361a"
     },
     {
       "mode": "100644",
@@ -347,17 +347,17 @@
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "8a6b6b5eaef4258d874c3dd61006193c18b1bb364dd685e69ae207926bc269cc"
+      "sha256": "7e0fabf777f8b542a4f3c4d4be8eabf56d3c5a422c4feecbbda46cd6a69bc87b"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "45f9dcb2a6d3fbb5cc75bc4fd5487df82bd97d5a478b8e4e5fafb4c7434d5fe7"
+      "sha256": "fe0bdf3a57455908d16d5339906ad56232215151d1724df5ca556d67a24a4591"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "74708ff5349ff44cd236e6a8c271539e2caabe8ba372cea5ad90fbc15d3412b5"
+      "sha256": "5f506e0d20ab492496c2fab2a02ab8f68c08d6a9b4dc2a6a030d550ee654cbaf"
     },
     {
       "mode": "100644",
@@ -462,7 +462,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_localization.py",
-      "sha256": "eea932e60442504deea7741bd21e68c907757be6c4604424a6f6e9326c9cfca4"
+      "sha256": "50ebc581490f581e207cbfe9367fdb0c5b00ee6ad79050e15df8e72e9e09c8f1"
     },
     {
       "mode": "100644",
