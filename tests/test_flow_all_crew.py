@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 FLOW = ROOT / "scripts" / "flow_tui.py"
@@ -90,6 +95,7 @@ def test_merge_dedupes_captains_call_by_task():
     dup_a.owner = "demo-lane"
     dup_b = _card("fpr-issue-29", "/mate", "captains_call")
     dup_b.owner = "(main)"
+    dup_a.delivery_identity = dup_b.delivery_identity = "/mate"
     cols_c = {"captains_call": [dup_a]}
     cols_m = {"captains_call": [dup_b]}
     totals_c = {"captains_call": 1}
@@ -100,6 +106,257 @@ def test_merge_dedupes_captains_call_by_task():
     assert [c.task for c in cols["captains_call"]] == ["fpr-issue-29"]
     assert cols["captains_call"][0].owner == "demo-lane"
     assert totals["captains_call"] == 1
+
+
+def _held(task: str, owner: str = "(main)") -> dict:
+    return {"decisions_open": [{"id": task, "title": "Pick a color", "owner": owner}]}
+
+
+def _call_columns(home: Home, snap: dict, homes: list[Home]) -> tuple[dict, dict]:
+    # reveal_answered keeps the user's answered-call ledger out of the test.
+    return flow.make_cards(home, snap, {}, {}, {}, homes, reveal_answered=True)
+
+
+def test_merge_keeps_same_named_calls_from_independent_homes(tmp_path):
+    claude = Home("claude", str(tmp_path / "claude"), "captain")
+    codex = Home("codex", str(tmp_path / "codex"), "captain")
+    homes = [claude, codex]
+    parts = []
+    for home in homes:
+        cols, totals = _call_columns(home, _held("demo-color"), homes)
+        parts.append((home, cols, totals))
+    cols, totals = merge_fleet_columns(parts)
+    assert [c.home_path for c in cols["captains_call"]] == [claude.path, codex.path]
+    assert totals["captains_call"] == 2
+
+
+def test_all_dialog_uses_each_homes_question_sources(tmp_path):
+    for representation in ("store", "board", "payload"):
+        homes = [Home(name, str(tmp_path / representation / name), "captain") for name in ("A", "B")]
+        parts = []
+        sources = []
+        for home in homes:
+            raw = {"key": "docs", "title": home.label + " question", "about": home.label + " context",
+                   "options": [{"value": home.label, "label": home.label + " answer"}]}
+            if representation == "store":
+                path = Path(home.path, "state/decision-cards/docs.json")
+                text = json.dumps({"generated": home.label + "-stamp", "card": raw})
+            else:
+                data = json.dumps({"captains_call": [raw]})
+                if representation == "board":
+                    path = Path(home.path, ".lavish/bearings-board.html")
+                    text = '<script id="bearings-data">' + data + '</script>'
+                else:
+                    path = Path(home.path, "data/bearings-board-payload-1.json")
+                    text = data
+            path.parent.mkdir(parents=True)
+            path.write_text(text)
+            sources.append(path)
+            cols, totals = _call_columns(home, _held("docs"), homes)
+            parts.append((home, cols, totals))
+        cols, _ = merge_fleet_columns(parts)
+        snapshot = flow.Snapshot()
+        snapshot.home = Home("All", "", "all")
+        snapshot.homes = flow.inject_all_crew(homes)
+        snapshot.cols = cols
+        ui = flow.UI()
+        ui.collector = SimpleNamespace(snapshot=lambda: snapshot)
+        for card, home in zip(cols["captains_call"], homes):
+            ui.open_decision(card)
+            assert ui.dialog.title == home.label + " question"
+            assert ui.dialog.about == home.label + " context"
+            assert ui.dialog.home_path == home.path
+            assert ui.dialog.options[0]["value"] == home.label
+        sources[1].unlink()
+        ui.open_decision(cols["captains_call"][1])
+        assert ui.dialog.title == "Pick a color"
+        assert [o["value"] for o in ui.dialog.options] == ["reconcile"]
+        assert ui.dialog.home_path == homes[1].path
+
+
+def test_legacy_matching_reuses_collector_snapshots_on_repaint(tmp_path):
+    homes = [Home(name, str(tmp_path / name), "captain") for name in ("A", "B")]
+    now = time.time()
+    collector = flow.Collector()
+    for home in homes:
+        path = Path(home.path, "state/decision-cards/docs.json")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"generated": "stamp", "card": {"title": home.label + " question"}}))
+        collector._raw[home.label] = (_held("docs"), now, home.path)
+    crew = flow.inject_all_crew(homes)
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"),
+                    FM_FLOW_HIDE_ANSWERED="1", FM_FLOW_ANSWER_MATCH="generated"):
+        flow.save_answered_calls({"docs": {"home": homes[0].path, "generated": "stamp", "answered_at": now}})
+        with patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
+            for _ in range(2):
+                collector._publish_fleet(crew, {}, {}, now)
+                assert collector.snapshot().totals["captains_call"] == 2
+            collector._raw[homes[1].label] = ({"decisions_open": []}, now, homes[1].path)
+            for _ in range(2):
+                collector._publish_fleet(crew, {}, {}, now)
+                assert collector.snapshot().totals["captains_call"] == 0
+                assert collector.snapshot().hidden_calls == 1
+            collector._raw.pop(homes[1].label)
+            _, cols, totals, _, _ = collector._load_bearings(homes[0], now, {}, {}, crew)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+        with patch.object(flow, "bearings_snapshot", return_value=_held("docs")) as walk:
+            collector._load_bearings(homes[0], now + flow._bearings_ttl() + 1, {}, {}, crew)
+            walk.assert_called_once_with(homes[0])
+
+
+def test_parent_content_uses_cached_ownership_for_fingerprints_and_dialogs(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = flow.inject_all_crew([captain, mate])
+    path = Path(captain.path, "state/decision-cards/docs.json")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"generated": "parent-stamp", "card": {
+        "title": "The delegated question", "options": [{"value": "yes", "label": "Proceed"}]
+    }}))
+    now = time.time()
+    collector = flow.Collector()
+    collector._raw = {
+        captain.label: (_held("docs", "lane"), now, captain.path),
+        mate.label: (_held("docs"), now, mate.path),
+    }
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"), FM_FLOW_HIDE_ANSWERED="1"):
+        with patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
+            collector._publish_fleet(homes, {}, {}, now)
+            ui = flow.UI()
+            ui.collector = collector
+            ui.open_decision(collector.snapshot().cols["captains_call"][0])
+            assert ui.dialog.title == "The delegated question"
+            assert ui.dialog.home_path == mate.path
+            ui.dialog.selected = 0
+            flow.record_answered_call(ui.dialog)
+            for match in ("generated", "content"):
+                with patch.dict(os.environ, FM_FLOW_ANSWER_MATCH=match):
+                    collector._publish_fleet(homes, {}, {}, now)
+                    snapshot = collector.snapshot()
+                    assert snapshot.totals["captains_call"] == 0
+                    assert snapshot.hidden_calls == 1
+                    ui.open_decision(snapshot.cols["captains_call"][0])
+                    assert ui.dialog.stamp == "parent-stamp"
+                    assert ui.dialog.options[0]["value"] == "yes"
+            without_evidence = flow.decision_card_content(snapshot.cols["captains_call"][0], homes, snapshot.home)
+            assert without_evidence["title"] == "Pick a color"
+            assert [o["value"] for o in without_evidence["options"]] == ["reconcile"]
+
+
+def test_legacy_answer_ignores_expired_inactive_and_retained_snapshots(tmp_path):
+    homes = [Home(name, str(tmp_path / name), "captain") for name in ("A", "B")]
+    a, b = homes
+    store = Path(a.path, "state/decision-cards/docs.json")
+    store.parent.mkdir(parents=True)
+    store.write_text(json.dumps({"generated": "stamp", "card": {"title": "A question"}}))
+    collector = flow.Collector()
+    collector._raw = {a.label: (_held("docs"), 1000.0, a.path),
+                      b.label: ({"decisions_open": []}, 1000.0, b.path)}
+    current = {a.path: _held("docs"), b.path: _held("docs")}
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"),
+                    FM_FLOW_HIDE_ANSWERED="1", FM_FLOW_ANSWER_MATCH="generated"):
+        with patch.object(flow.time, "time", return_value=1000.0) as clock, \
+                patch.object(flow, "_bearings_ttl", return_value=60.0), \
+                patch.object(flow, "bearings_snapshot", side_effect=lambda home: current[home.path]) as walk:
+            flow.save_answered_calls({"docs": {"home": a.path, "generated": "stamp", "answered_at": 1000.0}})
+            _, cols, totals, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 0
+            walk.assert_not_called()
+            clock.return_value = 1061.0
+            _, cols, totals, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+            walk.assert_called_once_with(a)
+            collector._load_bearings(b, clock.return_value, {}, {}, homes)
+            _, cols, _, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert walk.call_count == 2
+            clock.return_value = 1122.0
+            current[b.path] = {"decisions_open": []}
+            current[a.path] = {}
+            collector._load_bearings(b, clock.return_value, {}, {}, homes)
+            _, cols, totals, _, _ = collector._load_bearings(a, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+            assert collector._raw[a.label][1] == 1061.0
+
+
+def test_parent_ownership_expires_in_published_dialogs_and_fingerprints(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = flow.inject_all_crew([captain, mate])
+    store = Path(captain.path, "state/decision-cards/docs.json")
+    store.parent.mkdir(parents=True)
+    store.write_text(json.dumps({"generated": "stamp", "card": {
+        "title": "Delegated question", "options": [{"value": "yes", "label": "Proceed"}]
+    }}))
+    raw = {captain.path: _held("docs", "lane"), mate.path: _held("docs")}
+    collector = flow.Collector()
+    collector._raw = {home.label: (raw[home.path], 1000.0, home.path) for home in (captain, mate)}
+    with patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(tmp_path / "ledger"),
+                    FM_FLOW_HIDE_ANSWERED="1", FM_FLOW_ANSWER_MATCH="generated"):
+        with patch.object(flow.time, "time", return_value=1000.0) as clock, \
+                patch.object(flow, "_bearings_ttl", return_value=60.0), \
+                patch.object(flow, "bearings_snapshot", side_effect=lambda home: raw[home.path]) as walk:
+            collector._publish_fleet(homes, {}, {}, clock.return_value)
+            ui = flow.UI()
+            ui.collector = collector
+            card = collector.snapshot().cols["captains_call"][0]
+            ui.open_decision(card)
+            assert ui.dialog.options[0]["value"] == "yes"
+            ui.dialog.selected = 0
+            flow.record_answered_call(ui.dialog)
+            clock.return_value = 1061.0
+            ui.open_decision(card)
+            assert [o["value"] for o in ui.dialog.options] == ["reconcile"]
+            walk.assert_not_called()
+            _, cols, totals, _, _ = collector._load_bearings(mate, clock.return_value, {}, {}, homes)
+            assert not cols["captains_call"][0].answered_hidden
+            assert totals["captains_call"] == 1
+            walk.assert_called_once_with(mate)
+            collector._load_bearings(captain, clock.return_value, {}, {}, homes)
+            _, cols, totals, _, _ = collector._load_bearings(mate, clock.return_value, {}, {}, homes)
+            collector._publish(collector._snapshot(homes, mate, cols, {}, {}, totals))
+            ui.open_decision(cols["captains_call"][0])
+            assert ui.dialog.options[0]["value"] == "yes"
+            assert cols["captains_call"][0].answered_hidden
+            assert walk.call_count == 2
+
+
+def test_merge_folds_parent_mirror_of_a_mate_call(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = [captain, mate]
+    cols_c, totals_c = _call_columns(captain, _held("demo-color", "lane"), homes)
+    cols_m, totals_m = _call_columns(mate, _held("demo-color"), homes)
+    cols, totals = merge_fleet_columns(
+        [(captain, cols_c, totals_c), (mate, cols_m, totals_m)]
+    )
+    assert [(c.home_path, c.owner) for c in cols["captains_call"]] == [(mate.path, "lane")]
+    assert totals["captains_call"] == 1
+    for home_cols in (cols_c, cols_m):
+        home_cols["captains_call"][0].answered_hidden = True
+    cols, totals = merge_fleet_columns(
+        [(captain, cols_c, totals_c), (mate, cols_m, totals_m)]
+    )
+    assert len(cols["captains_call"]) == 1
+    assert totals["captains_call"] == 0
+    assert totals["captains_call_hidden"] == 1
+
+
+def test_merge_keeps_calls_with_an_unknown_answering_home(tmp_path):
+    captain = Home("captain", str(tmp_path / "captain"), "captain")
+    mate = Home("2ndmate-lane", str(tmp_path / "mate"), "secondmate", mate_id="lane")
+    homes = [captain, mate]
+    cols_c, totals_c = _call_columns(captain, _held("demo-color", "gone"), homes)
+    cols_m, totals_m = _call_columns(mate, _held("demo-color"), homes)
+    cols, totals = merge_fleet_columns(
+        [(captain, cols_c, totals_c), (mate, cols_m, totals_m)]
+    )
+    assert sorted(c.home_path for c in cols["captains_call"]) == ["", mate.path]
+    assert totals["captains_call"] == 2
 
 
 def test_merge_folds_parent_mirror_into_owner_row():

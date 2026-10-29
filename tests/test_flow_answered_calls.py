@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 FLOW = ROOT / "scripts" / "flow_tui.py"
@@ -82,18 +83,14 @@ def record_answer(answered_at: float | None = None) -> dict:
     home = flow.Home("captain", str(HOME), "captain")
     cols, _ = cards()
     content = flow.decision_card_content(cols["captains_call"][0], [home], home)
-    flow.save_answered_calls(
-        {
-            "decision-1": {
-                "home": str(HOME),
-                "generated": content["stamp"],
-                "digest": flow.call_digest(
-                    content["key"], content["title"], content["options"], content["close"]
-                ),
-                "answered_at": time.time() if answered_at is None else answered_at,
-            }
-        }
-    )
+    flow.save_answered_calls({})
+    dialog = flow.DecisionDialog(content)
+    dialog.note = "prod"
+    flow.record_answered_call(dialog)
+    if answered_at is not None:
+        records = flow.load_answered_calls()
+        records[flow.answered_call_key(str(HOME), "decision-1")]["answered_at"] = answered_at
+        flow.save_answered_calls(records)
     return content
 
 
@@ -119,11 +116,12 @@ def test_digest_is_the_question_identity() -> None:
 
 
 def test_ledger_round_trip() -> None:
+    key = flow.answered_call_key(str(HOME), "decision-1")
     flow.save_answered_calls(
-        {"decision-1": {"home": str(HOME), "answered_at": time.time(), "answer": "prod"}}
+        {key: {"home": str(HOME), "answered_at": time.time(), "answer": "prod"}}
     )
     check(
-        flow.load_answered_calls().get("decision-1", {}).get("answer") == "prod",
+        flow.load_answered_calls().get(key, {}).get("answer") == "prod",
         "the ledger round-trips",
     )
     check(
@@ -194,13 +192,28 @@ def test_a_spent_record_stops_hiding() -> None:
     )
 
 
+def test_another_homes_answer_does_not_hide_this_call() -> None:
+    set_card_stamp(FIXTURE_STAMP)
+    record_answer()
+    records = flow.load_answered_calls()
+    records[flow.answered_call_key(str(HOME), "decision-1")]["home"] = str(HOME.parent / "other-home")
+    flow.save_answered_calls(records)
+    cols, totals = cards()
+    check(
+        hidden_flags(cols)["decision-1"] is False,
+        "another home's answer to a same-named call does not hide this one",
+    )
+    check(totals["captains_call"] == 1, "the call still counts as actionable")
+
+
 def test_a_record_whose_row_left_the_column_is_dropped() -> None:
+    key = flow.answered_call_key(str(HOME), "another-task")
     flow.save_answered_calls(
-        {"another-task": {"home": str(HOME), "answered_at": time.time()}}
+        {key: {"home": str(HOME), "answered_at": time.time()}}
     )
     cards()
     check(
-        "another-task" not in flow.load_answered_calls(),
+        key not in flow.load_answered_calls(),
         "a record whose row left the column is dropped",
     )
 
@@ -217,7 +230,9 @@ def test_record_from_a_dialog() -> None:
     )
     dialog.note = "shipping prod"
     flow.record_answered_call(dialog)
-    record = flow.load_answered_calls().get("decision-1") or {}
+    records = flow.load_answered_calls()
+    record = records.get(flow.answered_call_key(str(HOME), "decision-1")) or {}
+    check("decision-1" not in records, "new answers use only home/task keys")
     check(
         record.get("generated") == content.get("stamp"),
         "the record keeps the card's generated stamp",
@@ -231,6 +246,79 @@ def test_record_from_a_dialog() -> None:
         record.get("home") == str(HOME) and bool(record.get("answer")),
         "the record keeps the owning home and the answer",
     )
+
+
+def test_same_named_answers_and_legacy_records() -> None:
+    with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=root):
+        homes = [flow.Home(name, str(Path(root, name)), "captain") for name in ("A", "B")]
+        snapshots = {}
+        for home in homes:
+            path = Path(home.path, "state/decision-cards/docs.json")
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"generated": home.label + "-stamp", "card": {
+                "key": "docs", "title": home.label + " question",
+                "options": [{"value": home.label, "label": home.label + " answer"}]
+            }}))
+            snapshots[home.path] = {"decisions_open": [{"id": "docs", "owner": "(main)", "title": "Durable title"}]}
+
+        def columns(home, crew=None):
+            evidence = {path: (data, time.time()) for path, data in snapshots.items()}
+            return flow.make_cards(home, snapshots[home.path], {}, {}, {}, crew or homes, bearings=evidence)
+
+        def answer(home):
+            cols, _ = columns(home)
+            content = flow.decision_card_content(cols["captains_call"][0], homes, home)
+            dialog = flow.DecisionDialog(content)
+            dialog.selected = 0
+            flow.record_answered_call(dialog)
+
+        with patch.object(flow, "bearings_snapshot", side_effect=AssertionError("unexpected snapshot walk")):
+            answer(homes[0])
+            cols, totals = columns(homes[1])
+            check(not cols["captains_call"][0].answered_hidden and totals["captains_call"] == 1,
+                  "answering A/docs leaves B/docs actionable")
+            answer(homes[1])
+            records = flow.load_answered_calls()
+            check(len(records) == 2 and "docs" not in records,
+                  "both answers survive a ledger reload under home/task keys")
+            for match in ("generated", "content"):
+                with patch.dict(os.environ, FM_FLOW_ANSWER_MATCH=match):
+                    parts = []
+                    for home in homes:
+                        cols, totals = columns(home)
+                        check(cols["captains_call"][0].answered_hidden and totals["captains_call"] == 0,
+                              f"{home.label}/docs stays answered with {match} matching")
+                        parts.append((home, cols, totals))
+                    _, totals = flow.merge_fleet_columns(parts)
+                    check(totals["captains_call"] == 0 and totals["captains_call_hidden"] == 2,
+                          f"All counts both answered homes with {match} matching")
+            legacy = {"docs": records[flow.answered_call_key(homes[0].path, "docs")]}
+            Path(flow.answered_ledger_path()).write_text(json.dumps(legacy))
+            for home in homes:
+                cols, _ = columns(home)
+                check(not cols["captains_call"][0].answered_hidden,
+                      f"ambiguous legacy docs does not hide {home.label}'s call")
+            snapshots[homes[1].path] = {"decisions_open": []}
+            cols, _ = columns(homes[0])
+            check(cols["captains_call"][0].answered_hidden,
+                  "a legacy record hides a task held by exactly one current home")
+            cols, _ = columns(homes[0], [homes[0]])
+            check(cols["captains_call"][0].answered_hidden,
+                  "a legacy record remains compatible with a single-home install")
+            answer(homes[0])
+            check(set(flow.load_answered_calls()) == {flow.answered_call_key(homes[0].path, "docs")},
+                  "answering a legacy call replaces its task-only key")
+            Path(flow.answered_ledger_path()).write_text(json.dumps(legacy))
+            snapshots[homes[1].path] = {}
+            cols, _ = columns(homes[0])
+            check(not cols["captains_call"][0].answered_hidden,
+                  "an unavailable home cannot establish legacy uniqueness")
+            flow.save_answered_calls(records)
+            snapshots[homes[0].path] = {"decisions_open": []}
+            columns(homes[0])
+            remaining = flow.load_answered_calls()
+            check(set(remaining) == {flow.answered_call_key(homes[1].path, "docs")},
+                  "cleanup removes only the departed home's record even with no remaining calls")
 
 
 def test_the_setting_can_turn_the_hiding_off() -> None:
@@ -247,8 +335,10 @@ def main() -> int:
     test_a_reveal_clears_the_mark()
     test_a_recomposed_card_and_the_match_switch()
     test_a_spent_record_stops_hiding()
+    test_another_homes_answer_does_not_hide_this_call()
     test_a_record_whose_row_left_the_column_is_dropped()
     test_record_from_a_dialog()
+    test_same_named_answers_and_legacy_records()
     test_the_setting_can_turn_the_hiding_off()
     if FAILURES:
         print(f"\n{len(FAILURES)} check(s) failed")
