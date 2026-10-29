@@ -315,8 +315,31 @@ def answered_ledger_path() -> str:
     return os.path.join(_plugin_state_dir(), ANSWERED_LEDGER)
 
 
+def answered_call_key(home_path: str, task: str) -> str:
+    return json.dumps([os.path.realpath(home_path), task], separators=(",", ":"))
+
+
+def _answered_call_task(key: str) -> str:
+    if KEY_RE.fullmatch(key):
+        return key
+    try:
+        parts = json.loads(key)
+    except ValueError:
+        return ""
+    if (isinstance(parts, list) and len(parts) == 2
+            and all(isinstance(part, str) for part in parts)
+            and os.path.isabs(parts[0]) and KEY_RE.fullmatch(parts[1])
+            and key == answered_call_key(*parts)):
+        return parts[1]
+    return ""
+
+
 def load_answered_calls() -> dict[str, dict]:
-    """task key -> the record written when its Captain's Call was answered."""
+    """Read records keyed by canonical home/task JSON pairs or legacy task slugs.
+
+    A legacy record can hide a row only in its recorded home, with fresh
+    bearings proving no other home currently holds that task.
+    """
     try:
         with open(answered_ledger_path(), "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -327,7 +350,7 @@ def load_answered_calls() -> dict[str, dict]:
     return {
         str(key): value
         for key, value in data.items()
-        if isinstance(key, str) and KEY_RE.fullmatch(key) and isinstance(value, dict)
+        if isinstance(key, str) and _answered_call_task(key) and isinstance(value, dict)
     }
 
 
@@ -386,7 +409,8 @@ def record_answered_call(dialog: "DecisionDialog") -> None:
     if not dialog.home_path or not KEY_RE.fullmatch(dialog.key):
         return
     records = load_answered_calls()
-    records[dialog.key] = {
+    records.pop(dialog.key, None)
+    records[answered_call_key(dialog.home_path, dialog.key)] = {
         "home": dialog.home_path,
         "title": _flatten_field(dialog.title),
         "answer": _flatten_field(dialog.display_answer()),
@@ -465,28 +489,29 @@ def fleet_planned_running_count(
 
 
 def _pick_captains_call_duplicate(cards: list[Card]) -> Card:
-    """When the fleet merges two snapshots for one task, keep the routable row."""
+    """Keep the explicitly owned row when a parent mirrors a home's call."""
     explicit = [c for c in cards if c.owner and c.owner != "(main)"]
-    if explicit:
-        return explicit[0]
-    with_path = [c for c in cards if c.home_path]
-    if with_path:
-        return with_path[0]
-    return cards[0]
+    return explicit[0] if explicit else cards[0]
+
+
+def _captains_call_identity(card: Card) -> tuple:
+    """One call is one task in one answering home.
+
+    A parent's mirror of a delegated call already resolves to the owning
+    home, so it shares that home's identity. Same-named tasks in independent
+    homes, and rows whose answering home is unknown, never fold together.
+    """
+    identity = getattr(card, "delivery_identity", "")
+    return (identity or id(card), card.task)
 
 
 def _dedupe_captains_call(cards: list[Card]) -> list[Card]:
-    by_task: dict[str, list[Card]] = {}
-    order: list[str] = []
+    groups: dict[tuple, list[Card]] = {}
     for card in cards:
-        if card.task not in by_task:
-            order.append(card.task)
-            by_task[card.task] = []
-        by_task[card.task].append(card)
+        groups.setdefault(_captains_call_identity(card), []).append(card)
     return [
         group[0] if len(group) == 1 else _pick_captains_call_duplicate(group)
-        for task in order
-        for group in [by_task[task]]
+        for group in groups.values()
     ]
 
 
@@ -681,9 +706,9 @@ def merge_fleet_columns(
     if LANDED_LIMIT:
         cols["landed"] = cols["landed"][:LANDED_LIMIT]
     if cols["captains_call"]:
-        before = len(cols["captains_call"])
         cols["captains_call"] = _dedupe_captains_call(cols["captains_call"])
-        totals["captains_call"] -= before - len(cols["captains_call"])
+        totals["captains_call_hidden"] = sum(bool(getattr(c, "answered_hidden", False)) for c in cols["captains_call"])
+        totals["captains_call"] = len(cols["captains_call"]) - totals["captains_call_hidden"]
     return cols, totals
 
 
@@ -1711,7 +1736,7 @@ def _store_card(path: str) -> dict:
     return _store_entry(path)[0]
 
 
-def decision_card_record(key: str, *homes: Home | None) -> tuple[dict, str]:
+def decision_card_record(key: str, home: Home | None) -> tuple[dict, str]:
     """The composed card for one captain-held task id, and the generated stamp
     of the store record it came from. A card read from a board file or a
     payload carries no stamp of its own, so it answers "".
@@ -1721,43 +1746,35 @@ def decision_card_record(key: str, *homes: Home | None) -> tuple[dict, str]:
     the board build persists the effective card there too, so a stored record is
     never older than the board page it came from. The live board file is the next
     source, and the composed payload files it was built from are the last
-    fallback. The owning home wins over the board on screen, because a parent
-    board can carry a secondmate's card.
+    fallback. All sources belong to the supplied home.
     """
-    ordered: list[Home] = []
-    for home in homes:
-        if home is not None and all(home.path != h.path for h in ordered):
-            ordered.append(home)
     # every card source is keyed by a validated slug; never build a path from
     # anything else
-    if not KEY_RE.fullmatch(key):
+    if home is None or not KEY_RE.fullmatch(key):
         return {}, ""
-    for home in ordered:
-        card, stamp = _store_entry(
-            os.path.join(home.path, "state", "decision-cards", f"{key}.json")
-        )
-        if card:
-            return card, stamp
-    for home in ordered:
-        card = _board_file_cards(
-            os.path.join(home.path, ".lavish", "bearings-board.html")
-        ).get(key)
+    card, stamp = _store_entry(
+        os.path.join(home.path, "state", "decision-cards", f"{key}.json")
+    )
+    if card:
+        return card, stamp
+    card = _board_file_cards(
+        os.path.join(home.path, ".lavish", "bearings-board.html")
+    ).get(key)
+    if card:
+        return card, ""
+    for path in sorted(
+        glob.glob(os.path.join(home.path, "data", "bearings-board-payload-*.json")),
+        reverse=True,
+    ):
+        card = _payload_file_cards(path).get(key)
         if card:
             return card, ""
-    for home in ordered:
-        for path in sorted(
-            glob.glob(os.path.join(home.path, "data", "bearings-board-payload-*.json")),
-            reverse=True,
-        ):
-            card = _payload_file_cards(path).get(key)
-            if card:
-                return card, ""
     return {}, ""
 
 
-def decision_card_for(key: str, *homes: Home | None) -> dict:
+def decision_card_for(key: str, home: Home | None) -> dict:
     """The composed card for one captain-held task id."""
-    return decision_card_record(key, *homes)[0]
+    return decision_card_record(key, home)[0]
 
 
 def resolve_owner_home(
@@ -1796,37 +1813,53 @@ def resolve_owner_lane(homes: list[Home] | None, owner: str) -> tuple[Home | Non
     return None, ""
 
 
+def _call_owner_identities(
+    task: str, source: Home, snapshot: dict, homes: list[Home]
+) -> set[str]:
+    identities = set()
+    for row in snapshot.get("decisions_open") or []:
+        if _strip_owner(row.get("id") or row.get("key") or "") != task:
+            continue
+        owner = row.get("owner") or ""
+        if not owner or owner == "(main)":
+            identities.add(delivery_home_identity(source))
+        else:
+            matches = {delivery_home_identity(h) for h in homes
+                       if resolve_owner_home([h], owner, None) is not None}
+            identities.update(matches if len(matches) == 1 else {""})
+    return identities
+
+
+def _bearing_evidence(bearings: dict[str, tuple[dict, float]] | None, home: Home) -> dict:
+    data, received_at = (bearings or {}).get(delivery_home_identity(home), ({}, 0.0))
+    if received_at <= 0 or time.time() - received_at > _bearings_ttl():
+        return {}
+    return data
+
+
+def _legacy_answer_unambiguous(
+    task: str, homes: list[Home], home_path: str, bearings: dict[str, tuple[dict, float]]
+) -> bool:
+    identities = set()
+    for source in real_homes(homes):
+        data = _bearing_evidence(bearings, source)
+        if not data:
+            return False
+        identities.update(_call_owner_identities(task, source, data, homes))
+    return identities == {os.path.realpath(home_path)}
+
+
 def answer_home_path(
     card: Card, homes: list[Home] | None, active: Home | None
 ) -> str:
     """The home whose ``fm-captain-hold.sh`` should intake this call's answer."""
-    owner = (card.owner or "").strip()
-    owner_home = resolve_owner_home(homes, owner, active)
-    if owner_home is not None and owner_home.path:
-        return owner_home.path
-    if owner and owner != "(main)":
-        return ""
     if card.home_path:
         return card.home_path
-    if active is not None and active.path and not is_aggregate_home(active):
-        return active.path
+    owner = (card.owner or "").strip()
+    owner_home = resolve_owner_home(homes, owner, active)
+    if owner_home is not None and owner_home.path and not is_aggregate_home(owner_home):
+        return owner_home.path
     return ""
-
-
-def _decision_lookup_homes(
-    homes: list[Home] | None, owner_home: Home | None, active: Home | None
-) -> list[Home]:
-    """Homes to search for a composed Captain's Call card, owner first.
-
-    The /bearings lavish fleet board and its decision-card store live on the
-    captain home even when the call's backlog owner is a secondmate, so every
-    discovered home must be searched — not only the tab on screen.
-    """
-    ordered: list[Home] = []
-    for home in (owner_home, *((homes or [])), active):
-        if home is not None and all(home.path != h.path for h in ordered):
-            ordered.append(home)
-    return ordered
 
 
 _LOCALIZATION = None
@@ -1912,9 +1945,15 @@ def structured_call(raw) -> dict:
 
 
 def decision_card_content(
-    card: Card, homes: list[Home] | None, active: Home | None, *, translate=None
+    card: Card, homes: list[Home] | None, active: Home | None, *, translate=None,
+    bearings: dict[str, tuple[dict, float]] | None = None,
 ) -> dict:
     """Normalized dialog content for a Captain's Call ticket.
+
+    Look in the answering home first; another home's composed card requires
+    fresh bearings proving it belongs solely to that answering home.
+    This lookup never refreshes snapshots. Canonical content stays untranslated;
+    ``presentation`` carries localized UI wording from that same content.
 
     With no composed card (no board yet, or a card not composed for this key),
     the ticket's durable title and hold reason become the title and about line,
@@ -1923,10 +1962,22 @@ def decision_card_content(
     its one-line context and the options, ahead of a composed card.
     """
     tr = translate or _presentation_text
-    owner_home = resolve_owner_home(homes, card.owner, active)
-    raw, stamp = decision_card_record(
-        card.task, *_decision_lookup_homes(homes, owner_home, active)
-    )
+    home_path = answer_home_path(card, homes, active)
+    home_list = real_homes(list(homes or []))
+    if active is not None and not is_aggregate_home(active) and active not in home_list:
+        home_list.append(active)
+    owner_home = next((h for h in home_list if _same_path(h.path, home_path) and not is_remote_home(h)), None)
+    raw, stamp = decision_card_record(card.task, owner_home)
+    if not raw and owner_home is not None:
+        for source in home_list:
+            if is_remote_home(source) or _same_path(source.path, home_path):
+                continue
+            evidence = _bearing_evidence(bearings, source)
+            if _call_owner_identities(card.task, source, evidence, home_list) != {delivery_home_identity(owner_home)}:
+                continue
+            raw, stamp = decision_card_record(card.task, source)
+            if raw:
+                break
     ctype = (str(raw.get("type") or "decision").strip() or "decision")
     call = getattr(card, "call", None) or {}
     options: list[dict[str, str]] = [
@@ -1947,10 +1998,12 @@ def decision_card_content(
                 "hint": _flatten_field(opt.get("hint")),
             }
         )
+    display_options = [dict(option) for option in options]
     # The board's build injects the standard reconcile choice on every decision
     # card; do the same for a raw payload or a card-less ticket.
     if ctype == "decision" and all(o["value"] != "reconcile" for o in options):
-        options.append({k: tr(v) if k in ('label', 'hint') else v for k, v in RECONCILE_OPTION.items()})
+        options.append(dict(RECONCILE_OPTION))
+        display_options.append({k: tr(v) if k in ('label', 'hint') else v for k, v in RECONCILE_OPTION.items()})
     recommend = call["recommended"] if call.get("options") else raw.get("recommend_value")
     repo = str(raw.get("repo") or "")
     if not repo and card.owner and card.owner != "(main)":
@@ -1980,7 +2033,7 @@ def decision_card_content(
         if about.endswith("\u2026") and len(about) < 24:
             about = ""
         if not call.get("options"):
-            decide = tr('Answer in your own words, or ask Firstmate to check again first.')
+            decide = 'Answer in your own words, or ask Firstmate to check again first.'
     elif not title:
         title = str(card.title or card.task)
     # The structured call's short wording leads; the longer prose it replaces
@@ -1991,9 +2044,8 @@ def decision_card_content(
     if call.get("question"):
         decide = call["question"]
     if not decide:
-        decide = tr('Pick one below, or answer in your own words.')
-    home_path = answer_home_path(card, homes, active)
-    return {
+        decide = 'Pick one below, or answer in your own words.'
+    content = {
         "key": card.task,
         "title": _flatten_field(title),
         "type": ctype,
@@ -2007,7 +2059,7 @@ def decision_card_content(
         "recommend": recommend if isinstance(recommend, str) else "",
         "freeform": bool(raw.get("allow_freeform")) if raw else True,
         "freeform_hint": _flatten_field(
-            raw.get("freeform_hint") or tr('or answer in your own words…')
+            raw.get("freeform_hint") or 'or answer in your own words…'
         ),
         "close": raw.get("close") if raw.get("close") in ("done", "release") else "",
         "home_path": home_path,
@@ -2018,6 +2070,17 @@ def decision_card_content(
         "intake_reconcile_wakes": intake_wakes_owner(home_path, reconcile=True),
         "stamp": stamp,
     }
+    content["presentation"] = {key: content[key] for key in ("about", "decide", "freeform_hint")}
+    content["presentation"]["options"] = display_options
+    for key in ("decide", "freeform_hint"):
+        # An authored question from the structured call is never translated.
+        if not raw.get(key) and not (key == "decide" and call.get("question")):
+            content["presentation"][key] = _flatten_field(tr(content[key]))
+    if translate is None:
+        # The terminal dialog shows the installation's language; the web passes
+        # its catalog and keeps canonical English for the answer binding.
+        content.update({key: content["presentation"][key] for key in ("decide", "freeform_hint", "options")})
+    return content
 
 
 class DecisionDialog:
@@ -2709,6 +2772,7 @@ def make_cards(
     homes: list[Home] | None = None,
     reveal_answered: bool = False,
     retained_at: float = 0.0,
+    bearings: dict[str, tuple[dict, float]] | None = None,
 ) -> tuple[dict[str, list[Card]], dict[str, int]]:
     """Bucket snapshot entries into the workflow columns.
 
@@ -2722,6 +2786,8 @@ def make_cards(
     cols: dict[str, list[Card]] = {key: [] for key, _ in COLUMNS}
     totals: dict[str, int] = {key: 0 for key, _ in COLUMNS}
     home_list = list(homes) if homes else [home]
+    known_bearings = (bearings if bearings is not None
+                      else {delivery_home_identity(home): (snap, time.time())})
     account_names = load_account_names(home_list)
 
     paths: dict[str, dict] = {}
@@ -2965,29 +3031,40 @@ def make_cards(
         # The row's owner names the home whose backlog holds the call, so the
         # answer runs the intake in that home rather than the board on screen.
         c.owner = (entry.get("owner") or "").strip()
+        c.home_path = ""
         c.home_path = answer_home_path(c, homes, home)
+        # Like a delivery, the call belongs to its answering home; a parent's
+        # mirror carries the owner's identity so the fleet merge folds it.
+        answering = resolve_owner_home(homes, c.owner, home) if c.home_path else None
+        c.delivery_identity = delivery_home_identity(answering) if answering else ""
         cols["captains_call"].append(c)
         totals["captains_call"] += 1
 
-    # An answered call leaves the column until its owning agent takes the work.
+    # An answered call stays hidden until its owning agent takes the work.
     # Firstmate keeps a live captain hold after an answer, so without this the
     # same row returns with no new question and the calls pile up.
-    if hide_answered_default() and not reveal_answered and cols["captains_call"]:
+    if hide_answered_default() and not reveal_answered:
         records = load_answered_calls()
         if records:
             now = time.time()
-            present = {card.task for card in cols["captains_call"]}
+            present = {answered_call_key(card.home_path, card.task) for card in cols["captains_call"] if card.home_path}
             hidden = 0
             for card in cols["captains_call"]:
-                content = decision_card_content(card, homes, home)
+                content = decision_card_content(card, homes, home, bearings=known_bearings)
                 digest = call_digest(
                     content.get("key") or card.task,
                     content.get("title") or "",
                     content.get("options"),
                     content.get("close") or "",
                 )
+                record = records.get(answered_call_key(card.home_path, card.task)) if card.home_path else None
+                if record is None and card.task in records and card.home_path:
+                    if _legacy_answer_unambiguous(card.task, home_list, card.home_path, known_bearings):
+                        record = records[card.task]
+                if isinstance(record, dict) and not _same_path(record.get("home") or "", card.home_path):
+                    record = None
                 card.answered_hidden = answered_row_hidden(
-                    records.get(card.task), content.get("stamp") or "", digest, now
+                    record, content.get("stamp") or "", digest, now
                 )
                 if card.answered_hidden:
                     hidden += 1
@@ -2999,7 +3076,8 @@ def make_cards(
                 for key, record in records.items()
                 if isinstance(record, dict)
                 and (
-                    (record.get("home") == home.path and key not in present)
+                    (_same_path(record.get("home") or "", home.path)
+                     and answered_call_key(record["home"], _answered_call_task(key)) not in present)
                     or now - _float(record.get("answered_at"), 0.0) > ANSWERED_TTL_SECS
                 )
             ]
@@ -3674,6 +3752,7 @@ class Snapshot:
         self.cols: dict[str, list[Card]] = {k: [] for k, _ in COLUMNS}
         self.collected_at = 0.0
         self.homes: list[Home] = []
+        self.bearings: dict[str, tuple[dict, float]] = {}
         self.counts: dict[str, int] = {}
         self.landed_counts: dict[str, int] = {}
         self.totals: dict[str, int] = {}
@@ -3813,6 +3892,14 @@ class Collector(threading.Thread):
             or now - ts > _bearings_ttl()
         )
 
+    def _cached_bearings(self, homes: list[Home]) -> dict[str, tuple[dict, float]]:
+        return {
+            delivery_home_identity(home): (raw, received_at)
+            for home in real_homes(homes)
+            for raw, received_at, path in [self._raw.get(home.label, ({}, 0.0, ""))]
+            if raw and path == home.path
+        }
+
     def _load_bearings(
         self,
         home: Home,
@@ -3849,7 +3936,7 @@ class Collector(threading.Thread):
             return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
         cols, totals = make_cards(
             home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered,
-            retained_at=retained_at,
+            retained_at=retained_at, bearings=self._cached_bearings(homes),
         )
         enrich_cards_run_stats(cols, agents)
         return raw, cols, totals, loading, ""
@@ -3915,6 +4002,7 @@ class Collector(threading.Thread):
     ) -> Snapshot:
         snap = Snapshot()
         snap.homes = homes
+        snap.bearings = self._cached_bearings(homes)
         snap.home = active
         snap.cols = cols
         snap.hidden_calls = int((totals or {}).get("captains_call_hidden", 0))
@@ -3990,6 +4078,7 @@ class Collector(threading.Thread):
                                     panes,
                                     homes,
                                     reveal_answered=self._reveal_answered,
+                                    bearings=self._cached_bearings(homes),
                                 )
                                 enrich_cards_run_stats(cached, agents)
                             else:
@@ -4023,6 +4112,7 @@ class Collector(threading.Thread):
                                 panes,
                                 homes,
                                 reveal_answered=self._reveal_answered,
+                                bearings=self._cached_bearings(homes),
                             )
                             enrich_cards_run_stats(cols, agents)
                         else:
@@ -4936,7 +5026,7 @@ class UI:
             # the local home's intake and steer, which cannot reach that home.
             self.say(tr("remote crew · read-only on the board"))
             return
-        content = decision_card_content(card, snap.homes, snap.home)
+        content = decision_card_content(card, snap.homes, snap.home, bearings=snap.bearings)
         self.dialog = DecisionDialog(content)
         self.dialog_hit = []
         self.dialog_box = None
@@ -6505,12 +6595,13 @@ def once(active_label: str = "", all_homes: bool = False) -> int:
     else:
         selected = fleet
     parts: list[tuple[Home, dict[str, list[Card]], dict[str, int]]] = []
+    bearings = {delivery_home_identity(home): (bearings_snapshot(home), time.time()) for home in selected}
     for home in selected:
-        snap = bearings_snapshot(home)
+        snap = bearings[delivery_home_identity(home)][0]
         cols: dict[str, list[Card]] = {k: [] for k, _ in COLUMNS}
         totals: dict[str, int] = {k: 0 for k, _ in COLUMNS}
         if snap:
-            cols, totals = make_cards(home, snap, meta_index, agents, panes, homes)
+            cols, totals = make_cards(home, snap, meta_index, agents, panes, homes, bearings=bearings)
         parts.append((home, cols, totals))
     if all_homes:
         merged, _totals = merge_fleet_columns(parts)
