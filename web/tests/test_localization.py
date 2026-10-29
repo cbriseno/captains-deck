@@ -231,6 +231,12 @@ class LocalizedOwnerTests(unittest.TestCase):
             self.assertNotIn('última', time(english)['detail'])
             self.assertIn('latest task update', time(english)['source'])
             self.assertIn('última actualización de la tarea', time(spanish)['detail'])
+            # The agent line follows the reader too, not the terminal's language file.
+            agent = lambda board, bucket: next(c for col in board.board()['columns'] for c in col['cards'] if c['bucket'] == bucket)['agent']
+            self.assertEqual(agent(english, 'captains_call'), 'Human action')
+            self.assertEqual(agent(spanish, 'captains_call'), 'Acción humana')
+            self.assertIn('Delivery', agent(english, 'landed'))
+            self.assertIn('Entrega', agent(spanish, 'landed'))
 
     def test_delivery_history_and_fallbacks_keep_authored_content(self):
         home = bridge.home_id(self.home)

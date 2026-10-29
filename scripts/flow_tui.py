@@ -3095,7 +3095,8 @@ def delivery_read(home: str, path: str, limit: int) -> str:
     Oversize files are refused visibly rather than silently cutting a report.
     """
     if not safe_file_reads():
-        raise OSError(tr('Reading reports safely needs Linux or macOS; on Windows, use WSL.'))
+        # English source messages: each caller translates them for its reader.
+        raise OSError('Reading reports safely needs Linux or macOS; on Windows, use WSL.')
     if '..' in path.split('/'):
         raise ValueError('unsafe traversal path')
     root = os.path.realpath(home)
@@ -3106,7 +3107,7 @@ def delivery_read(home: str, path: str, limit: int) -> str:
     relative = os.path.relpath(path, root) if os.path.isabs(path) else path
     parts = relative.split('/')
     if not home or any(p in ('', '.', '..') for p in parts) or '\\' in path or '\x00' in path:
-        raise ValueError(tr('unsafe path outside this task’s files'))
+        raise ValueError('unsafe path outside this task’s files')
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in parts[:-1]:
@@ -3193,7 +3194,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
             # existing current-record check when opening a stale Landed card.
             endpoint_warning = tr('This delivery isn’t in history anymore. Checking whether the task was reopened.')
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
-            endpoint_warning = tr('History export unavailable: {error}; reading the task files directly', error=exc)
+            endpoint_warning = tr('History export unavailable: {error}; reading the task files directly', error=tr(str(exc)))
     notes, rows, active_ids = ([endpoint_warning] if endpoint_warning else []), {}, set()
     complete = True
     try:
@@ -3201,7 +3202,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
     except FileNotFoundError:
         config = {}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return [], f'History unavailable: {exc}', False
+        return [], tr('History unavailable: {error}', error=tr(str(exc))), False
     if config.get('backend', 'markdown') != 'markdown':
         return [], tr('History unavailable: this task store doesn’t share finished tasks with Deck yet.'), False
     cfg = config.get('markdown') or {}
@@ -3259,7 +3260,7 @@ def delivery_records(home: Home, task_id: str = "", *, translate=None) -> tuple[
             notes.append(tr('{source}: {path} missing; history may be incomplete', source=source, path=path))
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
             complete = False
-            notes.append(tr('{source} unavailable: {error}; history may be incomplete', source=source, error=exc))
+            notes.append(tr('{source} unavailable: {error}; history may be incomplete', source=source, error=tr(str(exc))))
     ordered = sorted(rows.values(), key=lambda r: (r.get('closed', ''), r['id']), reverse=True)
     return ordered, '; '.join(notes) + tr('. Shows what Firstmate still keeps; searching changes nothing. done_keep={count}: finished tasks kept in the backlog; older ones stay in the archive. Deleted tasks can’t be recovered.', count=cfg.get('done_keep', tr('not specified'))), complete
 
@@ -3519,7 +3520,7 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
                             prefix + 'application-receipt.json', prefix + 'package-receipt.json'):
                 sections.append(tr('Artifact missing: {path}', path=path))
         except (OSError, ValueError) as exc:
-            sections.append(tr('Artifact unavailable: {path}: {error}', path=path, error=exc))
+            sections.append(tr('Artifact unavailable: {path}: {error}', path=path, error=tr(str(exc))))
     if queue:
         sections.append(tr('Artifact link/read limit reached (32 paths); remaining artifacts not read.'))
     curated = next(((p, t) for p, t in documents if p in (prefix + 'delivery.md', prefix + 'recap.md')
@@ -3843,7 +3844,8 @@ class Collector(threading.Thread):
         if not raw:
             # A remote home with no cached snapshot yet is offline, not an
             # error: the tab carries the offline marker itself.
-            err = "" if home.route else "Couldn’t read this crew’s board. Check that Firstmate is running there."
+            # Translated here with the crew named: the All tab joins one per crew.
+            err = "" if home.route else tr("Couldn’t read {crew}’s board. Check that Firstmate is running there.", crew=home.label)
             return {}, {k: [] for k, _ in COLUMNS}, {}, loading, err
         cols, totals = make_cards(
             home, raw, self._meta_index, agents, panes, homes, reveal_answered=self._reveal_answered,
@@ -4034,7 +4036,7 @@ class Collector(threading.Thread):
                         )
                         if fleet_total is not None:
                             self._counts[ALL_CREW_LABEL] = fleet_total
-                        error = "" if raw else "Couldn’t read this crew’s board. Check that Firstmate is running there."
+                        error = "" if raw else tr("Couldn’t read {crew}’s board. Check that Firstmate is running there.", crew=active.label)
                         _debug("iter: publish final")
                         self._publish(
                             self._snapshot(homes, active, cols, agents, panes, totals, error=error)
@@ -4486,14 +4488,14 @@ class UI:
             self.col_idx = max(0, min(self.col_idx, len(self.columns) - 1))
         set_show_landed_pref(self.show_landed)
         self.dirty = True
-        self.say(f"landed column {'shown' if self.show_landed else 'hidden'}")
+        self.say(tr("Delivered column shown") if self.show_landed else tr("Delivered column hidden"))
 
     def toggle_answered(self) -> None:
         """Show or hide the Captain's Call rows the captain already answered."""
         self.reveal_answered = not self.reveal_answered
         self.collector.set_reveal_answered(self.reveal_answered)
         self.dirty = True
-        self.say(f"answered calls {'shown' if self.reveal_answered else 'hidden'}")
+        self.say(tr("Answered calls shown") if self.reveal_answered else tr("Answered calls hidden"))
 
     def crew_tab_count(self, snap: Snapshot, home_label: str) -> int | None:
         if home_label == ALL_CREW_LABEL:
@@ -4536,7 +4538,7 @@ class UI:
         dialog; a Landed ticket opens its delivery; other tickets open full context; o focuses a pane."""
         card = self.selected()
         if card is None:
-            self.say("no ticket in this column")
+            self.say(tr("Nothing in this column"))
             return
         if card.bucket == "captains_call":
             self.open_decision(card)
@@ -4552,26 +4554,26 @@ class UI:
     def open_selected(self) -> None:
         card = self.selected()
         if card is None:
-            self.say("no ticket in this column")
+            self.say(tr("Nothing in this column"))
             return
         self.open_card_pane(card)
 
     def open_card_pane(self, card: Card) -> None:
         snap = self.collector.snapshot()
         if card.bucket == "landed" and card.pane_id not in snap.panes:
-            self.say(f"{card.task}: no live pane; Enter opens delivery")
+            self.say(tr("{task}: no agent open; Enter opens the delivery", task=card.task))
             return
         tab = card.tab_id
         if not tab and card.pane_id:
             tab = (snap.panes.get(card.pane_id) or {}).get("tab_id", "")
         if tab and self._focus([HERDR_BIN, "tab", "focus", tab]):
-            self.say(f"opened {card.task} \u2192 {tab}")
+            self.say(tr("Opened {task} \u2192 {tab}", task=card.task, tab=tab))
             return
         if card.workspace_id and self._focus([HERDR_BIN, "workspace", "focus", card.workspace_id]):
-            self.say(f"opened {card.task} \u2192 workspace {card.workspace_id}")
+            self.say(tr("Opened {task} \u2192 workspace {workspace}", task=card.task, workspace=card.workspace_id))
             return
         wt = card.worktree or "(no worktree yet)"
-        self.say(f"{card.task}: no live pane \u00b7 {wt}")
+        self.say(tr("{task}: no agent open \u00b7 {worktree}", task=card.task, worktree=wt))
 
     @staticmethod
     def _focus(cmd: list[str]) -> bool:
@@ -4843,9 +4845,9 @@ class UI:
         state["index"] = min(state["index"], max(0, len(rows) - 1))
         inner = max(4, min(122, w - 2) - 4)
         budget = max(1, h - 5)
-        content = wrap_text("Search: " + state["query"] + "_", inner)
+        content = wrap_text(tr("Search: ") + state["query"] + "_", inner)
         content += wrap_text(tr("Sources: ") + (tr("current + archive") if state["complete"] else tr("incomplete sources")) + tr(" · Tab/Info: where history comes from"), inner)
-        content += wrap_text("Type search · Enter open · ↑↓ select · Esc back", inner)
+        content += wrap_text(tr("Type to search · Enter open · ↑↓ select · Esc back"), inner)
         # Source details are fully scrollable through Tab/Info even when there
         # are no rows (offline/backend missing), without marking anything read.
         content = content[:max(1, min(4, budget - 2))]
@@ -4853,8 +4855,8 @@ class UI:
         index = state["index"]
         for i in range(index, len(rows)):
             record = rows[i]
-            unread = "new" if not delivery_seen(record['delivery_identity'], record["id"]) else "read"
-            label = f"{'>' if i == index else ' '} {unread} · {record.get('closed') or '?'} · {record['id']} · {record['source']}"
+            unread = tr("new") if not delivery_seen(record['delivery_identity'], record["id"]) else tr("read")
+            label = f"{'>' if i == index else ' '} {unread} · {record.get('closed') or '?'} · {record['id']} · {tr(record['source'])}"
             if is_aggregate_home(state['home']):
                 label += ' · ' + record['owner_label']
             entry = [delivery_text(label)] + wrap_text(delivery_text(record["title"]), inner)
@@ -4867,16 +4869,19 @@ class UI:
                 break
         if not rows:
             content.append(tr("No matching deliveries."))
-        title = f" Delivery history · {state['home'].label} · {len(rows)} matches · {index + 1 if rows else 0}/{len(rows)} "
-        actions = "[Prev] [Next] [Open] [Clear] [Back] [Info]"
+        title = " " + tr("Delivery history · {home} · {count} matches · {position}/{total}", home=state['home'].label,
+                         count=len(rows), position=index + 1 if rows else 0, total=len(rows)) + " "
+        # Click ranges follow the translated button widths.
+        tokens = [("[" + tr(label) + "]", action) for label, action in
+                  (("Prev", "prev"), ("Next", "next"), ("Open", "open"), ("Clear", "clear"), ("Back", "back"), ("Info", "info"))]
+        actions = " ".join(token for token, _ in tokens)
         x, y, budget, _ = self.reader_frame(lines, w, h, title, content, actions)
         self.history_hits = [(x, x + inner, y + 1 + row, i) for row, i in mapping]
-        self.reader_hits = [(x, x + 6, y + budget + 1, "prev"),
-                            (x + 7, x + 13, y + budget + 1, "next"),
-                            (x + 14, x + 20, y + budget + 1, "open"),
-                            (x + 21, x + 28, y + budget + 1, "clear"),
-                            (x + 29, x + 35, y + budget + 1, "back"),
-                            (x + 36, x + 42, y + budget + 1, "info")]
+        self.reader_hits, offset = [], 0
+        for token, action in tokens:
+            end = offset + display_width(token)
+            self.reader_hits.append((x + offset, x + end, y + budget + 1, action))
+            offset = end + 1
 
     def reader_click(self, x: int, y: int, button: int) -> None:
         if button in (64, 65, 68, 69):
@@ -4899,7 +4904,7 @@ class UI:
                     if self.delivery_card is not None:
                         self.open_card_pane(self.delivery_card)
                     else:
-                        self.say("no live pane for this delivery")
+                        self.say(tr("No agent open for this delivery"))
                 elif action == "report":
                     self.delivery_report()
                 elif self.delivery is not None and action in ('summary', 'details', 'explain', 'status'):
@@ -4937,7 +4942,7 @@ class UI:
         self.dialog_box = None
         self.dialog_scroll = 0
         self._dialog_scroll_follow = False
-        self.say(f"captain's call: {card.task}")
+        self.say(tr("Your call: {task}", task=card.task))
         self.dirty = True
 
     def close_dialog(self) -> None:
@@ -5074,7 +5079,7 @@ class UI:
         self.selection_auto = True
         self.card_idx = 0
         self.scroll.clear()
-        self.say(f"crew: {label}")
+        self.say(tr("Crew: {label}", label=label))
 
     def scroll_by(self, key: str, delta: int) -> None:
         self.scroll[key] = max(0, self.scroll.get(key, 0) + delta)
@@ -5163,7 +5168,7 @@ class UI:
                         self.toggle_answered()
                     elif action == "refresh":
                         self.collector.refresh_now()
-                        self.say("refreshing\u2026")
+                        self.say(tr("Refreshing\u2026"))
                     return
         for x1, x2, label in self.tab_regions:
             if y == 0 and x1 <= x < x2:
@@ -5310,12 +5315,13 @@ class UI:
             cards = snap.cols.get(ckey) or []
             total = snap.totals.get(ckey) or len(cards)
             shown = f"{len(cards)}/{total}" if total > len(cards) else str(len(cards))
-            label = f"{title} ({shown})"
+            label = f"{tr(title)} ({shown})"
             if ckey == "underway" and cards:
                 # Same mapping as the web: agents Firstmate reports working now.
-                label = f"{title} ({shown} · ●{activity_counts(cards).get('working', 0)} working)"
+                label = tr("{title} ({shown} · ●{count} working)", title=tr(title), shown=shown,
+                           count=activity_counts(cards).get('working', 0))
             if ckey == "landed":
-                label = f"Recent Landed ({shown})" + tr(" · H history")
+                label = tr("Recent Landed ({shown})", shown=shown) + tr(" · H history")
             if len(display_columns) == 1:
                 label += f" · ←/→ {self.col_idx + 1}/{len(self.columns)}"
             blocked = sum(1 for c in cards if "blocked" in c.badge.lower())
@@ -5335,7 +5341,7 @@ class UI:
             col_lines = [" " * colw] * body_h
             if not cards:
                 if not snap.loading:
-                    placeholder = "  (empty)"
+                    placeholder = "  " + tr("(empty)")
                 elif snap.home is None:
                     placeholder = "  " + _presentation_text("Loading board\u2026")
                 else:
@@ -5363,9 +5369,11 @@ class UI:
         while len(lines) < h - 1:
             lines.append("")
         self.footer_hits = []
-        footer_text = " " + " \u00b7 ".join(label for label, _ in _FOOTER_HINTS)
+        # Click ranges follow the translated labels' own widths.
+        hints = [(tr(label), action) for label, action in _FOOTER_HINTS]
+        footer_text = " " + " \u00b7 ".join(label for label, _ in hints)
         if snap.hidden_calls and not self.reveal_answered:
-            footer_text += f" \u00b7 {snap.hidden_calls} answered"
+            footer_text += tr(" \u00b7 {count} answered", count=snap.hidden_calls)
         lines.append(f"{fg(C_DIM)}{clip(footer_text, w)}{RESET}")
         if self.flash and time.time() - self.flash_at < 6:
             lines[-1] = f"{fg(C_WARN)}{clip(self.flash, w)}{RESET}"
@@ -5373,7 +5381,7 @@ class UI:
             lines[-1] = f"{fg(C_BAD)}{clip(tr(snap.error), w)}{RESET}"
         else:
             x = 1
-            for label, action in _FOOTER_HINTS:
+            for label, action in hints:
                 end = x + display_width(label)
                 self.footer_hits.append((x, end, action))
                 x = end + display_width(" \u00b7 ")
@@ -5394,7 +5402,7 @@ class UI:
                 self.render_details(lines, w, h)
             else:
                 self.details = None
-                self.say("ticket left this board; refresh to locate it")
+                self.say(tr("That task left this board; refresh to find it"))
         if self.history is not None:
             self.render_history(lines, w, h)
         if self.delivery is not None:
@@ -5869,14 +5877,14 @@ class UI:
             return
         home, pane = self.message_target()
         if not pane:
-            m.error = f"no Firstmate pane found for {home.label if home else 'this tab'}"
+            m.error = tr("Couldn’t find Firstmate for {where}", where=home.label if home else tr("this tab"))
             return
         ok, detail = send_to_firstmate(pane, text)
         if not ok:
             m.error = detail or "herdr refused the message"
             return
         self.message = None
-        self.say(f"sent to firstmate ({pane})")
+        self.say(tr("Sent to Firstmate ({pane})", pane=pane))
 
     def render_message(self, lines: list[str], w: int, h: int) -> None:
         """Draw the `m` box as a centered modal: its target, the text, the keys."""
@@ -5886,15 +5894,15 @@ class UI:
         home, pane = self.message_target()
         dw = max(34, min(80, w - 4))
         inner = dw - 4
-        where = home.label if home else "this tab"
-        target = f"to {where} ({pane})" if pane else f"to {where}: no Firstmate pane found"
+        where = home.label if home else tr("this tab")
+        target = tr("to {where} ({pane})", where=where, pane=pane) if pane else tr("to {where}: Firstmate not found", where=where)
         rows: list[tuple[str, int | None]] = [(target, C_DIM)]
         rows += [(ln, None) for ln in wrap_text("> " + m.text + "\u258f", inner)[-6:]]
         if m.error:
             rows += [(ln, C_BAD) for ln in wrap_text(m.error, inner)]
-        rows.append(("enter send \u00b7 esc close \u00b7 ctrl+u clear", C_DIM))
+        rows.append((tr("enter send \u00b7 esc close \u00b7 ctrl+u clear"), C_DIM))
         border = fg(C_BORDER)
-        title = " Message Firstmate "
+        title = " " + tr("Message Firstmate") + " "
         box = [
             f"{border}\u256d\u2500{title}"
             + "\u2500" * max(0, dw - 3 - display_width(title))
@@ -6011,12 +6019,14 @@ class UI:
         return [line + " " * max(0, colw - cardw) for line in lines]
 
     @staticmethod
-    def card_agent_line(card: Card) -> str:
+    def card_agent_line(card: Card, translate=None) -> str:
         """``account·model·effort``; the account names the subscription store.
 
         A pi worker's model carries its provider prefix (``deepseek/...``), so
-        the prefix is dropped when the account line already shows it.
+        the prefix is dropped when the account line already shows it. The web
+        passes its own translator so the line follows the reader's language.
         """
+        tr = translate or _presentation_text
         if getattr(card, "bucket", "") == "landed":
             identity = getattr(card, 'delivery_identity', '')
             if not identity:
@@ -6100,15 +6110,15 @@ class UI:
     def card_footer_line(card: Card, crew: str = "") -> str:
         crew_bit = f"\u2316 {crew} \u00b7 " if crew else ""
         if card.bucket == "landed":
-            return "Enter delivery · H history"
+            return tr("Enter delivery · H history")
         if getattr(card, "blockers", []) or "blocked" in card.badge.lower() or getattr(card, "blocked_by", "") not in ("", "-"):
-            return f"d details · {crew or getattr(card, 'owner_label', '') or card.task}"
+            return tr("d details · {who}", who=crew or getattr(card, 'owner_label', '') or card.task)
         if card.worktree:
             parts = card.worktree.rstrip("/").split("/")
             short = "/".join(parts[-2:])
             return f"{crew_bit}\u2338 {short}"
         if card.bucket == "charted":
-            return f"{crew_bit}no worktree yet" if crew else "no worktree yet"
+            return f"{crew_bit}{tr('no worktree yet')}" if crew else tr("no worktree yet")
         if crew:
             return crew_bit.rstrip(" \u00b7 ")
         return card.mode or card.kind or ""

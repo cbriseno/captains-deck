@@ -22,7 +22,7 @@ SPANISH_LABELS = {v.strip() for k, v in SPANISH.items() if v != k and len(v.stri
 AUTHORED = 'Zorblat flux glim quux Flarn one two blip fixture'
 NEUTRAL = {'firstmate', 'herdr', 'deck', 'captain', 'call', 'lavish', 'esc', 'enter', 'tab', 'pgup', 'pgdn',
            'paused', 'unix', 'utc', 'harness', 'worker', 'bytes', 'chat', 'control', 'decide', 'local',
-           'supervisor', 'terminal'}
+           'supervisor', 'terminal', 'flow', 'ctrl'}
 JARGON = re.compile(r'intake|\bhomes?\b|backend|retain|retention|retenid|retenci|occurrence|ocurrencia|receipt|recibo|'
                     r'\bguard\b|identifier|identificador|ledger|snapshot|owner|reconcil|conciliaci', re.I)
 
@@ -74,7 +74,8 @@ class LanguageTests(unittest.TestCase):
         return '\n'.join(texts)
 
     def terminal_surfaces(self, language):
-        """The terminal Captain's Call dialog, its errors, help, details and status line, as shown."""
+        """The terminal Captain's Call dialog, its errors, help, details, board footer,
+        message box, history reader and status line, as shown."""
         (self.config / 'language').write_text(language + '\n')
         f._LOCALIZATION = None
         (self.root / 'state/zq-flarn.status').write_text('paused [at=1792920000]: Glim quux\n')
@@ -114,6 +115,17 @@ class LanguageTests(unittest.TestCase):
         texts.append(modal(ui.render_details))
         ui.details = None
         texts.append(modal(ui.render_help))
+        # The board itself: card footers and the clickable footer hints.
+        texts.append(self.render(ui, snap, 240, 46))
+        ui.open_message(); ui.message.text = 'Zorblat'
+        texts.append(modal(ui.render_message))
+        ui.message = None
+        ui.open_history()
+        # One authored row keeps the fixture's own history titles out of the comparison.
+        ui.history['rows'] = [{'id': 'zq-blip', 'title': 'Zorblat quux', 'closed': '2026-10-01', 'source': 'archive',
+                               'delivery_identity': 'zq', 'owner_label': 'fixture'}]
+        texts.append(modal(ui.render_history))
+        ui.history = None
         collector = f.Collector()
         collector._discover = lambda: []
         publish = collector._publish
@@ -122,7 +134,9 @@ class LanguageTests(unittest.TestCase):
         empty = f.UI(); empty.collector = collector
         texts.append(self.render(empty, collector.snapshot()).splitlines()[-1])
         # File paths, file names and environment variable names are shown as they are.
-        return re.sub(r'\S*/\S*|\S+\.(?:sh|conf|status)\b|\b[A-Z]+(?:_[A-Z]+)+\b', ' ', f._ANSI_RE.sub('', '\n'.join(texts)))
+        # Time zone abbreviations after a clock time follow the machine, not the language.
+        return re.sub(r'\S*/\S*|\S+\.(?:sh|conf|status)\b|\b[A-Z]+(?:_[A-Z]+)+\b|(?<=\d\d:\d\d )[A-Z]{2,5}\b', ' ',
+                      f._ANSI_RE.sub('', '\n'.join(texts)))
 
     def test_spanish_terminal_dialog_help_and_details_leave_no_english_chrome(self):
         english, spanish = self.terminal_surfaces('en'), self.terminal_surfaces('es')

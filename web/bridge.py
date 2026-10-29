@@ -186,7 +186,7 @@ class Board:
                 'answered': bool(getattr(card, 'answered_hidden', False)),
                 # A structured Captain's Call leads its card with the short question.
                 'question': (getattr(card, 'call', None) or {}).get('question', ''),
-                'agent': fm.UI.card_agent_line(card), 'herdr_url': link}
+                'agent': fm.UI.card_agent_line(card, self.t), 'herdr_url': link}
 
     def board(self, selected=''):
         snap = self.collector.snapshot()
