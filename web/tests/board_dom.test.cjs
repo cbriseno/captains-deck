@@ -314,7 +314,10 @@ test('drawer shows the full recorded report and the registered executor without 
   const content = view.doc.getElementById('detail-content');
   const all = (n) => [n, ...n.children.flatMap(all)];
   assert.ok(all(content).some(e => e.tagName === 'P' && e.textContent === report));
-  assert.ok(all(content).some(e => e.tagName === 'P' && e.textContent === 'Agent: Codex'));
+  // One row says who is on it; there is no second "Agent" row.
+  const rows = all(content).filter(e => e.className === 'context-row').map(n => n.children[0].textContent);
+  assert.ok(all(content).some(e => e.tagName === 'P' && e.textContent === 'Codex'));
+  assert.equal(rows.filter(r => r === 'Who’s on it' || r === 'Agent').length, 1);
   const evidence = JSON.parse(all(content).find(e => e.className === 'technical-evidence').textContent);
   assert.deepEqual(Object.keys(evidence).sort(), ['context', 'native', 'task']);
 });
@@ -342,9 +345,11 @@ test('a ready or queued card detail does not claim a missing resume condition', 
     assert.equal('Waiting for' in rows, false, key);
     assert.equal(text.includes(missing), false, key);
   }
-  const [kicker, rows] = await detail('h');
+  // Nothing recorded is no row at all, not a placeholder.
+  const [kicker, rows, text] = await detail('h');
   assert.equal(kicker, 'On hold');
-  assert.ok(rows['Waiting for'].startsWith(missing));
+  assert.equal('Waiting for' in rows, false);
+  assert.equal(text.includes(missing), false);
 });
 
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
@@ -1069,4 +1074,71 @@ test('history and the detail panel carry the project tag in the same color', asy
   face.listeners.click[0](); await view.flush();
   const tag = view.doc.getElementById('detail-meta').children.find(n => n.className === 'project-tag');
   assert.equal(tag.textContent, 'Relay'); assert.equal(tag.dataset.hue, boardHue);
+});
+
+const ES = JSON.parse(fs.readFileSync(path.join(root, 'locales/es.json'), 'utf8'));
+
+test('a card line is what Firstmate says is happening, and a bare dependency reads as After', async () => {
+  const dep = {id: 'billing', title: 'Export invoices for billing', owner: '(main)', unresolved: true};
+  const make = (key, presentation, extra = {}) => ({...card(key, ''), bucket: 'charted', activity: {kind: 'blocked', agent: '', until: '', gap: ''},
+    context: {reason: '', phase: 'dependency', firstmate_action: null}, presentation: {summary: '', waiting_for: '', next_action: '', ...presentation}, ...extra});
+  const data = board([{...card('w', ''), presentation: {status: 'Probando el aviso', summary: 'Older summary.', waiting_for: '', next_action: ''}}]);
+  data.columns[0].cards = [make('d', {waiting_for: 'Export invoices for billing'}, {dependencies: [dep]}),
+    make('own', {waiting_for: 'The person signs off.'}, {dependencies: [dep]}), make('t', {summary: 'Synthetic task t'})];
+  const view = await mountBoard(data);
+  const lines = Object.fromEntries(view.doc.getElementById('board').children.flatMap(s => cardsIn(s.querySelector('.cards')))
+    .map(c => [c.dataset.key, c.querySelector('.card-line')?.textContent ?? null]));
+  assert.equal(lines.w, 'Probando el aviso');
+  assert.equal(lines.d, 'After: Export invoices for billing');
+  assert.equal(lines.own, 'The person signs off.');
+  // A line that only repeats the title is no line.
+  assert.equal(lines.t, null);
+});
+
+test('a task detail shows only recorded facts, with who is on it in one row', async () => {
+  const ticket = (key, extra) => ({key, task: key, title: 'Synthetic task ' + key, bucket: 'underway', owner: 'Example home', home: '/home/example/space',
+    context: {phase: 'active', reason: '', firstmate_action: null}, presentation: {status: '', summary: '', waiting_for: '', next_action: '', executor: {harness: 'claude'}},
+    activity: {kind: 'working', agent: 'working', until: '', gap: ''}, dependencies: [], time: null, report: null, native: {}, agent: '', supervisor: null,
+    original_title: 'Synthetic task ' + key, herdr_url: '', ...extra});
+  const dep = {id: 'billing', title: 'Export invoices for billing', owner: '(main)', unresolved: true};
+  const tickets = {a: ticket('a'), b: ticket('b', {bucket: 'charted', activity: {kind: 'blocked', agent: '', until: '', gap: ''}, dependencies: [dep],
+    presentation: {status: '', summary: '', waiting_for: 'Export invoices for billing', next_action: '', executor: {harness: ''}}})};
+  const data = board([card('a', '')]); data.columns[0].cards = [{...card('b', ''), bucket: 'charted'}];
+  const view = await mountBoard(data, undefined, tickets, ES);
+  const open = async (kind, key) => {
+    const list = view.doc.getElementById('board').children.find(s => s.dataset.kind === kind).querySelector('.cards');
+    list.children.find(n => n.dataset.key === key).querySelector('.card-open').listeners.click[0]();
+    await view.flush();
+    // What the captain sees without opening Technical details.
+    const content = view.doc.getElementById('detail-content'), folded = descendants(content).filter(d => d.className === 'source-details');
+    const visible = descendants(content).filter(n => !folded.some(d => d.contains(n)));
+    const rows = Object.fromEntries(visible.filter(n => n.className === 'context-row').map(n => [n.children[0].textContent, n.children[1].textContent]));
+    const shown = visible.map(n => n.text).join(' ') + ' ' + view.doc.getElementById('detail-meta').textContent;
+    view.doc.getElementById('detail-close').listeners.click[0]();
+    return [rows, shown];
+  };
+  const [rows, shown] = await open('underway', 'a');
+  assert.deepEqual(rows, {'Quién la lleva': 'Claude Code · trabajando ahora'});
+  assert.equal(/Aún sin|no ha escrito|No registrado|sin hora registrada/.test(shown), false, shown);
+  // The wait that only names its dependency isn't said twice, and one crew isn't named.
+  const [rowsB] = await open('charted', 'b');
+  assert.deepEqual(rowsB, {'Espera a': 'Export invoices for billing'});
+});
+
+test('From Firstmate says one coherent thing about how fresh Firstmate is', async () => {
+  const clock = Date.UTC(2026, 0, 15, 12), now = clock / 1000;
+  const source = (supervisor) => ({home: '/home/example/space', label: 'firstmate', received_at: now, generated: new Date(clock).toISOString(), supervisor, error: ''});
+  const stale = {state: 'coordinating', summary: 'Old work from days ago.', observed_at: new Date(clock - 3 * 86400000).toISOString(), ttl_seconds: 900, freshness: 'stale'};
+  const view = await mountBoard({...board([]), sources: [source(stale)]}, clock, {}, ES);
+  const row = () => view.doc.getElementById('supervisors').children[0];
+  const status = () => row().querySelector('p').textContent;
+  assert.equal(status(), 'Lo último que dijo Firstmate fue hace 3 días.');
+  // The receipt time sits in the details, not beside a phrase that says it expired.
+  assert.equal(row().children[0].textContent, 'firstmate');
+  assert.equal(row().querySelector('details').contains(row().querySelector('.relative-time')), true);
+  const fresh = {...stale, summary: 'Revisando la entrega.', observed_at: new Date(clock - 120000).toISOString(), freshness: 'fresh'};
+  view.setBoard({...board([]), sources: [source(fresh)]}); await view.poll(); await view.flush();
+  assert.equal(status(), 'Revisando la entrega. · hace 2 minutos');
+  view.setBoard({...board([]), sources: [source(null)]}); await view.poll(); await view.flush();
+  assert.equal(status(), 'Firstmate no ha dicho qué está haciendo.');
 });

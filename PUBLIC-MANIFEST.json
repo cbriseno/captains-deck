@@ -347,17 +347,17 @@
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "a532acfef974089c993d4d5fdff40fdfe11bb873303ff78898df83afe2e23dd5"
+      "sha256": "4440d055865931ce7113e4ff311164126acabab104471e17acd975f431b59a13"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "f5f6882c374618eab330ffdc9efdabdfd23f94833b2f9355bb1c5185eb562628"
+      "sha256": "c3e50a4b7a5a61e387270293ad94a3847cc33597b2f52bfecb97b3c600d3899e"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "4df66c2c792a7538767bac299830b5d706f3ace5ec063cef9439b8836c4a1352"
+      "sha256": "906710d37607d9d47ee568d9652aac76e7d0486d1c6140323dd38a7f55e201ed"
     },
     {
       "mode": "100644",
@@ -367,7 +367,7 @@
     {
       "mode": "100644",
       "path": "web/presentation.py",
-      "sha256": "d45bca8e1ac07620367109d3a5fcdc9abdcd398d31a7acde7ea472e0d7407750"
+      "sha256": "4b26e4d1a51bf25f8110666666b240b671b27c4507556c67412c754a9587536c"
     },
     {
       "mode": "100644",
@@ -392,12 +392,12 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "447a49be5faa14e09760d9c153fbb72e364e711710e18a0cff8f597c7a6ecfbf"
+      "sha256": "a1f4714f425897e9bb9cc1d2fbc8b90744d40f4fc55068d581708a8ca45d9c38"
     },
     {
       "mode": "100644",
       "path": "web/static/i18n.js",
-      "sha256": "8f25031830ff760857f7b6361e676286fe43ff840781736bc911a0e936e57d7c"
+      "sha256": "203a1ab078b46da736703e97bd238fecf0e97e5025a8698483c4840c6df3db88"
     },
     {
       "mode": "100644",
@@ -432,7 +432,7 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "868ee0bd0a96d0e9b6568f36610e8d2738c9441e1489f62f842e547e35c4049f"
+      "sha256": "9d908b0d7328b44dac1a407d0da9dce47967506fc9f0a4ac7be3a06fa87ae1a3"
     },
     {
       "mode": "100644",
@@ -452,7 +452,7 @@
     {
       "mode": "100644",
       "path": "web/tests/localization.test.cjs",
-      "sha256": "b02637b039ec683651a7be0689cd62b4410e5ae1c2133716088a11908811633a"
+      "sha256": "f6d346386c40c320abd2ab16640181bad00d59b346a08f2e6d88633ff28555ab"
     },
     {
       "mode": "100644",
@@ -482,7 +482,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_presentation.py",
-      "sha256": "fd5dfd3e54aed33c088ebc656357bfb99d1bf75f5804b466a8aa60cedc1938fd"
+      "sha256": "1be55f7aed5e348cc931fd4c10c592b57e0601a86329df911a3f36ed3af281b1"
     },
     {
       "mode": "100644",

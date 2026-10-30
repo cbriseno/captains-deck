@@ -12,6 +12,8 @@ const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waitin
 const runLabels = { running: t('Checks running'), fixing: t('Fixing failed checks'), passed: t('Checks passed'), failed: t('Checks failed') };
 // Firstmate's crew state and endpoint probe, as projected by the bridge.
 const agentLines = { working: t('Agent is working'), validation: t('Checks are running'), open: t('Agent is open'), present: t('Agent is open but idle'), none: t('No agent running'), unknown: t('Agent status unknown') };
+// The same states after the agent's name: "Claude Code · working now".
+const agentStates = { working: t('working now'), validation: t('running checks'), open: t('open'), present: t('open, not working'), none: t('not running'), unknown: '' };
 const staleDraftNote = t("The question changed since you started. Your draft is still here: pick an option or edit it to send.");
 const gapLines = { hold_until: t('No end time given for this hold.'), wait_until: t('No end time given for this pause.') };
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -45,7 +47,9 @@ function timeView(event) {
 }
 // One coordinating space is not news; it is named only when there are several.
 const manyHomes = () => (S.board?.homes || []).length > 1;
-function detailMeta(owner, event, project) { $('detail-meta').replaceChildren(projectTag(project) || '', manyHomes() ? node('span', '', t('Coordinated by {owner}', {owner})) : '', timeView(event)); }
+// Without a recorded time there is nothing to show; Technical details say why.
+const timed = (event) => !!event && (event.date || Number.isFinite(event.epoch));
+function detailMeta(owner, event, project) { $('detail-meta').replaceChildren(projectTag(project) || '', manyHomes() ? node('span', '', t('Coordinated by {owner}', {owner})) : '', timed(event) ? timeView(event) : ''); }
 // A stable small number for a text, so one project keeps one color and one
 // stack keeps one element id across reads and views.
 function hashOf(text) { let h = 2166136261; for (const ch of String(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
@@ -71,18 +75,20 @@ function refreshTimes() {
     if (n.textContent !== text) n.textContent = text;
   }
 }
-function executorText(card) {
-  const p = card.presentation || {};
-  const harness = p.executor?.harness;
-  return harness ? t('Agent: {name}', {name: {codex: 'Codex', claude: 'Claude Code', pi: 'Pi'}[harness] || harness}) : t('Agent not set');
+// Who's on it, in one line: the agent and, while underway, what it is doing.
+function whoText(card) {
+  const harness = card.presentation?.executor?.harness, agent = card.activity?.agent || 'unknown';
+  const name = harness ? {codex: 'Codex', claude: 'Claude Code', pi: 'Pi'}[harness] || harness : '';
+  if (card.bucket !== 'underway') return name;
+  // Not knowing whether an agent runs is no fact to show.
+  return name ? [name, agentStates[agent]].filter(Boolean).join(' · ') : agent === 'unknown' ? '' : agentLines[agent] || '';
 }
-function summaryText(card, compact = false) { return card.presentation?.summary || t(compact ? 'No summary yet.' : 'No summary yet. Firstmate hasn’t written one.'); }
 // On a card the return date is its own tag, so the chip drops it (short).
 function activityText(card, short = false) {
   const a = card.activity || {}, until = a.until && !short ? untilText(a.until) : '';
   if (a.kind === 'paused') return until ? t('Paused until {date}', {date: until}) : t('Paused');
   if (a.kind === 'deferred') return until ? t('Deferred until {date}', {date: until}) : t('Deferred');
-  if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting on a decision') : '';
+  if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting for your answer') : '';
   if (a.kind === 'last_seen_working') return t('Working when last seen') + (a.seen_at ? ' · ' + relative(a.seen_at) : '');
   return { working: t('Working now'), validating: t('Checks running'), validation_gate: t('Checks need approval'), blocked: t('Waiting on another task'),
     held: t('On hold'), finished: t('Done, not closed yet'), stopped: t('Stopped'), ready: t('Ready to start'), queued: t('Queued') }[a.kind] || '';
@@ -94,13 +100,11 @@ function phaseText(card, short = false) {
   if (run) return runLabels[run.state];
   return activityText(card, short) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : card.context.label || phaseLabels[card.context.phase]);
 }
-function agentLine(card) {
-  const agent = card.activity?.agent || 'unknown', line = node('p', 'activity-note', agentLines[agent] || agentLines.unknown);
-  line.dataset.agent = agent; return line;
-}
 function activityCount(columns, id, kind) { return (columns.find(c => c.id === id)?.cards || []).filter(x => !x.answered && x.activity?.kind === kind).length; }
 function dependencyText(card) {
-  return card.dependencies.map(d => (d.title || d.id) + ' · ' + (d.owner === '(main)' ? card.owner : d.owner || t('crew not recorded')) +
+  // The crew is named only when there are several.
+  const crew = (d) => manyHomes() ? ' · ' + (d.owner === '(main)' ? card.owner : d.owner || t('crew not recorded')) : '';
+  return card.dependencies.map(d => (d.title || d.id) + crew(d) +
     (d.reconciliation_required ? t(' · needs a check') : d.unresolved === false ? t(' · resolved') : '')).join('; ');
 }
 function notice(text, error = false) { $('notice').hidden = !text; $('notice').className = 'notice' + (error ? ' error' : ''); $('notice').textContent = text; }
@@ -274,7 +278,7 @@ function renderBoard() {
   for (const c of columns) {
     let section = existing.get(c.id);
     if (!section) { section = node('section', 'column'); section.dataset.kind = c.id; $('board').append(section); }
-    const shown = c.cards.filter(card => (S.query === '' || [card.project?.label, card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
+    const shown = c.cards.filter(card => (S.query === '' || [card.project?.label, card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.status, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
       ...card.dependencies.map(d => d.title || d.id)].join(' ').toLocaleLowerCase(locale).includes(S.query)));
     const cards = shown.filter(card => !isLater(card)), later = shown.filter(isLater);
     const sub = c.id === 'underway' ? t('{count} working now', {count: activityCount([{id: c.id, cards}], c.id, 'working')})
@@ -319,9 +323,17 @@ function cardLine(card) {
   if (card.bucket === 'landed') return leadLine(card.summary);
   // A call's line is its question, unless the title already asks it.
   const same = (text) => flatten(text) === flatten(card.title);
-  if (card.bucket === 'captains_call') return leadLine([card.question, p.summary].find(text => text && !same(text)));
-  const waiting = card.dependencies.length ? t('Waiting on: {dependency}', {dependency: card.dependencies.map(d => d.title || d.id).join(', ')}) : '';
-  return leadLine(p.summary || p.waiting_for || waiting || p.next_action);
+  if (card.bucket === 'captains_call') return leadLine([card.question, p.status, p.summary].find(text => text && !same(text)));
+  // What is happening now, as Firstmate wrote it for the card, comes first.
+  const waiting = repeatsDependencies(card, p.waiting_for) ? '' : p.waiting_for;
+  const after = card.dependencies.length ? t('After: {dependency}', {dependency: card.dependencies.map(d => d.title || d.id).join(', ')}) : '';
+  return leadLine([p.status, p.summary, waiting || after, p.next_action].find(text => text && !same(text)));
+}
+// A wait that only names the tasks it depends on says nothing new.
+function repeatsDependencies(card, text) {
+  if (!text || !card.dependencies.length) return false;
+  const names = card.dependencies.map(d => flatten(d.title || d.id));
+  return flatten(text).split(/\s*[,;]\s*/).every(part => names.includes(part)) || flatten(text) === names.join(', ');
 }
 function renderCard(card) {
   const cardNode = node('article', 'task-card'); cardNode.dataset.key = card.key;
@@ -370,15 +382,20 @@ function renderSupervisors() {
     if (old?.dataset.signature === signature) continue;
     const row = node('div', 'supervisor');
     row.dataset.home = source.home; row.dataset.signature = signature;
-    const receipt = source.error ? node('small', '', t(source.error)) : source.received_at ? timeView({label: 'Source received', epoch: source.received_at}) : node('small', '', t('No confirmed read'));
-    receipt.dataset.role = 'receipt';
-    const title = append(node('div'), node('strong', '', source.label), receipt);
-    const status = !s?.observed_at ? t('Firstmate hasn’t said what it’s doing.') : expired ? t('Firstmate’s last update expired.') : t('Firstmate posted an update.');
+    // One phrase: the board's own freshness is in the top bar, so this says
+    // only what Firstmate last told, and when; the read times are in details.
+    const status = source.error ? t(source.error) : !source.received_at ? t('No confirmed read')
+      : !s?.observed_at ? t('Firstmate hasn’t said what it’s doing.')
+      : expired ? t('Firstmate’s last update was {time}.', {time: relative(observed)})
+      : (s.summary ? s.summary + ' · ' + relative(observed) : t('Firstmate posted an update {time}.', {time: relative(observed)}));
+    const receipt = source.received_at ? timeView({label: 'Source received', epoch: source.received_at}) : null;
+    if (receipt) receipt.dataset.role = 'receipt';
     const snapshot = timeView({label: 'Data generated', epoch: Date.parse(source.generated) / 1000});
     snapshot.dataset.role = 'snapshot';
-    const detailsView = disclosure(t('Source details'), prose(supervisorText(s)), snapshot);
+    const detailsView = disclosure(t('Source details'), prose(supervisorText(s)), receipt, snapshot);
     detailsView.dataset.role = 'source';
-    append(row, title, append(node('div'), node('p', '', status), detailsView));
+    const line = node('p', '', status); line.dataset.role = 'status';
+    append(row, node('strong', '', source.label), append(node('div'), line, detailsView));
     if (old) {
       const focusedRole = old.contains(document.activeElement) ? document.activeElement.closest('details')?.dataset.role : null;
       const openByRole = Object.fromEntries([...old.querySelectorAll('details')].map(d => [d.dataset.role, d.open]));
@@ -530,14 +547,19 @@ async function openTicket(key, opener) {
       S.modal = { type: 'task', key, ticket };
       const c = ticket.context, p = ticket.presentation || {};
       $('detail-kicker').textContent = phaseText(ticket);
-      $('detail-content').replaceChildren(prose(summaryText(ticket)), contextRow(t('Who’s on it'), executorText(ticket)));
+      // Only what is recorded: a missing fact is no row, never a placeholder.
+      const lead = [p.status, p.summary].filter((text, i, all) => text && all.indexOf(text) === i && flatten(text) !== flatten(ticket.title));
+      $('detail-content').replaceChildren(...lead.map(text => prose(text)));
+      const who = whoText(ticket);
+      if (who) $('detail-content').append(contextRow(t('Who’s on it'), who));
       const a = ticket.activity || {}, until = a.until ? untilText(a.until) : '';
-      if (ticket.bucket === 'underway') $('detail-content').append(contextRow(t('Agent'), agentLines[a.agent] || agentLines.unknown));
       if (ticket.dependencies.length) $('detail-content').append(contextRow(t('Waiting on'), dependencyText(ticket)));
-      const waits = ['paused', 'deferred', 'held', 'blocked', 'validation_gate', 'stopped'].includes(a.kind);
-      if (!['ready', 'queued'].includes(a.kind) && (p.waiting_for || waits || ['waiting', 'technical', 'dependency', 'unknown'].includes(c.phase))) $('detail-content').append(contextRow(t('Waiting for'), p.waiting_for || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('Someone to approve its checks.') : t('Not recorded. Firstmate hasn’t said what it needs to continue.'))));
+      const waitingFor = (repeatsDependencies(ticket, p.waiting_for) ? '' : p.waiting_for) || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('Someone to approve its checks.') : '');
+      if (!['ready', 'queued'].includes(a.kind) && waitingFor) $('detail-content').append(contextRow(t('Waiting for'), waitingFor));
       if (gapLines[a.gap]) $('detail-content').append(node('p', 'activity-note', gapLines[a.gap]));
-      $('detail-content').append(contextRow(t('Next step'), p.next_action || t('No next step yet.')));
+      if (p.next_action) $('detail-content').append(contextRow(t('Next step'), p.next_action));
+      // Work that waits for the captain outside a Captain's Call is answered in Firstmate.
+      if (a.kind === 'decision') $('detail-content').append(node('p', 'activity-note', t('You can’t answer this one from the web. Answer it in Firstmate.')));
       addTechnical(ticket); addHerdr(ticket);
     }
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
