@@ -580,5 +580,100 @@ class WebTests(unittest.TestCase):
         self.assertEqual(mutation['args'][0],'answers')
         self.assertEqual(mutation['input'].split('\t')[:2],['ask','ship'])
 
+    def markdown(self):
+        """Give the fixture home the Markdown backlog Firstmate reads calls from."""
+        root=Path(self.home.path)
+        (root/'.tasks.toml').write_text('backend = "markdown"\n\n[markdown]\npath = "data/backlog.md"\narchive = "data/done-archive.md"\n')
+        (root/'data/backlog.md').write_text('# Backlog\n\n## In flight\n- [ ] other - Otra tarea (kind: ship)\n'
+            '  Sin cambios.\n- [ ] ask - Elige el alcance (kind: captain) (hold-kind: captain)\n'
+            '  Captain hold set: 2026-10-25T15:00:00Z\n\n## Done\n- [x] demo-research - Demo research (reported 2026-10-24)\n')
+        return root
+
+    def calls(self,prefix):
+        log=Path(self.home.path)/'calls.log'
+        return sum(line.startswith(prefix) for line in log.read_text().splitlines()) if log.exists() else 0
+
+    def edit_row(self,root,task,line):
+        path=root/'data/backlog.md';text=path.read_text()
+        head=next(l for l in text.splitlines() if l.startswith('- [ ] '+task+' '))
+        path.write_text(text.replace(head+'\n',head+'\n  '+line+'\n'))
+
+    def test_opening_a_call_reuses_its_identity_until_its_backlog_row_changes(self):
+        root=self.markdown();key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
+        first=[self.req('/api/ticket/'+key)[1]['call']['occurrence'] for _ in range(3)]
+        self.assertEqual(len(set(first)),1);self.assertEqual(self.calls('open ask --identity'),1)
+        with ThreadPoolExecutor(4) as pool:
+            self.assertEqual(set(pool.map(lambda _:self.board.ticket(key)['call']['occurrence'],range(4))),set(first))
+        self.edit_row(root,'other','Otra nota.')
+        self.assertEqual(self.req('/api/ticket/'+key)[1]['call']['occurrence'],first[0])
+        self.assertEqual(self.calls('open ask --identity'),1)
+        # Re-holding the call rewrites its own row, so the next open asks again.
+        (root/'identity').write_text('2026-10-25T16:00:00Z#1');self.edit_row(root,'ask','Resolution recorded by fm-captain-hold.')
+        _,ticket=self.req('/api/ticket/'+key)
+        self.assertEqual(ticket['call']['identity'],'2026-10-25T16:00:00Z#1');self.assertNotEqual(ticket['call']['occurrence'],first[0])
+        self.assertEqual(self.calls('open ask --identity'),2)
+
+    def test_an_answer_checks_the_live_call_and_a_missed_change_does_not_stick(self):
+        self.markdown();key,body=self.call()
+        # Firstmate moved on without the row changing: the open view is stale,
+        # but the answer is checked against the live identity and refused.
+        (Path(self.home.path)/'identity').write_text('2026-10-25T16:00:00Z#1')
+        self.assertEqual(self.req('/api/ticket/'+key)[1]['call']['occurrence'],body['occurrence'])
+        self.assertEqual(self.req('/api/ticket/'+key+'/answer',body)[0],409)
+        self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
+        _,ticket=self.req('/api/ticket/'+key);self.assertEqual(ticket['call']['identity'],'2026-10-25T16:00:00Z#1')
+        status,receipt=self.req('/api/ticket/'+key+'/answer',dict(body,occurrence=ticket['call']['occurrence'],request_id='n'*32))
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True)
+        mutation=json.loads((Path(self.home.path)/'mutations.jsonl').read_text())
+        self.assertEqual(mutation['args'][-1],'2026-10-25T16:00:00Z#1')
+
+    def test_calls_without_a_readable_markdown_row_ask_firstmate_on_every_open(self):
+        key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
+        root=Path(self.home.path)
+        for setup in (lambda:None,lambda:(root/'.tasks.toml').write_text('backend = "github"\n'),
+                      lambda:self.markdown() and (root/'.tasks.toml').write_text('backend = [broken'),
+                      lambda:(root/'.tasks.toml').unlink() or (root/'data/backlog.md').open('a').write('- [ ] ask - copia (kind: captain)\n')):
+            with self.subTest(setup=setup):
+                setup();before=self.calls('open ask --identity')
+                for _ in range(2):self.assertEqual(self.req('/api/ticket/'+key)[0],200)
+                self.assertEqual(self.calls('open ask --identity'),before+2)
+
+    def test_opening_a_delivery_reads_history_again_only_when_its_sources_change(self):
+        root=self.markdown();identity=bridge.home_id(self.home)
+        route=f'/api/delivery/{identity}/demo-research'
+        for _ in range(3):self.assertEqual(self.req(route)[0],200)
+        self.assertEqual(self.calls('history'),1)
+        self.edit_row(root,'other','Otra nota.');self.assertEqual(self.req(route)[0],200)
+        self.assertEqual(self.calls('history'),2)
+        (root/'data/demo-research/completion.json').write_text('{}');self.assertEqual(self.req(route)[0],200)
+        self.assertEqual(self.calls('history'),3)
+        (root/'.tasks.toml').unlink();self.assertEqual(self.req(route)[0],200)
+        self.assertEqual(self.calls('history'),4)
+        (root/'.tasks.toml').write_text('backend = "github"\n')
+        for _ in range(2):self.assertEqual(self.req(route)[0],200)
+        self.assertEqual(self.calls('history'),6)
+
+    def test_read_ahead_warms_open_calls_and_history_once_per_change(self):
+        root=self.markdown();key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
+        self.board.prefetch();self.board.prefetch()
+        self.assertEqual((self.calls('open ask --identity'),self.calls('history')),(1,1))
+        self.assertEqual(self.req('/api/ticket/'+key)[0],200)
+        self.assertEqual(self.req(f'/api/delivery/{bridge.home_id(self.home)}/demo-research')[0],200)
+        self.assertEqual((self.calls('open ask --identity'),self.calls('history')),(1,1))
+        self.board.identities.clear()
+        with patch.object(self.board,'open_identity',side_effect=bridge.Refusal('no')) as live:
+            self.board.prefetch();self.board.prefetch();self.assertEqual(live.call_count,1)
+            self.edit_row(root,'ask','Otra nota.');self.board.prefetch();self.assertEqual(live.call_count,2)
+        (root/'open').unlink();self.board.prefetch()
+        self.assertEqual((self.board.identities,self.board.warm_failed),({},{}))
+
+    def test_started_board_reads_ahead_in_the_background_and_stops(self):
+        self.markdown();self.board.start();self.addCleanup(self.board.stop)
+        self.init()
+        for _ in range(100):
+            if self.calls('open ask --identity') and self.calls('history'):break
+            threading.Event().wait(0.05)
+        self.assertEqual((self.calls('open ask --identity'),self.calls('history')),(1,1))
+        self.board.stop();self.assertTrue(self.board.stopping.is_set())
 
 if __name__=='__main__':unittest.main()

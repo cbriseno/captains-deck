@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from socketserver import TCPServer
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
@@ -77,6 +78,86 @@ def human_title(value, translate=lambda text: text):
     return re.sub(r'\s+', ' ', text).strip(' ·–-') or translate('Task without a readable title')
 
 
+def file_mark(path):
+    """What changes when a file is edited in place or replaced; None if absent."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def backlog_sources(home):
+    """The home's task config and its Markdown backlog and archive, as Firstmate
+    reads them (an absent .tasks.toml means the defaults). None when the home is
+    remote, uses another backend or its config can't be read: then nothing is
+    cached and every read asks Firstmate."""
+    if fm.is_remote_home(home) or fm.is_aggregate_home(home):
+        return None
+    root = Path(home.path)
+    try:
+        config = (root / '.tasks.toml').read_text(encoding='utf-8')
+    except FileNotFoundError:
+        config = ''
+    except (OSError, ValueError):
+        return None
+    try:
+        cfg = tomllib.loads(config)
+    except tomllib.TOMLDecodeError:
+        return None
+    markdown = cfg.get('markdown') if isinstance(cfg.get('markdown'), dict) else {}
+    if cfg.get('backend', 'markdown') != 'markdown':
+        return None
+    backlog = str(markdown.get('path') or 'data/backlog.md')
+    archive = str(markdown.get('archive') or Path(backlog).parent / 'done-archive.md')
+    return config, backlog, archive
+
+
+def call_mark(home, task):
+    """A fingerprint of the one backlog row a call's identity comes from.
+
+    Firstmate's lifecycle identity is the row's hold-set stamp and its count of
+    recorded answers, both inside that row. The row runs from its checkbox line
+    to the next row or heading. None when the row isn't found exactly once.
+    """
+    sources = backlog_sources(home)
+    if not sources:
+        return None
+    config, backlog, _ = sources
+    try:
+        text = fm.delivery_read(home.path, backlog, fm.DELIVERY_INDEX_LIMIT)
+    except (OSError, ValueError):
+        return None
+    lines = text.splitlines(keepends=True)
+    head = re.compile(r'- \[[ xX]\] ' + re.escape(task) + r'(?=\s|$)')
+    found = [i for i, line in enumerate(lines) if head.match(line)]
+    if len(found) != 1:
+        return None
+    end = found[0] + 1
+    while end < len(lines) and not re.match(r'- \[|#', lines[end]):
+        end += 1
+    return digest(config, backlog, ''.join(lines[found[0]:end]))
+
+
+def history_mark(home):
+    """The files Firstmate's delivery history reads, besides each task's
+    completion receipt; None when they can't be known."""
+    sources = backlog_sources(home)
+    if not sources:
+        return None
+    config, backlog, archive = sources
+    root = Path(home.path)
+    return (config, file_mark(root / backlog), file_mark(root / archive),
+            file_mark(endpoint_path(home.path, 'fm-delivery-history.sh')),
+            file_mark(endpoint_path(home.path, 'fm_delivery.py')))
+
+
+def changed_since(path, started):
+    # One second covers filesystems with coarse change times.
+    mark = file_mark(path)
+    return mark is not None and mark[3] >= (started - 1) * 1e9
+
+
 class Collector(fm.Collector):
     """Track source-read failures separately from cheap card repaint times."""
     def __init__(self):
@@ -103,15 +184,71 @@ class Board:
         self.mutation_lock = threading.Lock()
         self.history_lock = threading.Lock()
         self.history_cache = {}
+        # Opening a call reuses its lifecycle identity until its backlog row
+        # changes; answering always asks Firstmate again.
+        self.identity_lock = threading.Lock()
+        self.identities = {}
+        self.identity_gates = {}
+        self.warm_failed = {}
+        self.warming = threading.Event()
+        self.stopping = threading.Event()
 
     def event_json(self, event):
         return event_json(event, self.t)
 
     def start(self):
         self.collector.start()
+        threading.Thread(target=self.warm_loop, daemon=True, name='deck-warm').start()
+        self.warming.set()
 
     def stop(self):
+        self.stopping.set()
+        self.warming.set()
         self.collector.stop()
+
+    def warm_loop(self):
+        """Keep open calls and delivery history read ahead of the captain.
+
+        Every board read wakes it; it does work only for what changed, one
+        Firstmate call at a time.
+        """
+        while not self.stopping.is_set():
+            self.warming.wait()
+            self.warming.clear()
+            if self.stopping.is_set():
+                return
+            try:
+                self.prefetch()
+            except Exception:  # A failed read-ahead only means the next open asks Firstmate itself.
+                time.sleep(5)
+
+    def prefetch(self):
+        current = set()
+        for card in self.collector.snapshot().cols.get('captains_call', []):
+            try:
+                home = self.owner(card)
+            except Refusal:
+                continue
+            key = home_id(home), card.task
+            current.add(key)
+            # A call Firstmate couldn't confirm is retried only once its row
+            # changes; opening it still asks Firstmate.
+            mark = None if fm.is_remote_home(home) else call_mark(home, card.task)
+            if not mark or self.warm_failed.get(key) == mark:
+                continue
+            try:
+                self.call_identity(home, card.task)
+                self.warm_failed.pop(key, None)
+            except Refusal:
+                self.warm_failed[key] = mark
+        with self.identity_lock:
+            for key in (set(self.identities) | set(self.warm_failed)) - current:
+                self.identities.pop(key, None)
+                self.identity_gates.pop(key, None)
+                self.warm_failed.pop(key, None)
+        for home in self.homes():
+            if not fm.is_remote_home(home):
+                self.records(home, max_age=None)
 
     def homes(self):
         return fm.real_homes(self.collector.snapshot().homes)
@@ -193,6 +330,7 @@ class Board:
         snap = self.collector.snapshot()
         chosen = self.home(selected) if selected else None
         homes = self.homes()
+        self.warming.set()
         columns = []
         for key, title in COLUMNS:
             cards = [self.card_json(c) for c in snap.cols.get(key, [])]
@@ -279,13 +417,23 @@ class Board:
                 'message': self.t(message), 'current_key': current_key,
                 'receipts': [r for r in self.receipts(actor) if r.get('home') == identity and r.get('task') == task]}
 
-    def records(self, home, force=False):
+    def records(self, home, task='', force=False, max_age=15):
+        """Delivery rows, read again when Firstmate's records changed.
+
+        The history list also reads again after max_age seconds. Opening one
+        delivery reads again only when its sources or its completion receipt
+        changed, or always when the sources can't be known.
+        """
         identity = home_id(home)
         with self.history_lock:
-            rows, note, at = self.history_cache.get(identity, ([], '', 0))
-            if force or time.time() - at > 15:
+            rows, note, started, mark = self.history_cache.get(identity, ([], '', 0, None))
+            current = history_mark(home)
+            if (force or not started or current != mark or (task and current is None)
+                    or (max_age is not None and time.time() - started > max_age)
+                    or (task and changed_since(Path(home.path, 'data', task, 'completion.json'), started))):
+                started = time.time()
                 rows, note, _ = fm.delivery_records(home, translate=self.t)
-                self.history_cache[identity] = rows, note, time.time()
+                self.history_cache[identity] = rows, note, started, current
             return rows, note
 
     def history(self, selected='', query=''):
@@ -311,7 +459,7 @@ class Board:
         home = self.home(identity)
         if not fm.KEY_RE.fullmatch(task):
             raise Refusal('Invalid task identity.', 400)
-        rows, note = self.records(home, force=True)
+        rows, note = self.records(home, task=task, max_age=None)
         matches = [r for r in rows if r['id'] == task]
         if len(matches) != 1:
             raise Refusal('This delivery isn’t in history anymore, or the task was reopened.', 404)
@@ -333,9 +481,35 @@ class Board:
             raise Refusal('This delivery isn’t in history anymore, or the task was reopened.', 404)
         return fm.explanation_request(home, task, status=status, translate=self.t)
 
-    def call_identity(self, home, task):
+    def call_identity(self, home, task, fresh=False):
+        """The call's lifecycle identity, reused while its backlog row is unchanged.
+
+        fresh always asks Firstmate and replaces what was kept, so an answer is
+        checked against the live call and a missed change can't stick.
+        """
         if fm.is_remote_home(home) or not fm.KEY_RE.fullmatch(task):
             raise Refusal('You can’t answer this one from the web. Answer it in Firstmate.')
+        key = (home_id(home), task)
+        with self.identity_lock:
+            gate = self.identity_gates.setdefault(key, threading.Lock())
+        # One Firstmate call per task at a time; a second reader waits for it.
+        with gate:
+            mark = call_mark(home, task)
+            kept = self.identities.get(key)
+            if not fresh and mark and kept and kept[0] == mark:
+                return kept[1]
+            try:
+                identity = self.open_identity(home, task)
+            except Refusal:
+                self.identities.pop(key, None)
+                raise
+            if mark:
+                self.identities[key] = mark, identity
+            else:
+                self.identities.pop(key, None)
+            return identity
+
+    def open_identity(self, home, task):
         script = Path(endpoint_path(home.path, 'fm-captain-hold.sh'))
         try:
             result = subprocess.run(shell_command(script, 'open', task, '--identity'),
@@ -406,9 +580,9 @@ class Board:
             raise Refusal('Couldn’t open this report.', 404)
         return {'path': relative, 'text': fm.delivery_text(text)}
 
-    def call_json(self, card, home, content):
+    def call_json(self, card, home, content, fresh=False):
         try:
-            identity = self.call_identity(home, card.task)
+            identity = self.call_identity(home, card.task, fresh=fresh)
             guarded = self.guarded_intake(home)
             error = '' if guarded else 'This Firstmate can’t take answers from the web yet. Update Firstmate or answer there.'
         except Refusal as exc:
@@ -469,7 +643,7 @@ class Board:
                 raise Refusal('The task is no longer waiting for a human answer.')
             home = self.owner(card)
             content = self.content(card, home)
-            call = self.call_json(card, home, content)
+            call = self.call_json(card, home, content, fresh=True)
             if call['error']:
                 raise Refusal(call['error'])
             if not secrets.compare_digest(call['occurrence'], occurrence):
