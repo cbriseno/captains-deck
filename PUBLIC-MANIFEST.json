@@ -392,7 +392,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "61901b959b226dfb24c34d7ea26607016c6e0640d4ee9359d4207d4e17aa8d88"
+      "sha256": "a43c51c383faf68ac1aa2a7d3ede6eabd8914d1bc784e2a5b5c2291eae31633c"
     },
     {
       "mode": "100644",
@@ -432,12 +432,12 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "84cc61ddba5660045717c9d55c658297eccb56e9acabb6ea0eea9fdb1d1ac079"
+      "sha256": "24fef9bbcea041ee20bd463de0ac5c8a0e68a83c40dcb20a257f23d2077c3bc9"
     },
     {
       "mode": "100644",
       "path": "web/tests/board_layout.browser.cjs",
-      "sha256": "56e23812d5c6c1900c4205a6b7b09febbca8dc5f85b037a734e699cb4a8606ee"
+      "sha256": "8352c7b43c861c170eb3aea22ce318fec9e53929e4760c8c19daddc76552ee5a"
     },
     {
       "mode": "100644",

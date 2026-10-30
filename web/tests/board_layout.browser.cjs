@@ -1,4 +1,4 @@
-/* Measure the real board in headless Chrome at 1440, 1024 and 390 px.
+/* Measure the real board in headless Chrome at 1440, 1024, 390 and 360 px.
    Needs Node.js 22 (global WebSocket) and Chrome; skips without Chrome.
    Set CD_TEST_CHROME to choose the browser binary. */
 const assert = require('node:assert/strict');
@@ -64,7 +64,7 @@ const measure = `(async () => {
   return {problems, cards: cards.length, columns, across, firstTop: Math.round(cards[0].getBoundingClientRect().top + scrollY),
     pageOverflow: document.documentElement.scrollWidth > innerWidth, rects: rects(),
     order: [...document.querySelectorAll('.column')].map(c => c.dataset.kind), tabs: [...document.querySelectorAll('#columns-nav button')].map(b => b.dataset.kind),
-    later: laterLayout()};
+    active: document.querySelector('#columns-nav button[aria-pressed=true]')?.dataset.kind, later: laterLayout()};
   // Later sits under the cards ready to start, inside Up next, and its heading fits.
   function laterLayout() {
     const up = document.querySelector('.column[data-kind=charted]'), block = up?.querySelector('.later');
@@ -139,7 +139,7 @@ const history = `(async () => {
     open: document.getElementById('detail').dataset.open, links: [...document.querySelectorAll('#detail-content a.report-link')].length};
 })()`;
 
-test('the board and history fit, never cut text and keep cards still at 1440, 1024 and 390 px', {skip: !chrome && 'no Chrome found; set CD_TEST_CHROME'}, async (t) => {
+test('the board and history fit, never cut text and keep cards still at 1440, 1024, 390 and 360 px', {skip: !chrome && 'no Chrome found; set CD_TEST_CHROME'}, async (t) => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-layout-'));
   const server = spawn('python3', [path.join(__dirname, 'layout_fixture.py'), scratch, 'es'], {stdio: ['ignore', 'pipe', 'pipe']});
   const browser = spawn(chrome, ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + path.join(scratch, 'chrome'),
@@ -158,7 +158,7 @@ test('the board and history fit, never cut text and keep cards still at 1440, 10
     fs.rmSync(scratch, {recursive: true, force: true, maxRetries: 10, retryDelay: 200});
   });
   const order = ['captains_call', 'underway', 'charted', 'landed'];
-  for (const [width, height] of [[1440, 900], [1024, 800], [390, 844]]) {
+  for (const [width, height] of [[1440, 900], [1024, 800], [390, 844], [360, 740]]) {
     await page.send('Emulation.setDeviceMetricsOverride', {width, height, deviceScaleFactor: 1, mobile: width < 640});
     await page.send('Page.navigate', {url});
     await new Promise(r => setTimeout(r, 300));
@@ -175,6 +175,8 @@ test('the board and history fit, never cut text and keep cards still at 1440, 10
       const s = await page.evaluate(steady);
       assert.deepEqual(s.moved, [], width + ' px'); assert.equal(s.open, 'false'); assert.equal(s.dialogs, 0);
     } else {
+      // The fixture has questions waiting, so the phone opens on Needs you.
+      assert.equal(m.active, 'captains_call', width + ' px');
       const call = await page.evaluate(phoneCall);
       assert.ok(call.inCard); assert.ok(call.sameOrder);
       assert.ok(call.recBottom <= call.height, `recommended ends at ${call.recBottom} of ${call.height}`);

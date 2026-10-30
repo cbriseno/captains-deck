@@ -900,3 +900,35 @@ test('Later reads Más adelante in Spanish', async () => {
   assert.equal(section.querySelector('.later-heading').firstChild.textContent, 'Más adelante');
   assert.equal(section.querySelector('.column-heading').querySelector('.column-count').textContent, '0');
 });
+
+// ---- U11: the phone opens where the captain is needed ----
+const pressedTab = (view) => view.doc.getElementById('columns-nav').children.filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.kind);
+const selectedColumns = (view) => view.doc.getElementById('board').children.filter(s => s.dataset.selected === 'true').map(s => s.dataset.kind);
+
+test('the phone opens on Needs you when a question waits, else on Underway', async () => {
+  const calls = await mountBoard(fullBoard(), undefined, {}, {}, {phone: true});
+  assert.deepEqual(pressedTab(calls), ['captains_call']); assert.deepEqual(selectedColumns(calls), ['captains_call']);
+  const none = fullBoard(); none.columns[0].cards = [];
+  const quiet = await mountBoard(none, undefined, {}, {}, {phone: true});
+  assert.deepEqual(pressedTab(quiet), ['underway']); assert.deepEqual(selectedColumns(quiet), ['underway']);
+  // An answered question no longer needs the captain.
+  const answered = fullBoard(); answered.columns[0].cards[0].answered = true;
+  assert.deepEqual(pressedTab(await mountBoard(answered, undefined, {}, {}, {phone: true})), ['underway']);
+});
+
+test('the opening tab waits for the first full read, then only a tap changes it', async () => {
+  const empty = fullBoard({loading: true}); empty.columns[0].cards = [];
+  const view = await mountBoard(empty, undefined, {}, {}, {phone: true});
+  view.setBoard(fullBoard()); await view.poll(); await view.flush();
+  assert.deepEqual(pressedTab(view), ['captains_call']);
+  // A tap sticks across reads, even while questions keep waiting.
+  view.doc.getElementById('columns-nav').children.find(b => b.dataset.kind === 'charted').listeners.click[0]();
+  await view.poll(); await view.flush();
+  assert.deepEqual(pressedTab(view), ['charted']); assert.deepEqual(selectedColumns(view), ['charted']);
+
+  // A question that arrives after the board opened does not pull the tab away.
+  const none = fullBoard(); none.columns[0].cards = [];
+  const later = await mountBoard(none, undefined, {}, {}, {phone: true});
+  later.setBoard(fullBoard()); await later.poll(); await later.flush();
+  assert.deepEqual(pressedTab(later), ['underway']);
+});
