@@ -1008,6 +1008,11 @@ button.report-link:hover:enabled { background:none; text-decoration:underline; }
 .column-heading h2 { font-size:12.5px; }
 .cards { display:grid; gap:6px; }
 .empty { padding:12px; font-size:12px; border-radius:10px; }
+/* Later: postponed work below the cards ready to start. */
+.later { margin-top:12px; }
+.later-heading { display:flex; align-items:center; gap:6px; margin:0 0 6px; padding:0 2px; }
+.later-heading h3 { margin:0; font-size:12px; font-weight:700; color:var(--muted); }
+[data-density="compact"] .later { margin-top:8px; }
 
 /* Card: a fixed top row, the full title, then one short line. Nothing is cut. */
 .task-card { display:block; min-width:0; border:1px solid var(--line); border-radius:10px; background:var(--surface); overflow-wrap:anywhere; }

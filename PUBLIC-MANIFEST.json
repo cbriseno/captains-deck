@@ -352,12 +352,12 @@
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "f190c8025f3970251cc632c0fc73736af93fb518449e1c37ff81a021f2c968f7"
+      "sha256": "15cc84327ad66be026f42ecc0d61d1e09d5435aef16d1faca172a01bbe6f6507"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "6b121296b6956f1ece95929958bbdd016acb2e17c3fdaf30b1a65a2b04d8d334"
+      "sha256": "86d8f1f16c3526258d8fddddf9816b8c225b5e73282e360a1888efe19f847b09"
     },
     {
       "mode": "100644",
@@ -392,7 +392,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "afcc623b77603170e97126ca119a4dafe34e054dc1db7579d9f11575b8c12219"
+      "sha256": "9a786de9eff7bfb8b82e88d70bcfa1f0eeb64d702125292b1a996cba817cf099"
     },
     {
       "mode": "100644",
@@ -412,7 +412,7 @@
     {
       "mode": "100644",
       "path": "web/static/styles.css",
-      "sha256": "2e63b5b5b2e498d3fea9ac5ef10c3a87293a12ccda91601ec08aaa3a68fd4289"
+      "sha256": "cd60a18cdfc0f0b31986c36e89f769830f55679fed3fb9146a90b76e3a0a2b8a"
     },
     {
       "mode": "100644",
@@ -432,12 +432,12 @@
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "7e8f0355345699608b7323e3d4fd79e1326d2485862ff7214cbcc53306e3741e"
+      "sha256": "f447dea66a2944a195c33ded24b8ceab3546456838af575418ba5cd70078413b"
     },
     {
       "mode": "100644",
       "path": "web/tests/board_layout.browser.cjs",
-      "sha256": "a11d606cba8461808bac6e7d5962f6b6f5be2e570625331d8474a5a9fb269c7f"
+      "sha256": "aef7023edc83231e4388f77cf33fc4d666f36af9c9bac2557aefca2d26d443f9"
     },
     {
       "mode": "100644",
