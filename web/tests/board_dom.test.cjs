@@ -143,9 +143,10 @@ test('board counts agents working now and names what every other card waits for'
   assert.equal(underway.l, 'Working when last seen · 2 hours ago');
   // A return date is its own short tag beside the state.
   assert.equal(underway.p, 'Paused');
-  assert.deepEqual(chips('charted'), {r: 'Ready to start', d: 'Deferred', h: 'On hold', w: 'Waiting on another task'});
+  // Deferred work leaves Up next for its Later section.
+  assert.deepEqual(chips('charted'), {r: 'Ready to start', h: 'On hold', w: 'Waiting on another task'});
   const dates = (kind) => Object.fromEntries(cardsIn(section(kind).querySelector('.cards')).filter(c => c.querySelector('.card-date')).map(c => [c.dataset.key, c.querySelector('.card-date').textContent]));
-  assert.deepEqual(dates('underway'), {p: 'Jan 20'}); assert.deepEqual(dates('charted'), {d: 'Jan 22'});
+  assert.deepEqual(dates('underway'), {p: 'Jan 20'}); assert.deepEqual(dates('charted'), {});
   // The agent line lives in the detail, not on every card.
   assert.equal(descendants(view.doc.getElementById('board')).some(n => n.className === 'activity-note'), false);
   assert.equal(descendants(view.doc.getElementById('board')).some(n => n.textContent === 'Live activity unverified.'), false);
@@ -826,4 +827,59 @@ test('history rows use the card row with a compact age', async () => {
   assert.equal(view.doc.getElementById('board-search').hidden, true);
   view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
   assert.equal(view.doc.getElementById('board-search').hidden, false);
+});
+
+test('postponed work waits under Later with its return date and leaves Up next’s count', async () => {
+  const charted = (key, kind, until = '') => ({...card(key, 'Summary ' + key), bucket: 'charted', title: 'Task ' + key,
+    activity: {kind, agent: '', until, gap: ''}, context: {reason: '', phase: 'unknown', firstmate_action: null},
+    time: {label: 'Filed', epoch: Date.UTC(2026, 0, 12, 12) / 1000, date: null}});
+  const data = board([]);
+  data.columns[0].cards = [charted('r', 'ready'), charted('d1', 'deferred', '2026-01-22'), charted('q', 'queued'),
+    charted('h', 'held'), charted('d2', 'deferred', '2026-01-31')];
+  const view = await mountBoard(data);
+  const section = () => view.doc.getElementById('board').children.find(s => s.dataset.kind === 'charted');
+  const later = () => section().querySelector('.later');
+  const keys = (list) => cardsIn(list).map(c => c.dataset.key);
+  assert.deepEqual(keys(section().querySelector('.cards')), ['r', 'q', 'h']);
+  assert.deepEqual(keys(later().querySelector('.cards')), ['d1', 'd2']);
+  // Up next counts only what can start; Later carries its own count.
+  assert.equal(section().querySelector('.column-heading').querySelector('.column-count').textContent, '3');
+  assert.equal(section().querySelector('.column-sub').textContent, '1 ready to start');
+  const tab = view.doc.getElementById('columns-nav').children.find(b => b.dataset.kind === 'charted');
+  assert.equal(tab.firstChild.textContent, '3');
+  assert.equal(later().querySelector('.later-heading').textContent, 'Later2');
+  // A postponed card keeps the same top row: its return date, then its age; the section says the rest.
+  for (const item of cardsIn(later().querySelector('.cards'))) {
+    const meta = item.querySelector('.card-meta');
+    assert.equal(item.querySelector('.phase'), null);
+    assert.deepEqual(meta.children.map(n => n.className), ['card-date', 'card-ago']);
+    assert.equal(meta.lastChild.textContent, '3 d');
+  }
+  assert.deepEqual(cardsIn(later().querySelector('.cards')).map(c => c.querySelector('.card-date').textContent), ['Jan 22', 'Jan 31']);
+
+  // When a hold ends the card returns to Up next, and an empty Later goes away.
+  data.columns[0].cards = [charted('r', 'ready'), charted('d1', 'ready'), charted('q', 'queued'), charted('h', 'held'), charted('d2', 'deferred', '2026-01-31')];
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.deepEqual(keys(section().querySelector('.cards')), ['r', 'd1', 'q', 'h']);
+  assert.deepEqual(keys(later().querySelector('.cards')), ['d2']);
+  data.columns[0].cards = [charted('d2', 'deferred', '2026-01-31')];
+  view.setBoard(data); await view.poll(); await view.flush();
+  // Only postponed work: no empty box above Later.
+  assert.equal(section().querySelector('.cards').children.length, 0);
+  assert.deepEqual(keys(later().querySelector('.cards')), ['d2']);
+  data.columns[0].cards = [];
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(later(), null);
+  assert.equal(placeholders(section().querySelector('.cards')).length, 1);
+});
+
+test('Later reads Más adelante in Spanish', async () => {
+  const es = JSON.parse(fs.readFileSync(path.join(root, 'locales/es.json'), 'utf8'));
+  const data = board([]);
+  data.columns[0].cards = [{...card('d', ''), bucket: 'charted', activity: {kind: 'deferred', agent: '', until: '2026-10-31', gap: ''},
+    context: {reason: '', phase: 'unknown', firstmate_action: null}}];
+  const view = await mountBoard(data, undefined, {}, es);
+  const section = view.doc.getElementById('board').children.find(s => s.dataset.kind === 'charted');
+  assert.equal(section.querySelector('.later-heading').firstChild.textContent, 'Más adelante');
+  assert.equal(section.querySelector('.column-heading').querySelector('.column-count').textContent, '0');
 });

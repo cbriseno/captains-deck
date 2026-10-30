@@ -150,10 +150,34 @@ function selectColumn(column, scroll = false) {
   for (const b of $('columns-nav').children) b.setAttribute('aria-pressed', String(b.dataset.kind === column));
   if (scroll && matchMedia('(max-width: 639px)').matches) $('columns-nav').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
+// Up next work held until a later date; it never counts as ready to start.
+const isLater = (card) => card.bucket === 'charted' && card.activity?.kind === 'deferred';
+function syncCards(list, cards, retained) {
+  for (const [index, card] of cards.entries()) {
+    // Source freshness is independent of card progress. Retain unchanged
+    // controls, an open detail and focus across polls.
+    const signature = JSON.stringify({...card, supervisor: null, context: {...card.context, firstmate_action: null}, homes: manyHomes()});
+    let item = retained.get(card.key); retained.delete(card.key);
+    if (!item || item.dataset.signature !== signature) {
+      const old = item, fresh = renderCard(card), focused = !!old?.firstChild?.contains(document.activeElement);
+      // A card holding the open detail swaps only its face, so a draft and
+      // its focus never leave the page.
+      if (old?.contains($('detail'))) { old.firstChild.replaceWith(fresh.firstChild); item = old; }
+      else { item = fresh; old?.replaceWith(item); }
+      item.dataset.signature = signature;
+      if (focused) item.querySelector('.card-open').focus({preventScroll: true});
+    }
+    if (list.children[index] !== item) {
+      const focused = item.contains(document.activeElement) ? document.activeElement : null;
+      list.insertBefore(item, list.children[index] || null);
+      focused?.focus({preventScroll: true});
+    }
+  }
+}
 function renderBoard() {
   if (!S.board) return;
   const columns = S.board.columns;
-  const counts = Object.fromEntries(columns.map(c => [c.id, c.cards.filter(x => !x.answered).length]));
+  const counts = Object.fromEntries(columns.map(c => [c.id, c.cards.filter(x => !x.answered && !isLater(x)).length]));
   // Underway holds every open task; only these agents are working right now.
   const working = activityCount(columns, 'underway', 'working'), ready = activityCount(columns, 'charted', 'ready');
   const calls = counts.captains_call || 0;
@@ -175,38 +199,30 @@ function renderBoard() {
   for (const c of columns) {
     let section = existing.get(c.id);
     if (!section) { section = node('section', 'column'); section.dataset.kind = c.id; $('board').append(section); }
-    const cards = c.cards.filter(card => (S.query === '' || [card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
+    const shown = c.cards.filter(card => (S.query === '' || [card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
       ...card.dependencies.map(d => d.title || d.id)].join(' ').toLocaleLowerCase(locale).includes(S.query)));
+    const cards = shown.filter(card => !isLater(card)), later = shown.filter(isLater);
     const sub = c.id === 'underway' ? t('{count} working now', {count: activityCount([{id: c.id, cards}], c.id, 'working')})
       : c.id === 'charted' ? t('{count} ready to start', {count: activityCount([{id: c.id, cards}], c.id, 'ready')}) : '';
     const heading = append(node('div', 'column-heading'), node('span', 'column-dot'), node('h2', '', labels[c.id] || c.title), sub && node('span', 'column-sub', sub), node('span', 'column-count', String(cards.length)));
     let list = section.querySelector('.cards');
     if (!list) { list = node('div', 'cards'); section.append(heading, list); }
     else section.firstChild.replaceWith(heading);
-    const keys = new Set(cards.map(card => card.key));
+    // The ready list comes first, Later after it; a card can move between
+    // them, so both share one pool.
+    const keys = new Set(shown.map(card => card.key));
     const retained = new Map();
-    for (const n of [...list.children]) if (keys.has(n.dataset.key)) retained.set(n.dataset.key, n); else { rescueDetail(n); n.remove(); }
-    for (const [index, card] of cards.entries()) {
-      // Source freshness is independent of card progress. Retain unchanged
-      // controls, an open detail and focus across polls.
-      const signature = JSON.stringify({...card, supervisor: null, context: {...card.context, firstmate_action: null}, homes: manyHomes()});
-      let item = retained.get(card.key); retained.delete(card.key);
-      if (!item || item.dataset.signature !== signature) {
-        const old = item, fresh = renderCard(card), focused = !!old?.firstChild?.contains(document.activeElement);
-        // A card holding the open detail swaps only its face, so a draft and
-        // its focus never leave the page.
-        if (old?.contains($('detail'))) { old.firstChild.replaceWith(fresh.firstChild); item = old; }
-        else { item = fresh; old?.replaceWith(item); }
-        item.dataset.signature = signature;
-        if (focused) item.querySelector('.card-open').focus({preventScroll: true});
-      }
-      if (list.children[index] !== item) {
-        const focused = item.contains(document.activeElement) ? document.activeElement : null;
-        list.insertBefore(item, list.children[index] || null);
-        focused?.focus({preventScroll: true});
-      }
-    }
-    if (!cards.length) list.replaceChildren(node('p', 'empty', S.query ? t("No tasks match your search.") : c.id === 'captains_call' ? t("Nothing needs you right now.") : c.id === 'landed' ? t("Nothing finished recently. Try History for older work.") : t("Nothing here.")));
+    for (const n of section.querySelectorAll('.task-card')) if (keys.has(n.dataset.key)) retained.set(n.dataset.key, n); else { rescueDetail(n); n.remove(); }
+    for (const n of [...list.children]) if (!n.dataset.key) n.remove();
+    syncCards(list, cards, retained);
+    // Postponed work waits below the cards that are ready, with its return date.
+    let block = section.querySelector('.later');
+    if (later.length) {
+      if (!block) { block = append(node('div', 'later'), node('div', 'later-heading'), node('div', 'cards')); section.append(block); }
+      block.firstChild.replaceChildren(node('h3', '', t('Later')), node('span', 'column-count', String(later.length)));
+      syncCards(block.querySelector('.cards'), later, retained);
+    } else if (block) block.remove();
+    if (!cards.length && !later.length) list.replaceChildren(node('p', 'empty', S.query ? t("No tasks match your search.") : c.id === 'captains_call' ? t("Nothing needs you right now.") : c.id === 'landed' ? t("Nothing finished recently. Try History for older work.") : t("Nothing here.")));
   }
   for (const n of [...$('board').children]) if (!n.dataset.kind) n.remove();
   selectColumn(S.column); refreshTimes(); renderSupervisors(); sourceStatus();
@@ -236,7 +252,8 @@ function renderCard(card) {
   b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-controls', 'detail');
   // A fixed top row (state, crew, return date, age), then the full title.
   const meta = node('div', 'card-meta');
-  const chip = card.bucket === 'landed' || (card.bucket === 'captains_call' && !card.answered) ? '' : phaseText(card, true);
+  // Under Later the section and the return date already say it.
+  const chip = card.bucket === 'landed' || (card.bucket === 'captains_call' && !card.answered) || isLater(card) ? '' : phaseText(card, true);
   if (chip) {
     const phase = node('span', 'phase', chip); phase.dataset.phase = card.presentation?.run_step ? 'waiting' : card.context.phase;
     phase.dataset.activity = card.answered ? '' : card.activity?.kind || ''; meta.append(phase);

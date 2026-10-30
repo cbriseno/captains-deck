@@ -63,7 +63,18 @@ const measure = `(async () => {
   const across = new Set(visible.map(c => Math.round(c.getBoundingClientRect().left))).size;
   return {problems, cards: cards.length, columns, across, firstTop: Math.round(cards[0].getBoundingClientRect().top + scrollY),
     pageOverflow: document.documentElement.scrollWidth > innerWidth, rects: rects(),
-    order: [...document.querySelectorAll('.column')].map(c => c.dataset.kind), tabs: [...document.querySelectorAll('#columns-nav button')].map(b => b.dataset.kind)};
+    order: [...document.querySelectorAll('.column')].map(c => c.dataset.kind), tabs: [...document.querySelectorAll('#columns-nav button')].map(b => b.dataset.kind),
+    later: laterLayout()};
+  // Later sits under the cards ready to start, inside Up next, and its heading fits.
+  function laterLayout() {
+    const up = document.querySelector('.column[data-kind=charted]'), block = up?.querySelector('.later');
+    if (!block) return null;
+    if (matchMedia('(max-width: 639px)').matches) document.querySelector('#columns-nav button[data-kind=charted]').click();
+    const ready = [...up.querySelector('.cards').children].map(n => n.getBoundingClientRect().bottom);
+    const heading = block.querySelector('.later-heading');
+    return {cards: block.querySelectorAll('.task-card').length, below: block.getBoundingClientRect().top >= Math.max(0, ...ready),
+      inside: block.getBoundingClientRect().right <= up.getBoundingClientRect().right + 0.5, fits: heading.scrollWidth <= heading.clientWidth + 1};
+  }
 })()`;
 
 // Opening or closing any detail moves no card on a wide screen.
@@ -71,9 +82,10 @@ const steady = `(async () => {
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   const rects = () => [...document.querySelectorAll('.task-card')].map(c => { const r = c.getBoundingClientRect(); return [r.left, r.top + scrollY, r.width, r.height].map(Math.round).join(','); }).join('|');
   const before = rects(), moved = [];
-  for (const kind of ['captains_call', 'underway', 'charted', 'landed']) {
-    document.querySelector('.column[data-kind=' + kind + '] .card-open').click(); await wait(900);
-    if (rects() !== before) moved.push('open ' + kind);
+  const kinds = ['captains_call', 'underway', 'charted', 'landed'].map(kind => '.column[data-kind=' + kind + '] .card-open');
+  for (const selector of [...kinds, '.column[data-kind=charted] .later .card-open']) {
+    document.querySelector(selector).click(); await wait(900);
+    if (rects() !== before) moved.push('open ' + selector);
   }
   document.querySelector('.column-heading').click(); await wait(300);
   if (rects() !== before) moved.push('close');
@@ -121,6 +133,7 @@ test('the board fits, never cuts text and keeps cards still at 1440, 1024 and 39
     assert.equal(m.pageOverflow, false, width + ' px');
     assert.deepEqual(m.order, order); assert.deepEqual(m.tabs, order);
     assert.ok(m.firstTop <= (width < 640 ? 200 : 120), `${width} px: first card at ${m.firstTop}`);
+    assert.deepEqual(m.later, {cards: 2, below: true, inside: true, fits: true}, width + ' px');
     if (width >= 900) {
       assert.ok(m.columns.every(w => w >= 250), `${width} px: columns ${m.columns}`);
       // Four across only when each keeps about 250 px beside the panel.
