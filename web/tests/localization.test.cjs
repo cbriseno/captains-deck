@@ -69,6 +69,23 @@ function theme(saved, systemDark, storageFails = false) {
   assert.equal(es.api.relative(now - 3599, now), 'hace 1 hora');
   assert.equal(es.api.relative(now - 86399, now), 'ayer');
   assert.equal(es.api.relative(now + 3599, now), 'dentro de 1 hora');
+  // Card age, the captain's compact format: now · 5 min · 3 h · 2 d · 3 wk · +1 mo, floored.
+  const age = (api, seconds) => api.ago({label: 'Last report', epoch: now - seconds, date: null}, now);
+  const cuts = [[59, 'now', 'ahora'], [60, '1 min', '1 min'], [59 * 60 + 59, '59 min', '59 min'], [3600, '1 h', '1 h'],
+    [23 * 3600 + 3599, '23 h', '23 h'], [86400, '1 d', '1 d'], [6 * 86400 + 86399, '6 d', '6 d'], [7 * 86400, '1 wk', '1 sem'],
+    [3 * 7 * 86400, '3 wk', '3 sem'], [29 * 86400, '4 wk', '4 sem'], [31 * 86400, '+1 mo', '+1 mes'], [400 * 86400, '+1 mo', '+1 mes'], [-3, 'now', 'ahora']];
+  for (const [seconds, english, spanish] of cuts) {
+    assert.equal(age(en.api, seconds), english, String(seconds)); assert.equal(age(es.api, seconds), spanish, String(seconds));
+  }
+  assert.equal(en.api.ago(null, now), '—'); assert.equal(es.api.ago({label: 'Filed', epoch: null, date: null, problem: 'not recorded'}, now), '—');
+  assert.equal(en.api.ago({label: 'Asked', epoch: now + 60, date: null}, now), '—');
+  // A date-only event counts calendar days and never invents an hour.
+  assert.equal(en.api.ago({label: 'Filed', epoch: null, date: '2026-10-25'}, now), '1 d');
+  assert.equal(es.api.ago({label: 'Filed', epoch: null, date: '2026-10-26'}, now), 'hoy');
+  assert.equal(es.api.ago({label: 'Filed', epoch: null, date: '2026-10-05'}, now), '3 sem');
+  assert.equal(en.api.shortDate('2026-10-31', now * 1000), '31 Oct'); // en-GB order assert.equal(es.api.shortDate('2026-10-31', now * 1000), '31 oct');
+  assert.match(es.api.shortDate('2027-01-02', now * 1000), /2 ene.* 2027/);
+  assert.equal(en.api.shortDate('soon', now * 1000), '');
   for (const {api} of [en, es]) {
     const event = {label: 'Delivered', date: '2026-10-24', epoch: null};
     const before = JSON.stringify(event);

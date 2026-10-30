@@ -191,11 +191,11 @@ class PresentationTests(unittest.TestCase):
 
     def test_all_column_types_keep_their_event_precision(self):
         board = self.board.board()
-        self.assertEqual([c['id'] for c in board['columns']], ['charted', 'underway', 'captains_call', 'landed'])
+        self.assertEqual([c['id'] for c in board['columns']], ['captains_call', 'underway', 'charted', 'landed'])
         for column in board['columns']:
             for card in column['cards']:
                 self.assertIn('presentation', card)
-        queued = board['columns'][0]['cards'][0]
+        queued = next(c for c in board['columns'] if c['id'] == 'charted')['cards'][0]
         self.assertEqual(queued['time']['date'], '2026-10-24')
         self.assertIsNone(queued['time']['epoch'])
         card = self.board.collector.snap.cols['captains_call'][0]

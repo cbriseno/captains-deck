@@ -21,7 +21,7 @@ const DeckI18n = {
     };
     document.documentElement.lang = locale;
     for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
-    for (const attr of ['aria-label', 'placeholder']) {
+    for (const attr of ['aria-label', 'placeholder', 'title']) {
       for (const el of document.querySelectorAll(`[data-i18n-${attr}]`)) el.setAttribute(attr, t(el.getAttribute(`data-i18n-${attr}`)));
     }
     const dateFmt = new Intl.DateTimeFormat(locale, {dateStyle: 'medium', timeStyle: 'short'});
@@ -67,6 +67,33 @@ const DeckI18n = {
       if (typeof event?.epoch === 'number' && Number.isFinite(event.epoch)) return dateFmt.format(new Date(event.epoch * 1000));
       return t('Time not recorded');
     };
+    // Card age, the captain's compact format: now · 5 min · 3 h · 2 d · 3 wk · +1 mo.
+    // Units floor, so a card never looks newer than it is. A date-only event
+    // counts calendar days; no recorded time, or one in the future, is a dash.
+    const compactDays = (days) => days < 7 ? t('{count} d', {count: days}) : days < 30 ? t('{count} wk', {count: Math.floor(days / 7)}) : t('+1 mo');
+    const ago = (event, now = Date.now() / 1000) => {
+      const day = calendarDay(event?.date);
+      if (day !== null) {
+        const today = new Date(now * 1000);
+        const days = Math.floor((Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) - day) / 86400000);
+        return days < 0 ? '—' : days === 0 ? t('today') : compactDays(days);
+      }
+      if (typeof event?.epoch !== 'number' || !Number.isFinite(event.epoch)) return '—';
+      const seconds = now - event.epoch;
+      if (seconds < -5) return '—';
+      if (seconds < 60) return t('now');
+      if (seconds < 3600) return t('{count} min', {count: Math.floor(seconds / 60)});
+      if (seconds < 86400) return t('{count} h', {count: Math.floor(seconds / 3600)});
+      return compactDays(Math.floor(seconds / 86400));
+    };
+    // A return date on a card: "Oct 31"; the year only when it isn't this one.
+    const shortDate = (value, now = Date.now()) => {
+      const day = calendarDay(value), at = day !== null ? day : /^\d{4}-\d{2}-\d{2}T/.test(value || '') ? Date.parse(value) : NaN;
+      if (!Number.isFinite(at)) return '';
+      const zone = day !== null ? {timeZone: 'UTC'} : {};
+      const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+      return new Intl.DateTimeFormat(locale, {day: 'numeric', month: 'short', ...(sameYear ? {} : {year: 'numeric'}), ...zone}).format(new Date(at));
+    };
     // An exported hold/pause end: a date-only day stays that calendar day.
     const untilText = (value) => {
       const day = calendarDay(value);
@@ -74,7 +101,7 @@ const DeckI18n = {
       const at = /^\d{4}-\d{2}-\d{2}T/.test(value || '') ? Date.parse(value) : NaN;
       return Number.isFinite(at) ? dateFmt.format(new Date(at)) : '';
     };
-    return {t, locale, dateFmt, relative, eventTime, exactTime, untilText};
+    return {t, locale, dateFmt, relative, eventTime, exactTime, untilText, ago, shortDate};
   }
 };
 DeckI18n.ready = DeckI18n.load();

@@ -81,11 +81,34 @@ class WebTests(unittest.TestCase):
 
     def test_board_serializes_model_time_four_columns_and_does_not_mutate(self):
         board=self.init()
-        self.assertEqual([c['id'] for c in board['columns']],['charted','underway','captains_call','landed'])
+        self.assertEqual([c['id'] for c in board['columns']],['captains_call','underway','charted','landed'])
         self.assertEqual(len(board['columns'][1]['cards']),3)
         self.assertEqual(board['columns'][1]['cards'][2]['context']['phase'],'integration')
         self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
         self.assertTrue(all('home_path' not in c for col in board['columns'] for c in col['cards']))
+
+    def test_call_report_link_opens_a_bounded_local_file_only(self):
+        board=self.init();key=next(c for c in board['columns'] if c['id']=='captains_call')['cards'][0]['key']
+        card=self.board.collector.snap.cols['captains_call'][0]
+        def link(value):
+            card.call={'question':'¿Seguimos?','options':[{'id':'yes','label':'Sí','detail':''}],'recommended':'yes','context':'','link':value}
+            return self.req('/api/ticket/'+key+'/report')
+        status,data=link('data/demo-research/report.md')
+        self.assertEqual(status,200);self.assertEqual(data['path'],'data/demo-research/report.md')
+        self.assertIn('FIN_DEL_INFORME',data['text'])
+        status,data=link(str(Path(self.home.path)/'data/demo-research/report.md'))
+        self.assertEqual(status,200);self.assertEqual(data['path'],'data/demo-research/report.md')
+        for refused in ['https://example.com/report','state/decision-cards/ask.json','data/demo-research/../../identity',
+                        'data/demo-research/report.json','/etc/passwd','data/missing/report.md','']:
+            with self.subTest(link=refused):
+                status,data=link(refused)
+                self.assertEqual(status,404,data);self.assertNotIn('text',data)
+        (Path(self.home.path)/'data/demo-research/linked.md').symlink_to(Path(self.home.path)/'identity')
+        status,data=link('data/demo-research/linked.md');self.assertEqual(status,404);self.assertNotIn('text',data)
+        landed=next(c for c in board['columns'] if c['id']=='underway')['cards'][0]['key']
+        self.assertEqual(self.req('/api/ticket/'+landed+'/report')[0],404)
+        self.assertEqual(self.req('/api/ticket/'+key+'/report',body={})[0],404)
+        self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
 
     def test_durable_reports_survive_unknown_native_on_board_and_ticket(self):
         f = bridge.fm
@@ -197,7 +220,7 @@ class WebTests(unittest.TestCase):
         self.board.collector.snap.homes.append(home2)
         other=second.collector.snap.cols['captains_call'][0]
         self.board.collector.snap.cols['captains_call'].append(other)
-        board=self.init();cards=board['columns'][2]['cards']
+        board=self.init();cards=next(c for c in board['columns'] if c['id']=='captains_call')['cards']
         self.assertEqual(len(set(c['key'] for c in cards)),2)
         status,ticket=self.req('/api/ticket/'+cards[1]['key']);self.assertEqual(status,200)
         self.assertEqual(ticket['owner'],'Otro')
@@ -219,7 +242,7 @@ class WebTests(unittest.TestCase):
         snap.homes.append(home2)
         snap.cols,snap.totals=bridge.fm.merge_fleet_columns(parts)
         self.assertEqual(snap.totals['captains_call'],2)
-        cards=self.init()['columns'][2]['cards']
+        cards=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards']
         self.assertEqual([c['task'] for c in cards],['docs','docs'])
         owners=[]
         tickets=[]
@@ -253,7 +276,7 @@ class WebTests(unittest.TestCase):
         snap.homes.append(home2)
         snap.cols,snap.totals=bridge.fm.merge_fleet_columns(
             [(self.home,snap.cols,snap.totals),(home2,second.collector.snap.cols,second.collector.snap.totals)])
-        cards=self.init()['columns'][2]['cards']
+        cards=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards']
         status,ticket=self.req('/api/ticket/'+cards[1]['key']);self.assertEqual(status,200)
         self.assertEqual(ticket['owner'],'Otro')
         self.assertEqual(ticket['call']['title'],'Otro durable question')
@@ -279,7 +302,7 @@ class WebTests(unittest.TestCase):
                 cols,totals=f.make_cards(home,raw,{}, {}, {},snap.homes,bearings=snap.bearings)
                 parts.append((home,cols,totals))
             snap.cols,snap.totals=f.merge_fleet_columns(parts)
-            cards=self.init()['columns'][2]['cards']
+            cards=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards']
             self.assertEqual(len(cards),1)
             for _ in range(2):
                 status,ticket=self.req('/api/ticket/'+cards[0]['key'])

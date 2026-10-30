@@ -56,6 +56,28 @@ class LocaleTests(unittest.TestCase):
                          'La pregunta cambió antes de guardar, así que no se envió nada. Tu borrador está a salvo.')
         self.assertEqual(en.receipt_message('Ship the sample.'), 'Ship the sample.')
 
+    def test_every_interface_string_has_both_catalog_entries(self):
+        # Literal t(...) keys in the board script and static document text must
+        # exist in both catalogs, so new copy never ships in only one language.
+        static = Path(__file__).resolve().parents[1] / 'static'
+        script = (static / 'app.js').read_text(encoding='utf-8')
+        page = (static / 'index.html').read_text(encoding='utf-8')
+        keys = set(re.findall(r"\bt\('((?:[^'\\\n]|\\.)*)'", script)) | set(re.findall(r'\bt\("((?:[^"\\\n]|\\.)*)"', script))
+        keys = {key.encode().decode('unicode_escape').encode('latin-1').decode('utf-8') for key in keys}
+        keys |= set(re.findall(r'data-i18n(?:-[a-z-]+)?="([^"]+)"', page))
+        en, es = Localization('en'), Localization('es')
+        self.assertGreater(len(keys), 100)
+        for key in sorted(keys):
+            with self.subTest(key=key):
+                self.assertIn(key, en.messages)
+                self.assertIn(key, es.messages)
+        for key in ('{count} need you', '{count} needs you', '{count} working', '{count} wk', '+1 mo', 'Compact',
+                    'Pick a card to see it here. The board stays put.', 'See the full report', 'Nothing gets decided yet.'):
+            with self.subTest(key=key):
+                self.assertLessEqual(len(es.messages[key]), 70)
+        self.assertEqual(es.messages['{count} wk'], '{count} sem'); self.assertEqual(es.messages['+1 mo'], '+1 mes')
+        self.assertEqual(es.messages['See the full report'], 'Ver informe completo')
+
     def test_displayed_copy_has_no_internal_terms_in_either_language(self):
         # Every catalog entry is shown somewhere, so none may use Firstmate's
         # plumbing words. Placeholders are filled at display time and do not count.
