@@ -28,6 +28,8 @@ Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action
 Deliveries open a readable summary with a separate Report view and optional technical details.
 Cards and the detail use short, plain wording; long authored text leads with its first sentence and keeps the rest one click away.
 History searches the retained current/archive export, including deliveries beyond the recent cap.
+It lists one line per delivery, newest first by the time each row shows; rows without a recorded time come last.
+A web address in a title moves out of it and opens from the delivery detail instead.
 Opening a Captain's Call or a delivery reuses what Deck last read from Firstmate until the call's own backlog row, or the backlog, archive or completion receipt behind the delivery, changes; a background pass rereads changes as they happen.
 Sending an answer always rechecks the live call with Firstmate, so a stale open is refused and nothing is sent.
 Cards show a compact age (`now`, `5 min`, `3 h`, `2 d`, `3 wk`, `+1 mo`; `—` when no time is recorded) that updates on every board read without replacing focused controls or announcing a timer.
@@ -248,8 +250,8 @@ Identifiers are server-issued opaque owner/card IDs; clients cannot supply files
 | GET | `/api/ticket/KEY/report` | The call's linked report file, only a `.md`/`.txt` under the owner's `data/TASK/` |
 | POST | `/api/ticket/KEY/answer` | Explicit answer: value, note, occurrence, request_id |
 | GET | `/api/receipts` | This actor’s latest ten durable answer receipts |
-| GET | `/api/history?home=ID&q=TEXT` | Retained history search, up to 1000 results with omission count |
-| GET | `/api/delivery/HOME/TASK` | Readable summary, report and details |
+| GET | `/api/history?home=ID&q=TEXT` | Retained history search, newest first, up to 1000 results with omission count |
+| GET | `/api/delivery/HOME/TASK` | Readable summary, report, details and the links its title carried |
 | GET | `/api/delivery/HOME/TASK/explanation` | Actual explanation receipt, ACK and reply |
 | POST | `/api/delivery/HOME/TASK/explanation` | Explicit request through the existing owner intake |
 

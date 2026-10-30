@@ -356,19 +356,21 @@ async function loadHistory() {
     const query = new URLSearchParams({ home: S.home, q: $('history-search').value });
     const data = await api('api/history?' + query);
     if (generation !== S.historyGeneration) return;
-    $('history-status').textContent = t('{count} deliveries{omitted}. {scope}', {count: data.records.length, omitted: data.omitted ? t(' · {count} more results; refine your search', {count: data.omitted}) : '', scope: data.scope});
+    const count = data.records.length === 1 ? t('1 delivery') : t('{count} deliveries', {count: data.records.length});
+    $('history-status').textContent = count + (data.omitted ? t(' · {count} more results; refine your search', {count: data.omitted}) : '');
     rescueDetail($('history-results'));
+    // One line per delivery, newest first as the bridge sorts it: crew tag
+    // when there are several, the full title, then how long ago.
     $('history-results').replaceChildren(...data.records.map(row => {
       const key = 'history:' + row.home + ':' + row.task;
-      const b = button('', () => detailOpen() && S.openerKey === key ? closeDetail() : openDelivery(row.home, row.task, b), 'card-open');
+      const b = button('', () => detailOpen() && S.openerKey === key ? closeDetail() : openDelivery(row.home, row.task, b), 'card-open history-row');
       b.dataset.key = key; b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-controls', 'detail');
-      const meta = append(node('div', 'card-meta'), manyHomes() ? node('span', 'card-tag', row.owner) : null, agoView(row.time));
-      append(b, meta, node('h3', 't', row.title));
+      append(b, manyHomes() ? node('span', 'card-tag', row.owner) : null, node('h3', 't', row.title), agoView(row.time));
       const article = append(node('article', 'task-card'), b, append(node('div', 'card-more'), node('div', 'card-more-inner')));
       article.dataset.key = key; return article;
     }));
     if (!data.records.length) $('history-results').append(node('p', 'empty', t("No matches.")));
-    $('history-sources').replaceChildren(...data.details.map(d => contextRow(d.home, d.source)));
+    $('history-sources').replaceChildren(node('p', 'muted', data.scope), ...data.details.map(d => contextRow(d.home, d.source)));
   } catch (err) { if (generation === S.historyGeneration) $('history-status').textContent = t("Could not refresh history. ") + err.message; }
 }
 // The detail is never a dialog. On a wide screen it fills the panel kept
@@ -684,6 +686,11 @@ function renderDelivery() {
   const tabs = node('nav', 'detail-tabs'); tabs.setAttribute('aria-label', t("Delivery content"));
   for (const [id, label] of [['summary', t("Summary")], ['report', t("Report")]]) { const b = button(label, () => { modal.tab = id; renderDelivery(); [...content.querySelectorAll('.detail-tabs button')].find(n => n.getAttribute('aria-pressed') === 'true')?.focus({preventScroll: true}); }); b.setAttribute('aria-pressed', String(modal.tab === id)); tabs.append(b); }
   append(content, tabs, prose(data[modal.tab]));
+  // A PR address left the title; it opens from here instead.
+  for (const link of data.links || []) {
+    const a = node('a', 'report-link', link.pr ? t('See PR #{number} ↗', {number: link.pr}) : t('Open link ↗'));
+    a.href = link.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; content.append(a);
+  }
   content.append(disclosure(t('Technical details'), prose(data.details), contextRow(t('History sources'), data.sources), contextRow(t('Date provenance'), data.time?.detail)));
   const actions = node('div', 'explain-actions');
   const ask = button(t("Ask Firstmate to explain"), requestExplanation); ask.id = 'explain-request';
@@ -721,7 +728,7 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && 
 document.addEventListener('click', (event) => {
   if (!detailOpen()) return;
   const path = event.composedPath?.() || [];
-  if (path.includes($('detail')) || path.includes($('detail-panel')) || path.some(n => n.className === 'card-open')) return;
+  if (path.includes($('detail')) || path.includes($('detail-panel')) || path.some(n => n.classList?.contains('card-open'))) return;
   closeDetail(false);
 });
 phoneLayout.addEventListener('change', () => { if (detailOpen()) { placeDetail(S.opener); markCurrent(); } });
