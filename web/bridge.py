@@ -70,12 +70,45 @@ def event_json(event, translate=None):
             'detail': fm.card_time_detail(event, translate=translate)}
 
 
+# A web address, without the punctuation that usually follows one in prose.
+URL_RE = re.compile(r'https?://[^\s<>()\[\]]*[^\s<>()\[\].,;:!?\'"»]')
+
+
 def human_title(value, translate=lambda text: text):
-    # Canonical titles sometimes retain a report link as a trailing token.
-    # Keep the original in Details; a filesystem location is not the headline.
+    # Canonical titles sometimes retain a report link or a PR address as a
+    # trailing token. Keep the original in Details; a filesystem location or a
+    # URL is not the headline, and title_links offers the address instead.
     text = fm.readable_markdown(str(value or ''))
     text = re.sub(r'(?<!\S)(?:data/|/[^\s]*/data/)[^\s]+\.(?:md|json|txt)(?=\s|$)', '', text)
-    return re.sub(r'\s+', ' ', text).strip(' ·–-') or translate('Task without a readable title')
+    text, cut = re.subn(r'(?:\b(?:PR|pull request)\s*:?\s*)?' + URL_RE.pattern, '', text, flags=re.I)
+    if cut:
+        # Tidy what the address leaves behind: "(… )", "word .", "Done: , ok".
+        text = re.sub(r'\(\s*\)|\[\s*\]', '', text)
+        text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+        text = re.sub(r'[:;,]([.,;:!?])', r'\1', text)
+    return re.sub(r'\s+', ' ', text).strip(' ·–—-:,;') or translate('Task without a readable title')
+
+
+def title_links(value):
+    """The web addresses a title carried, in order: a PR keeps its number."""
+    links = []
+    for url in dict.fromkeys(URL_RE.findall(str(value or ''))):
+        pull = re.search(r'^https://github\.com/[^/]+/[^/]+/pull/(\d+)(?:[/#?]|$)', url)
+        links.append({'url': url, 'pr': int(pull[1]) if pull else None})
+    return links
+
+
+def newest_first(event):
+    """Sort key for the time a row shows, newest first under reverse=True.
+
+    A day without a time sorts after that day's timed events; a row with no
+    recorded time sorts last.
+    """
+    if event.get('epoch') is not None:
+        return 1, tuple(time.localtime(event['epoch'])[:3]), 1, event['epoch']
+    if event.get('date'):
+        return 1, tuple(map(int, event['date'].split('-'))), 0, 0
+    return 0, (0, 0, 0), 0, 0
 
 
 def file_mark(path):
@@ -451,7 +484,8 @@ class Board:
                 result.append({'task': row['id'], 'title': human_title(row.get('title') or row['id'], self.t),
                                'home': home_id(home), 'owner': home.label,
                                'time': self.event_json(event), 'closed': row.get('closed') or ''})
-        result.sort(key=lambda row: (row['closed'], row['task'], row['home']), reverse=True)
+        # The order follows the time each row shows, not the raw closing text.
+        result.sort(key=lambda row: (newest_first(row['time']), row['task'], row['home']), reverse=True)
         return {'records': result[:1000], 'omitted': max(0, len(result) - 1000),
                 'details': details, 'scope': self.t('Includes everything Firstmate still keeps, not just recent ones.')}
 
@@ -467,8 +501,14 @@ class Board:
         content = fm.delivery_content(record, home, split_views=True, translate=self.t, report_heading=False)
         if not isinstance(content, dict):
             content = {'summary': self.t('No summary is available for this delivery.'), 'report': '', 'details': content}
-        return {'task': task, 'home': identity, 'owner': home.label,
-                'title': human_title(record.get('title') or task, self.t), **content, 'sources': note,
+        title = human_title(record.get('title') or task, self.t)
+        # A summary that opens by repeating the title repeats the readable one;
+        # a PR address in it opens from links instead.
+        echoed = fm.readable_markdown(str(record.get('title') or ''))
+        if echoed and title_links(echoed) and content['summary'].startswith(echoed):
+            content['summary'] = title + content['summary'][len(echoed):]
+        return {'task': task, 'home': identity, 'owner': home.label, 'title': title,
+                'links': title_links(record.get('title')), **content, 'sources': note,
                 'time': self.event_json(fm.producer_card_time(record.get('card_time'), 'landed',
                                                        fm.CardTime('Delivered', record.get('closed'))))}
 

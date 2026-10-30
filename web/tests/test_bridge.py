@@ -408,6 +408,42 @@ class WebTests(unittest.TestCase):
         self.assertEqual(delivery['report'].count('Una línea de evidencia útil'),35)
         self.assertIn('FIN_DEL_INFORME',delivery['report'])
 
+    def test_history_is_newest_first_by_the_time_shown_and_titles_carry_no_urls(self):
+        records=[{'id':'untimed','title':'Sin hora'},
+                 {'id':'old-day','title':'Día viejo','completion':{'date':'2026-10-10'}},
+                 {'id':'noon','title':'Mediodía','completion':{'value':'2026-10-20T12:00:00Z'}},
+                 {'id':'same-day','title':'Solo el día','completion':{'date':'2026-10-20'}},
+                 {'id':'evening','title':'Tablero listo https://github.com/example/deck/pull/8','completion':{'value':'2026-10-20T15:30:00Z'}},
+                 {'id':'newer','title':'Arreglo (PR https://github.com/example/deck/pull/9).','completion':{'date':'2026-10-21'}},
+                 # 20:00 in Tokyo is 11:00 UTC: older than noon, though its text sorts after it.
+                 {'id':'tokyo','title':'Desde Tokio','completion':{'value':'2026-10-20T20:00:00+09:00'}},
+                 # The producer's delivered time is what the row shows, not the closing date.
+                 {'id':'producer','title':'Con hora del productor','completion':{'date':'2026-10-09'},
+                  'card_time':{'kind':'delivered','precision':'second','source':'completion.json','value':'2026-10-22T08:00:00Z'}}]
+        (Path(self.home.path)/'bin/history.py').write_text('import json,os\nprint(json.dumps({"schema":"fm-delivery-history.v1","home":os.environ["FM_HOME"],'
+            '"complete":True,"records":'+json.dumps(records)+'}))\n')
+        self.init();_,data=self.req('/api/history')
+        rows=data['records']
+        # The raw closing text would put the date-only rows before timed ones.
+        self.assertEqual([r['task'] for r in rows],['producer','newer','evening','noon','tokyo','same-day','old-day','untimed'])
+        self.assertEqual([r['title'] for r in rows][1:3],['Arreglo.','Tablero listo'])
+        self.assertFalse(any('://' in r['title'] for r in rows))
+        _,delivery=self.req('/api/delivery/'+rows[2]['home']+'/evening')
+        self.assertEqual(delivery['title'],'Tablero listo')
+        self.assertNotIn('://',delivery['summary'])
+        self.assertEqual(delivery['links'],[{'url':'https://github.com/example/deck/pull/8','pr':8}])
+        _,plain=self.req('/api/delivery/'+rows[0]['home']+'/old-day')
+        self.assertEqual(plain['links'],[])
+
+    def test_titles_drop_web_addresses_and_keep_the_rest(self):
+        for raw,title in [('Mejor aviso https://github.com/a/b/pull/8','Mejor aviso'),
+                          ('Hecho: https://example.com/x, listo','Hecho, listo'),
+                          ('[PR #3](https://github.com/a/b/pull/3) Tablero','PR #3 Tablero'),
+                          ('Texto: sin enlace ; igual','Texto: sin enlace ; igual')]:
+            self.assertEqual(bridge.human_title(raw),title)
+        self.assertEqual(bridge.title_links('a https://github.com/a/b/pull/12. y https://example.com/z?q=1 y https://github.com/a/b/pull/12'),
+                         [{'url':'https://github.com/a/b/pull/12','pr':12},{'url':'https://example.com/z?q=1','pr':None}])
+
     def test_explanation_reads_are_inert_and_post_has_stable_owner_receipt(self):
         self.init();identity=bridge.home_id(self.home);route=f'/api/delivery/{identity}/demo-research/explanation'
         _,data=self.req(route);self.assertEqual(data['state'],'absent')

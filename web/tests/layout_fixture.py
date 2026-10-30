@@ -45,6 +45,22 @@ for row in data['in_flight'][:2]:
     row['name'] = row['name'] + ' and keep every existing integration, retry budget and audit trail intact while it migrates'
 data['landed'] = [{'id': 'phone', 'what': 'Atención del teléfono preparada; validación física pendiente en el dispositivo real del capitán',
                    'owner': '(main)', 'closed': time.strftime('%Y-%m-%d', time.gmtime(now))}]
+# A long history like the captain's: timed, date-only and untimed rows out
+# of order, some titles still carrying a PR address.
+topics = ['Avisos con nombre propio', 'Las pruebas ya no tocan tus servicios reales',
+          'El supervisor ya delega en vez de hacer encargos', 'Investigación de buenas prácticas de UI lista',
+          'Las tareas sin trabajo ya no se quedan en «En curso» y se cierran solas cuando el agente termina sin avisar',
+          'Tablero del Deck con opciones claras y un texto corto https://github.com/example/firstmate/pull/8']
+records = []
+for i in range(87):
+    stamp = now - (i * 37 % 87) * 23000
+    completion = ({'value': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))} if i % 4 else
+                  {'date': time.strftime('%Y-%m-%d', time.gmtime(stamp))} if i % 8 else None)
+    records.append({'id': f'delivery-{i:02d}', 'title': topics[i % len(topics)] + f' ({i})' * (i % len(topics) != 5),
+                    'state': 'done', 'kind': 'ship', 'source': 'archive', **({'completion': completion} if completion else {})})
+(Path(home.path) / 'bin/history.py').write_text(
+    'import json,os\nprint(json.dumps({"schema":"fm-delivery-history.v1","home":os.environ["FM_HOME"],"complete":True,'
+    '"retention":{},"sources":["archive"],"records":' + repr(records).replace("'", '"').replace('None', 'null') + '}))\n')
 snap = f.Snapshot(); snap.homes = f.inject_all_crew([home]); snap.home = snap.homes[0]; snap.collected_at = now
 snap.cols, snap.totals = f.make_cards(home, data, {}, {}, {}, snap.homes)
 board = bridge.Board(root / 'web-data', '', FakeCollector(snap, {home.label: (data, now, home.path)}), language=language)

@@ -105,7 +105,41 @@ const phoneCall = `(async () => {
     sameOrder: keys() === before, texts: [...card.querySelectorAll('.t, .question, .card-line')].filter(n => n.getClientRects().length).map(n => n.textContent.trim())};
 })()`;
 
-test('the board fits, never cuts text and keeps cards still at 1440, 1024 and 390 px', {skip: !chrome && 'no Chrome found; set CD_TEST_CHROME'}, async (t) => {
+// History: one line per delivery, newest first, nothing cut, no web address.
+const history = `(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  for (let i = 0; i < 100 && !document.querySelector('.task-card'); i++) await wait(100);
+  document.getElementById('history-view').click();
+  for (let i = 0; i < 100 && !document.querySelector('#history-results .task-card'); i++) await wait(100);
+  await wait(300);
+  const rows = [...document.querySelectorAll('#history-results .task-card')], problems = [];
+  for (const row of rows) {
+    const box = row.getBoundingClientRect();
+    for (const n of row.querySelectorAll('.card-open, .card-open *')) {
+      const r = n.getBoundingClientRect();
+      if (n.scrollWidth > n.clientWidth + 1 && n.clientWidth) problems.push('scrolls: ' + n.textContent.slice(0, 30));
+      if (r.width && (r.right > box.right + 0.5 || r.left < box.left - 0.5)) problems.push('outside: ' + n.textContent.slice(0, 30));
+      if (getComputedStyle(n).textOverflow === 'ellipsis') problems.push('clamped: ' + n.className);
+      if (n.matches('.t') && n.scrollHeight > n.clientHeight + 1) problems.push('title hidden: ' + n.textContent.slice(0, 30));
+    }
+  }
+  // Newest first by the time each row shows; a day without a time follows
+  // that day's timed rows, and rows without any time come last.
+  const key = (event) => {
+    if (typeof event?.epoch === 'number') { const d = new Date(event.epoch * 1000); return [1, d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(), 1, event.epoch]; }
+    if (event?.date) return [1, Number(event.date.replaceAll('-', '')), 0, 0];
+    return [0, 0, 0, 0];
+  };
+  const keys = rows.map(r => key(JSON.parse(r.querySelector('.card-ago').dataset.event)));
+  const later = (a, b) => { for (let i = 0; i < 4; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
+  const disorder = keys.findIndex((k, i) => i && later(k, keys[i - 1]));
+  const face = rows[0].querySelector('.card-open'); face.click(); await wait(900);
+  return {rows: rows.length, height: Math.round(document.getElementById('history-results').getBoundingClientRect().height), problems, disorder,
+    urls: rows.filter(r => /https?:\\/\\//.test(r.textContent)).length, pageOverflow: document.documentElement.scrollWidth > innerWidth,
+    open: document.getElementById('detail').dataset.open, links: [...document.querySelectorAll('#detail-content a.report-link')].length};
+})()`;
+
+test('the board and history fit, never cut text and keep cards still at 1440, 1024 and 390 px', {skip: !chrome && 'no Chrome found; set CD_TEST_CHROME'}, async (t) => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-layout-'));
   const server = spawn('python3', [path.join(__dirname, 'layout_fixture.py'), scratch, 'es'], {stdio: ['ignore', 'pipe', 'pipe']});
   const browser = spawn(chrome, ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + path.join(scratch, 'chrome'),
@@ -147,5 +181,12 @@ test('the board fits, never cuts text and keeps cards still at 1440, 1024 and 39
       // The question shows once: as the title or as its own line, never both.
       assert.equal(new Set(call.texts).size, call.texts.length, call.texts.join(' | '));
     }
+    await page.send('Page.navigate', {url});
+    const h = await page.evaluate(history);
+    assert.equal(h.rows, 87); assert.deepEqual(h.problems, [], width + ' px history');
+    assert.equal(h.disorder, -1, width + ' px history order'); assert.equal(h.urls, 0); assert.equal(h.pageOverflow, false);
+    assert.equal(h.open, 'true', width + ' px: a row opens its detail');
+    // The captain's 87 deliveries took 8 400 px at 1440; narrower, long titles wrap.
+    if (width >= 1440) assert.ok(h.height <= 2500, `${width} px: history is ${h.height} px tall`);
   }
 });

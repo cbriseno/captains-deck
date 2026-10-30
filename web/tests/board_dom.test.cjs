@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 class Element {
   constructor(tag, doc) { this.tagName = tag.toUpperCase(); this.ownerDocument = doc; this.children = []; this.parentElement = null;
     this.dataset = {}; this.attributes = {}; this.listeners = {}; this.className = ''; this.id = ''; this.value = ''; this.open = false; this.text = ''; }
+  get classList() { return {contains: (name) => this.className.split(/\s+/).includes(name)}; }
   get firstChild() { return this.children[0] || null; }
   get lastChild() { return this.children.at(-1) || null; }
   get textContent() { return this.children.length ? this.children.map(c => c.textContent).join('') : this.text; }
@@ -78,6 +79,7 @@ async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = 
     if (url.startsWith('api/locale')) return { ok: true, json: async () => ({ locale: Object.keys(messages).length ? 'es' : 'en', messages }) };
     if (url.startsWith('api/board')) return { ok: true, json: async () => JSON.parse(JSON.stringify(current)) };
     if (url.startsWith('api/history')) return { ok: true, json: async () => JSON.parse(JSON.stringify(setup.history || {records: [], details: [], omitted: 0, scope: ''})) };
+    if (setup.delivery && url.startsWith('api/delivery/') && !url.endsWith('/explanation')) return { ok: true, json: async () => JSON.parse(JSON.stringify(setup.delivery)) };
     if (url.startsWith('api/ticket/')) {
       const entry = tickets[decodeURIComponent(url.slice('api/ticket/'.length))];
       return typeof entry === 'function' ? entry() : { ok: true, json: async () => JSON.parse(JSON.stringify(entry)) };
@@ -816,14 +818,29 @@ test('a Spanish call shows no English interface text outside its technical detai
   assert.ok(shown.includes('Ver informe completo ↗'));
 });
 
-test('history rows use the card row with a compact age', async () => {
-  const history = {records: [{task: 'old', title: 'Old sample delivery', home: 'h', owner: 'example', time: {label: 'Delivered', epoch: null, date: '2026-01-01'}, closed: '2026-01-01'}], details: [], omitted: 0, scope: ''};
-  const view = await mountBoard(fullBoard(), undefined, {}, {}, {history});
+test('history is one line per delivery: title then a compact age, no crew line', async () => {
+  const history = {records: [{task: 'old', title: 'Old sample delivery', home: 'h', owner: 'example', time: {label: 'Delivered', epoch: null, date: '2026-01-01'}, closed: '2026-01-01'}], details: [], omitted: 0, scope: 'Everything kept.'};
+  const delivery = {task: 'old', home: 'h', owner: 'example', title: 'Old sample delivery', summary: 'Done.', report: '', details: '', sources: '',
+    time: history.records[0].time, links: [{url: 'https://github.com/example/deck/pull/8', pr: 8}, {url: 'https://example.com/notes', pr: null}]};
+  const view = await mountBoard(fullBoard(), undefined, {}, {}, {history, delivery});
   view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
   const row = view.doc.getElementById('history-results').children[0];
+  const face = row.querySelector('.card-open');
+  assert.equal(face.className, 'card-open history-row');
+  assert.deepEqual(face.children.map(n => n.className), ['t', 'card-ago']);
   assert.equal(row.querySelector('.card-ago').textContent, '2 wk');
   assert.equal(row.querySelector('h3').textContent, 'Old sample delivery');
-  assert.equal(/Coordinated by/.test(row.textContent), false);
+  assert.equal(/Coordinated by|example/.test(row.textContent), false);
+  assert.equal(view.doc.getElementById('history-status').textContent, '1 delivery');
+  assert.equal(view.doc.getElementById('history-sources').children[0].textContent, 'Everything kept.');
+  // Opening a row survives the page's own click, which closes only outside clicks.
+  face.listeners.click[0](); await view.flush();
+  for (const fn of view.doc.listeners.click) fn({composedPath: () => [face, row]});
+  assert.equal(view.doc.getElementById('detail').dataset.open, 'true');
+  // The PR address that left the title opens from the detail.
+  const links = descendants(view.doc.getElementById('detail-content')).filter(n => n.tagName === 'A' && n.className === 'report-link');
+  assert.deepEqual(links.map(a => [a.textContent, a.href, a.rel]), [['See PR #8 ↗', 'https://github.com/example/deck/pull/8', 'noopener noreferrer'],
+    ['Open link ↗', 'https://example.com/notes', 'noopener noreferrer']]);
   assert.equal(view.doc.getElementById('board-search').hidden, true);
   view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
   assert.equal(view.doc.getElementById('board-search').hidden, false);
