@@ -98,6 +98,25 @@ def title_links(value):
     return links
 
 
+def project_tag(value):
+    """The project or initiative Firstmate recorded for a task, or None.
+
+    Firstmate writes a name or {id, label}. Cards that share an id share a
+    color and wait in one stack of questions. The Deck never guesses a
+    project from a task id: without the field a card simply has no tag.
+    """
+    if isinstance(value, str):
+        value = {'id': value}
+    if not isinstance(value, dict):
+        return None
+    clean = lambda text: ' '.join(text.split()) if isinstance(text, str) else ''
+    ident = clean(value.get('id')) or clean(value.get('label'))
+    label = clean(value.get('label')) or ident
+    if not ident or len(ident) > 80 or len(label) > 80:
+        return None
+    return {'id': ident.casefold(), 'label': label}
+
+
 def newest_first(event):
     """Sort key for the time a row shows, newest first under reverse=True.
 
@@ -351,6 +370,7 @@ class Board:
                            'detail': getattr(card, 'doing', '') or self.t('No observation recorded.'),
                            'herdr': getattr(card, 'live_status', '') or 'unknown'},
                 'dependencies': getattr(card, 'dependencies', []) or [],
+                'project': project_tag((getattr(card, 'flow', None) or {}).get('project')),
                 'supervisor': getattr(card, 'supervisor', {}) or {},
                 'time': self.event_json(getattr(card, 'event_time', None)),
                 'summary': excerpt(getattr(card, 'delivery_summary', '') or ''),
@@ -476,13 +496,14 @@ class Board:
             rows, note = self.records(home)
             details.append({'home': home.label, 'source': note})
             for row in rows:
-                if query.casefold() not in ' '.join(str(row.get(k) or '') for k in
-                                                   ('id', 'title', 'body', 'artifact')).casefold():
+                project = project_tag(row.get('project'))
+                if query.casefold() not in ' '.join([str(row.get(k) or '') for k in ('id', 'title', 'body', 'artifact')]
+                                                    + [project['label'] if project else '']).casefold():
                     continue
                 event = fm.producer_card_time(row.get('card_time'), 'landed',
                                               fm.CardTime('Delivered', row.get('closed')))
                 result.append({'task': row['id'], 'title': human_title(row.get('title') or row['id'], self.t),
-                               'home': home_id(home), 'owner': home.label,
+                               'home': home_id(home), 'owner': home.label, 'project': project,
                                'time': self.event_json(event), 'closed': row.get('closed') or ''})
         # The order follows the time each row shows, not the raw closing text.
         result.sort(key=lambda row: (newest_first(row['time']), row['task'], row['home']), reverse=True)
@@ -508,7 +529,8 @@ class Board:
         if echoed and title_links(echoed) and content['summary'].startswith(echoed):
             content['summary'] = title + content['summary'][len(echoed):]
         return {'task': task, 'home': identity, 'owner': home.label, 'title': title,
-                'links': title_links(record.get('title')), **content, 'sources': note,
+                'links': title_links(record.get('title')), 'project': project_tag(record.get('project')),
+                **content, 'sources': note,
                 'time': self.event_json(fm.producer_card_time(record.get('card_time'), 'landed',
                                                        fm.CardTime('Delivered', record.get('closed'))))}
 

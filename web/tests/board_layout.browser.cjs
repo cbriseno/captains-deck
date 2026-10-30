@@ -105,6 +105,56 @@ const phoneCall = `(async () => {
     sameOrder: keys() === before, texts: [...card.querySelectorAll('.t, .question, .card-line')].filter(n => n.getClientRects().length).map(n => n.textContent.trim())};
 })()`;
 
+// Questions from one project wait in one stack: it fits, unfolds in place
+// without moving other columns, and a project keeps one AA color everywhere.
+const stacks = `(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  for (let i = 0; i < 100 && !document.querySelector('.call-stack'); i++) await wait(100);
+  const phone = matchMedia('(max-width: 639px)').matches;
+  if (phone) { document.querySelector('#columns-nav button[data-kind=captains_call]').click(); await wait(200); }
+  const stack = document.querySelector('.call-stack'), face = stack.querySelector('.stack-open'), problems = [];
+  const fits = (root, selector) => {
+    const box = root.getBoundingClientRect();
+    for (const n of root.querySelectorAll(selector)) {
+      const r = n.getBoundingClientRect();
+      if (n.scrollWidth > n.clientWidth + 1 && n.clientWidth) problems.push('scrolls: ' + n.className + ' ' + n.textContent.slice(0, 30));
+      if (r.width && (r.right > box.right + 0.5 || r.left < box.left - 0.5)) problems.push('outside: ' + n.className + ' ' + n.textContent.slice(0, 30));
+      if (getComputedStyle(n).textOverflow === 'ellipsis') problems.push('clamped: ' + n.className);
+    }
+  };
+  fits(stack, '.stack-open, .stack-open *');
+  const others = () => [...document.querySelectorAll('.column:not([data-kind=captains_call]) .task-card')].map(c => { const r = c.getBoundingClientRect(); return [r.left, r.top + scrollY, r.width, r.height].map(Math.round).join(','); }).join('|');
+  const order = () => [...document.querySelectorAll('.column[data-kind=captains_call] .task-card')].map(c => c.dataset.key).join(',');
+  const before = others(), keys = order();
+  const closed = {height: Math.round(stack.querySelector('.stack-more').getBoundingClientRect().height), inert: stack.querySelector('.stack-more').inert};
+  face.click(); await wait(500);
+  const members = [...stack.querySelectorAll('.stack-cards .task-card')];
+  for (const m of members) fits(m, '.card-open, .card-open *');
+  const box = stack.getBoundingClientRect();
+  const inside = members.every(m => { const r = m.getBoundingClientRect(); return r.left >= box.left && r.right <= box.right && r.bottom <= box.bottom + 0.5 && r.height > 20; });
+  members[1].querySelector('.card-open').click(); await wait(1200);
+  const choices = stack.querySelectorAll('.option-choice').length + document.querySelectorAll('#detail-panel .option-choice').length;
+  const result = {title: face.querySelector('.t').textContent, members: members.length, closed, open: stack.dataset.open, inside,
+    still: phone || others() === before, sameOrder: order() === keys, detailOpen: document.getElementById('detail').dataset.open,
+    inCard: members[1].contains(document.getElementById('detail')), choices, problems};
+  // One color per project on every card, and AA text on it in both themes.
+  const lum = (rgb) => { const c = rgb.match(/[\\d.]+/g).slice(0, 3).map(v => v / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const colors = {}, contrast = [];
+  for (const theme of ['light', 'dark']) {
+    document.documentElement.dataset.theme = theme; await wait(50);
+    for (const tag of document.querySelectorAll('.project-tag')) {
+      const cs = getComputedStyle(tag), seen = colors[theme + ':' + tag.textContent] ||= new Set();
+      seen.add(cs.backgroundColor);
+      if (tag.getClientRects().length && ratio(cs.color, cs.backgroundColor) < 4.5) contrast.push(theme + ' ' + tag.textContent);
+    }
+  }
+  document.documentElement.dataset.theme = 'light';
+  result.oneColor = Object.values(colors).every(set => set.size === 1); result.contrast = contrast;
+  result.projects = Object.keys(colors).length;
+  return result;
+})()`;
+
 // History: one line per delivery, newest first, nothing cut, no web address.
 const history = `(async () => {
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -183,6 +233,17 @@ test('the board and history fit, never cut text and keep cards still at 1440, 10
       // The question shows once: as the title or as its own line, never both.
       assert.equal(new Set(call.texts).size, call.texts.length, call.texts.join(' | '));
     }
+    await page.send('Page.navigate', {url});
+    const st = await page.evaluate(stacks);
+    assert.deepEqual(st.problems, [], width + ' px stack');
+    assert.equal(st.title, '3 preguntas de Day Attendant'); assert.equal(st.members, 3);
+    assert.deepEqual(st.closed, {height: 0, inert: true}, width + ' px: a closed stack hides its questions');
+    assert.equal(st.open, 'true'); assert.ok(st.inside, width + ' px: questions sit inside their stack');
+    assert.ok(st.still, width + ' px: opening a stack moves no other column'); assert.ok(st.sameOrder);
+    // A question opens like any other, and the stack stays open around it.
+    assert.equal(st.detailOpen, 'true'); assert.equal(st.inCard, width < 900); assert.ok(st.choices >= 2);
+    assert.ok(st.oneColor, width + ' px: one color per project'); assert.deepEqual(st.contrast, []);
+    assert.equal(st.projects, 6, 'Relevo, Day Attendant and Firstmate in both themes');
     await page.send('Page.navigate', {url});
     const h = await page.evaluate(history);
     assert.equal(h.rows, 87); assert.deepEqual(h.problems, [], width + ' px history');

@@ -978,11 +978,44 @@ button.report-link:hover:enabled { background:none; text-decoration:underline; }
 .card-tag { padding:0 6px; border-radius:5px; background:var(--neutral); color:var(--muted); font-size:10.5px; font-weight:700; }
 .card-date { padding:0 5px; border-radius:5px; background:var(--wait-surface); color:var(--wait-ink); font-size:10.5px; font-weight:750; white-space:nowrap; }
 .card-ago { margin-left:auto; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
-.card-open h3.t { margin:3px 0 0; font-size:13.5px; line-height:20px; font-weight:650; letter-spacing:-.005em; overflow-wrap:anywhere; }
+/* Project: one color per project on every view; each pair passes AA in its theme. */
+.project-tag { padding:0 6px; border-radius:5px; background:var(--tag-surface); color:var(--tag-ink); font-size:10.5px; line-height:18px; font-weight:750; }
+.project-tag[data-hue="0"] { --tag-surface:#e2ecfb; --tag-ink:#1f4f86; }
+.project-tag[data-hue="1"] { --tag-surface:#dcf3ee; --tag-ink:#12695a; }
+.project-tag[data-hue="2"] { --tag-surface:#eee6fb; --tag-ink:#5b3a92; }
+.project-tag[data-hue="3"] { --tag-surface:#fdebd3; --tag-ink:#8a4b06; }
+.project-tag[data-hue="4"] { --tag-surface:#fbe4e8; --tag-ink:#9a2f45; }
+.project-tag[data-hue="5"] { --tag-surface:#e3f3dc; --tag-ink:#3d6b1f; }
+.project-tag[data-hue="6"] { --tag-surface:#dcf1f7; --tag-ink:#0f5f74; }
+.project-tag[data-hue="7"] { --tag-surface:#f8e3f3; --tag-ink:#8a2f78; }
+:root[data-theme="dark"] .project-tag[data-hue="0"] { --tag-surface:#233b5e; --tag-ink:#b9d3ff; }
+:root[data-theme="dark"] .project-tag[data-hue="1"] { --tag-surface:#1d4740; --tag-ink:#9fe3d3; }
+:root[data-theme="dark"] .project-tag[data-hue="2"] { --tag-surface:#3a2f5c; --tag-ink:#d8c4ff; }
+:root[data-theme="dark"] .project-tag[data-hue="3"] { --tag-surface:#4a3519; --tag-ink:#f6c98f; }
+:root[data-theme="dark"] .project-tag[data-hue="4"] { --tag-surface:#4d2630; --tag-ink:#ffbcc8; }
+:root[data-theme="dark"] .project-tag[data-hue="5"] { --tag-surface:#2c4422; --tag-ink:#bfe3a6; }
+:root[data-theme="dark"] .project-tag[data-hue="6"] { --tag-surface:#1b4250; --tag-ink:#a6e1f2; }
+:root[data-theme="dark"] .project-tag[data-hue="7"] { --tag-surface:#48264a; --tag-ink:#f2b9ea; }
+.card-open h3.t,.stack-open h3.t { margin:3px 0 0; font-size:13.5px; line-height:20px; font-weight:650; letter-spacing:-.005em; overflow-wrap:anywhere; }
 .card-line { margin:2px 0 0; color:var(--muted); font-size:12px; line-height:17px; }
 [data-density="compact"] .card-line { display:none; }
 [data-density="compact"] .cards { gap:4px; }
-[data-density="compact"] .card-open { padding:5px 9px 6px; }
+[data-density="compact"] .card-open,[data-density="compact"] .stack-open { padding:5px 9px 6px; }
+
+/* Questions from one project wait in one stack that unfolds in place. */
+.call-stack { min-width:0; margin-bottom:6px; border:1px solid var(--call-border); border-radius:10px; background:var(--surface); overflow-wrap:anywhere;
+  box-shadow:0 3px 0 -1px var(--surface),0 3px 0 0 var(--call-border),0 6px 0 -2px var(--surface),0 6px 0 -1px var(--call-border); }
+.call-stack[data-open="true"] { margin-bottom:0; background:var(--call-surface); box-shadow:none; }
+.stack-open { display:block; width:100%; min-height:0; padding:7px 10px 8px; border:0; border-radius:10px; background:transparent; text-align:left; font-weight:400; }
+.stack-open:hover:enabled { background:var(--hover-surface); }
+.call-stack[data-open="true"]>.stack-open .card-line { display:none; }
+/* Inside a stack its own tag already names the project. */
+.stack-cards .project-tag { display:none; }
+.stack-more { display:grid; grid-template-rows:0fr; transition:grid-template-rows .2s ease,visibility .2s; }
+.call-stack[data-open="false"] .stack-more { visibility:hidden; }
+.call-stack[data-open="true"] .stack-more { grid-template-rows:1fr; }
+.stack-cards { min-height:0; overflow:hidden; padding:0 6px; transition:padding .2s ease; }
+.call-stack[data-open="true"] .stack-cards { padding:0 6px 6px; }
 
 /* A phone opens the detail inside its card: only that card grows. */
 .card-more { display:grid; grid-template-rows:0fr; transition:grid-template-rows .2s ease; }
@@ -1005,7 +1038,7 @@ button.report-link:hover:enabled { background:none; text-decoration:underline; }
 .history-results .empty { margin:0; border:0; }
 .card-open.history-row { display:flex; align-items:baseline; gap:8px; padding:4px 10px; border-radius:0; }
 .history-row h3.t { flex:1; min-width:0; margin:0; font-size:13px; line-height:18px; font-weight:550; }
-.history-row .card-tag { flex:none; line-height:18px; }
+.history-row .card-tag,.history-row .project-tag { flex:none; line-height:18px; }
 .history-row .card-ago { flex:none; font-size:11.5px; line-height:18px; }
 .supervision { margin-top:20px; padding:16px; }
 .theme-label { display:flex; align-items:center; gap:6px; margin-left:12px; }
@@ -1033,8 +1066,8 @@ footer { padding:16px 0 24px; }
   .columns-nav button { min-height:46px; padding:4px 2px; }
   .columns-nav button span { font-size:14px; margin-bottom:0; line-height:1.2; }
   .column-heading { margin:0 2px 6px; }
-  .card-open { padding:9px 12px 10px; }
-  .card-open h3.t { font-size:14.5px; line-height:21px; }
+  .card-open,.stack-open { padding:9px 12px 10px; }
+  .card-open h3.t,.stack-open h3.t { font-size:14.5px; line-height:21px; }
   .card-line { font-size:13px; line-height:18px; }
   .history-intro { flex-wrap:wrap; }
   #history-search { order:3; flex:1 1 100%; width:auto; margin-left:0; }

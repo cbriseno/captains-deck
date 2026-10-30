@@ -629,5 +629,9 @@
   "1 delivery": "1 delivery",
   "{count} deliveries": "{count} deliveries",
   "See PR #{number} ↗": "See PR #{number} ↗",
-  "Open link ↗": "Open link ↗"
+  "Open link ↗": "Open link ↗",
+  "{project}: all answered": "{project}: all answered",
+  "1 question from {project}": "1 question from {project}",
+  "{count} questions from {project}": "{count} questions from {project}",
+  "and {count} more": "and {count} more"
 }
