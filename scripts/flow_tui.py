@@ -1559,16 +1559,57 @@ def account_label(meta: dict, store_names: dict[str, str]) -> str:
     return ""
 
 
-def bearings_flags() -> list[str]:
-    """Follow Firstmate's own bounds (in_flight/gates 20, landed 6).
+OPEN_LIFT_FLAGS = ("--all-in-flight", "--all-queued")
+
+
+def bearings_flags(lift_open: bool = True) -> list[str]:
+    """Every open task reaches the board: Firstmate caps in-flight and queued
+    rows at 20, so past that the producer silently drops open work. Decisions
+    keep Firstmate's bound and hold buckets (aplazadas stay where they are),
+    and landed keeps its recent cap unless FM_FLOW_ALL=1 asks for every row.
     Landed ties are ordered by task ID, not inferred intra-day recency.
-    FM_FLOW_ALL=1 asks for every row instead; H reads retained history.
+    H reads retained history.
     endpoints is Firstmate's own backend presence probe, not model activity.
+    lift_open=False is the query an older Firstmate still accepts; see
+    _bearings_argv_run.
     """
     flags = ["--json", "--fields", "paths,endpoints"]
+    if lift_open:
+        flags += list(OPEN_LIFT_FLAGS)
     if _on("FM_FLOW_ALL"):
-        flags += ["--all-in-flight", "--all-queued", "--all-landed"]
+        flags.append("--all-landed")
     return flags
+
+
+def _bearings_argv_run(argv_head: list[str], env: dict) -> dict:
+    """Run Firstmate's bearings query, lifting the open-work caps when it can.
+
+    An older Firstmate rejects the lift flags with exit 2 (unknown option); the
+    Deck then asks the query that version supports and marks the snapshot
+    open_work_capped, so the home stays on the board with its own bound instead
+    of vanishing. Any other failure returns {} and the caller keeps its last
+    good snapshot.
+    """
+    for lift_open in (True, False):
+        try:
+            p = subprocess.run(
+                [*argv_head, *bearings_flags(lift_open)],
+                capture_output=True,
+                text=True,
+                timeout=_bearings_timeout(),
+                env=env,
+                stdin=subprocess.DEVNULL,
+            )
+            if p.returncode == 0:
+                snap = json.loads(p.stdout)
+                if not lift_open and isinstance(snap, dict):
+                    snap["open_work_capped"] = True
+                return snap
+        except Exception:
+            return {}
+        if p.returncode != 2:
+            return {}
+    return {}
 
 
 def remote_bearings_snapshot(home: Home) -> dict:
@@ -1584,20 +1625,7 @@ def remote_bearings_snapshot(home: Home) -> dict:
         return {}
     env = _child_env()
     env["FM_HOME"] = home.via
-    try:
-        p = subprocess.run(
-            [fm_on, home.route, "fm-bearings-snapshot.sh", *bearings_flags()],
-            capture_output=True,
-            text=True,
-            timeout=_bearings_timeout(),
-            env=env,
-            stdin=subprocess.DEVNULL,
-        )
-        if p.returncode != 0:
-            return {}
-        return json.loads(p.stdout)
-    except Exception:
-        return {}
+    return _bearings_argv_run([fm_on, home.route, "fm-bearings-snapshot.sh"], env)
 
 
 def bearings_snapshot(home: Home) -> dict:
@@ -1606,20 +1634,7 @@ def bearings_snapshot(home: Home) -> dict:
     bin_path = endpoint_path(home.path, "fm-bearings-snapshot.sh")
     env = _child_env()
     env["FM_HOME"] = home.path
-    try:
-        p = subprocess.run(
-            [bin_path, *bearings_flags()],
-            capture_output=True,
-            text=True,
-            timeout=_bearings_timeout(),
-            env=env,
-            stdin=subprocess.DEVNULL,
-        )
-        if p.returncode != 0:
-            return {}
-        return json.loads(p.stdout)
-    except Exception:
-        return {}
+    return _bearings_argv_run([bin_path], env)
 
 
 def _strip_owner(task_id: str) -> str:
@@ -3632,6 +3647,8 @@ def delivery_content(record: dict, home: Home, board_time: CardTime | None = Non
             summary = tr('The task was reopened; this delivery is historical.') + '\n\n' + summary
         return {'summary': summary,
                 'report': readable_markdown(tr('Full report · {path}\n\n{text}', path=report[0], text=report[1]) if report_heading else report[1]) if report else tr('No full report for this task yet.'),
+                # The report as written, for a reader that formats Markdown itself.
+                'report_source': delivery_text(report[1]) if report else '',
                 'details': readable_markdown(details + '\n\n' + (curated[1] if curated else '') + '\n\n' + '\n\n'.join(ordered[1:] if report else ordered) + '\n\n' + '\n\n'.join(sections))}
     return full
 

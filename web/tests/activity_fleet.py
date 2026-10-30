@@ -152,3 +152,31 @@ def fleet(root, firstmate_fields=False, language='en'):
     snap.cols, snap.totals = f.make_cards(h, data, {}, {}, {}, snap.homes)
     board = bridge.Board(root / 'web-data', '', FakeCollector(snap, {h.label: (data, now, h.path)}), language=language)
     return board, h
+
+
+def unconfirmed_fleet(root, language='es-MX'):
+    """Codex unknown despite an open endpoint; done links are not proof of a wait."""
+    board, home = fleet(root, True, language)
+    data = payload(firstmate_fields=True)
+    rows = []
+    for task, title, deps in [
+        ('unknown', 'Preparar la medición del relevo con todos sus detalles y conservar las decisiones aprobadas', []),
+        ('resolved', 'Revisar los conectores entre tareas',
+         [dict(id='previous', title='Entrega anterior', state='done', unresolved=False)]),
+        ('reconcile', 'Comprobar los grupos visibles',
+         [dict(id='previous', title='Entrega anterior', state='done', unresolved=True, reconciliation_required=True)]),
+    ]:
+        rows.append(dict(id=task, name=title, state='unknown', state_source='pane',
+                         doing='harness state unavailable (unknown codex-unverified)',
+                         blocked_by='previous' if deps else '-', execution={'harness': 'codex', 'source': 'task.meta'},
+                         flow=dict(phase='dependency' if deps else 'unknown', state='waiting' if deps else 'unknown',
+                                   source='current_state.pane', reason='harness state unavailable (unknown codex-unverified)',
+                                   dependencies=deps, project='Deck',
+                                   presentation={'summary': 'Revisando los resultados y las comprobaciones locales.'})))
+    data.update(in_flight=rows, gates=[], decisions_open=[], landed=[],
+                endpoints=[dict(id=r['id'], exists=True, agent='not_checked') for r in rows])
+    snap = board.collector.snap
+    f = bridge.fm
+    snap.cols, snap.totals = f.make_cards(home, data, {}, {}, {}, snap.homes)
+    board.collector._raw = {home.label: (data, time.time(), home.path)}
+    return board, home

@@ -21,6 +21,34 @@ class PresentationTests(unittest.TestCase):
         self.addCleanup(env.stop)
         self.board, self.home = fixture(self.root)
 
+    def test_delivery_without_recap_opens_report_without_empty_summary(self):
+        import json
+        root = Path(self.home.path)
+        (root / 'data/demo-research/delivery.md').unlink()
+        body = '# Entrega\n\nBranch: fm/example\n\n## Resultado\nYa puedes leer las entregas.\n\n- **Resumen** claro\n- Informe completo\n'
+        (root / 'data/demo-research/report.md').write_text(body)
+        for language in ('en', 'es'):
+            self.board.i18n = bridge.Localization(language)
+            data = self.board.delivery(bridge.home_id(self.home), 'demo-research')
+            self.assertEqual(data['summary'], '')
+            self.assertTrue(data['report_text'].startswith('## Resultado'))
+            self.assertEqual(data['report_lead'], 'Branch: fm/example')
+            self.assertIn('**Resumen**', data['report_text'])
+        human = {'card_title': 'Entregas claras', 'summary': 'Ya puedes leer qué cambió. El informe abre al instante.', 'group': 'Deck'}
+        path = root / 'data/demo-research/presentation.json'
+        path.write_text(json.dumps({'schema': 'fm-task-presentation.v1', 'id': 'demo-research',
+                                   'home': self.home.path, 'source': 'task.owner.declaration', 'presentation': human}))
+        data = self.board.delivery(bridge.home_id(self.home), 'demo-research')
+        self.assertEqual(data['summary'], human['summary'])
+        self.assertEqual(data['title'], human['card_title'])
+        self.assertEqual(data['project']['label'], 'Deck')
+        path.write_text(path.read_text().replace('task.owner.declaration', 'untrusted'))
+        self.assertEqual(self.board.delivery(bridge.home_id(self.home), 'demo-research')['summary'], '')
+
+    def test_report_receipt_is_preserved_when_it_is_the_entire_report(self):
+        from presentation import report_parts
+        self.assertEqual(report_parts('Branch: fm/example'), ('Branch: fm/example', ''))
+
     def task(self, name='web'):
         return next(c for c in self.board.collector.snap.cols['underway'] if c.task == name)
 
@@ -273,6 +301,30 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(board_es.card_json(card)['title'], 'Instalar gone-task')
         card.flow['presentation'] = {'card_title': 'Traer el tablero a tu equipo'}
         self.assertEqual(board_es.card_json(card)['title'], 'Traer el tablero a tu equipo')
+
+    def test_wait_that_only_lists_dependencies_reads_by_their_card_titles(self):
+        # Sanitized from a real card: Firstmate's fallback wait joins the
+        # recorded titles of the unresolved dependencies, install title included.
+        card = self.task('dependent')
+        deps = [{'id': 'deck-ux-copy-install', 'title': 'Install deck-ux-copy into captains-deck',
+                 'owner': '(main)', 'unresolved': True},
+                {'id': 'web', 'title': 'Completar textos claros y fallbacks', 'owner': '(main)', 'unresolved': True},
+                {'id': 'done-one', 'title': 'Ya resuelta', 'owner': '(main)', 'unresolved': False}]
+        card.dependencies = copy.deepcopy(deps)
+        card.flow.update(dependencies=copy.deepcopy(deps), presentation={},
+                         waiting_for='Install deck-ux-copy into captains-deck, Completar textos claros y fallbacks')
+        board_es = bridge.Board(self.board.data_dir, collector=self.board.collector, language='es')
+        data = board_es.card_json(card)
+        self.assertEqual(data['presentation']['waiting_for'], '')
+        self.assertEqual(data['dependencies'][0]['title'], 'Instalar deck-ux-copy')
+        self.assertEqual(data['dependencies'][0]['original_title'], 'Install deck-ux-copy into captains-deck')
+        self.assertEqual(self.board.card_json(card)['dependencies'][0]['title'], 'Install deck-ux-copy')
+        # Any other wait is the producer's own text and stays.
+        card.flow['waiting_for'] = 'Que regrese la revisión del teléfono.'
+        self.assertEqual(board_es.card_json(card)['presentation']['waiting_for'], 'Que regrese la revisión del teléfono.')
+        card.flow.update(waiting_for='Install deck-ux-copy into captains-deck, Completar textos claros y fallbacks',
+                         presentation={'waiting_for': 'Que termine la instalación de textos.'})
+        self.assertEqual(board_es.card_json(card)['presentation']['waiting_for'], 'Que termine la instalación de textos.')
 
     def test_underway_work_waiting_for_the_captain_is_in_needs_you(self):
         card = self.task()

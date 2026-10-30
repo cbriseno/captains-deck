@@ -273,12 +273,14 @@ class LocalizedOwnerTests(unittest.TestCase):
         self.assertIsNone(en['time']['epoch']); self.assertIn('sólo fecha', es['time']['detail'])
         self.assertIn('Firstmate history', self.en.history()['details'][0]['source'])
         self.assertIn('Historial de Firstmate', self.es.history()['details'][0]['source'])
-        # A generated no-report message translates; a report containing that same
-        # sentence would remain authored text in both locales.
+        # Missing content stays empty so the UI can open the report directly
+        # or show one localized empty state when neither exists.
         for f in ('delivery.md', 'recap.md', 'report.md'):
             (Path(self.home.path) / 'data/demo-research' / f).unlink(missing_ok=True)
-        self.assertIn('No summary yet.', self.en.delivery(home, 'demo-research')['summary'])
-        self.assertIn('Aún no hay resumen.', self.es.delivery(home, 'demo-research')['summary'])
+        for board in (self.en, self.es):
+            data = board.delivery(home, 'demo-research')
+            self.assertEqual(data['summary'], '')
+            self.assertEqual(data['report'], '')
 
     def test_language_restart_preserves_drafts_and_receipts_with_generated_content(self):
         from fixtures import fixture

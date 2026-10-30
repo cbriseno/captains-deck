@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -435,6 +436,32 @@ class WebTests(unittest.TestCase):
         _,plain=self.req('/api/delivery/'+rows[0]['home']+'/old-day')
         self.assertEqual(plain['links'],[])
 
+    def test_history_install_rows_read_by_the_work_they_install(self):
+        # Sanitized from real rows: the fixed install title, its source, and a
+        # title Firstmate shortened because it carried a path.
+        records=[{'id':'deck-ux-copy-install','title':'Install deck-ux-copy into captains-deck','completion':{'date':'2026-10-29'}},
+                 {'id':'deck-ux-copy','title':'Deck: textos que dé gusto leer','completion':{'date':'2026-10-28'}},
+                 {'id':'gone-install','title':'Install gone into firstmate','completion':{'date':'2026-10-27'}},
+                 {'id':'lab-cleanup','title':'Quitar dos entradas de prueba en ~/.codex/config.toml',
+                  'presentation':{'card_title':'Quitar las confianzas de prueba de Codex'},'completion':{'date':'2026-10-26'}},
+                 {'id':'lab-path','title':'Quitar dos entradas que dejó otro laboratorio en ~/.codex/config.toml','completion':{'date':'2026-10-25'}}]
+        (Path(self.home.path)/'bin/history.py').write_text('import json,os\nprint(json.dumps({"schema":"fm-delivery-history.v1","home":os.environ["FM_HOME"],'
+            '"complete":True,"records":'+json.dumps(records)+'}))\n')
+        self.init();_,data=self.req('/api/history')
+        titles={r['task']:r['title'] for r in data['records']}
+        self.assertEqual(titles['deck-ux-copy-install'],'Install “Deck: textos que dé gusto leer”')
+        self.assertEqual(titles['gone-install'],'Install gone')
+        self.assertEqual(titles['lab-cleanup'],'Quitar las confianzas de prueba de Codex')
+        # Without a short title every word stays; the file keeps only its name.
+        self.assertEqual(titles['lab-path'],'Quitar dos entradas que dejó otro laboratorio en config.toml')
+        home=data['records'][0]['home']
+        _,delivery=self.req('/api/delivery/'+home+'/deck-ux-copy-install')
+        self.assertEqual(delivery['title'],'Install “Deck: textos que dé gusto leer”')
+        # The recorded title stays whole in Details.
+        self.assertEqual(delivery['original_title'],'Install deck-ux-copy into captains-deck')
+        _,delivery=self.req('/api/delivery/'+home+'/lab-cleanup')
+        self.assertEqual(delivery['original_title'],'Quitar dos entradas de prueba en ~/.codex/config.toml')
+
     def test_project_comes_only_from_firstmates_field_on_cards_history_and_delivery(self):
         # Firstmate writes a name or {id, label}; malformed or absent values give no tag.
         self.assertEqual(bridge.project_tag(' Day  Attendant '),{'id':'day attendant','label':'Day Attendant'})
@@ -464,6 +491,86 @@ class WebTests(unittest.TestCase):
         self.assertEqual([r['task'] for r in found['records']],['tagged'])
         _,delivery=self.req('/api/delivery/'+data['records'][0]['home']+'/tagged')
         self.assertEqual(delivery['project'],{'id':'day attendant','label':'Day Attendant'})
+
+    def test_history_reads_the_project_each_task_declared_current_or_archived(self):
+        # The history script copies no card text: each task's own declaration
+        # gives the row its project. A declaration for another home or task,
+        # from another source, or behind a link gives none.
+        root=Path(self.home.path)
+        def declare(task,group,**change):
+            (root/'data'/task).mkdir(parents=True,exist_ok=True)
+            value={'schema':'fm-task-presentation.v1','home':self.home.path,'id':task,'source':'task.owner.declaration',
+                   'presentation':{'card_title':'Tarjeta '+task,'group':group},**change}
+            (root/'data'/task/'presentation.json').write_text(json.dumps(value))
+        records=[{'id':'current','title':'Entrega actual','source':'current','state':'done','completion':{'date':'2026-10-22'}},
+                 {'id':'archived','title':'Entrega archivada','source':'archive','state':'done','completion':{'date':'2026-10-21'}},
+                 {'id':'bare','title':'Sin datos','source':'archive','state':'done','completion':{'date':'2026-10-20'}},
+                 {'id':'foreign','title':'Otro dueño','source':'archive','state':'done','completion':{'date':'2026-10-19'}},
+                 {'id':'misnamed','title':'Otra tarea','source':'archive','state':'done','completion':{'date':'2026-10-18'}},
+                 {'id':'guessed','title':'Fuente inventada','source':'archive','state':'done','completion':{'date':'2026-10-17'}},
+                 {'id':'linked','title':'Enlace ajeno','source':'archive','state':'done','completion':{'date':'2026-10-16'}}]
+        declare('current','Deck');declare('archived','Day Attendant')
+        declare('foreign','Ajeno',home=str(self.root/'elsewhere'))
+        declare('misnamed','Ajeno',id='current')
+        declare('guessed','Ajeno',source='task.id.prefix')
+        outside=self.root/'outside.json';declare('linked','Ajeno')
+        (root/'data/linked/presentation.json').rename(outside)
+        (root/'data/linked/presentation.json').symlink_to(outside)
+        (root/'bin/history.py').write_text('import json,os\nprint(json.dumps({"schema":"fm-delivery-history.v1","home":os.environ["FM_HOME"],'
+            '"complete":True,"records":'+json.dumps(records)+'}))\n')
+        self.init();_,data=self.req('/api/history')
+        rows={r['task']:r for r in data['records']}
+        self.assertEqual(rows['current']['project'],{'id':'deck','label':'Deck'})
+        self.assertEqual(rows['archived']['project'],{'id':'day attendant','label':'Day Attendant'})
+        self.assertEqual((rows['current']['title'],rows['archived']['title']),('Tarjeta current','Tarjeta archived'))
+        for task in ('bare','foreign','misnamed','guessed','linked'):
+            self.assertIsNone(rows[task]['project'],task)
+            self.assertNotIn('Tarjeta',rows[task]['title'],task)
+        # Same project, same tag, in the list and the delivery it opens.
+        _,delivery=self.req('/api/delivery/'+rows['archived']['home']+'/archived')
+        self.assertEqual(delivery['project'],rows['archived']['project'])
+        _,found=self.req('/api/history?q=attendant')
+        self.assertEqual([r['task'] for r in found['records']],['archived'])
+        _,found=self.req('/api/history?q=tarjeta%20current')
+        self.assertEqual([r['task'] for r in found['records']],['current'])
+        self.assertEqual([r['task'] for r in data['records']],[r['id'] for r in records])
+
+    def test_history_without_a_declared_project_takes_its_repository(self):
+        root=Path(self.home.path)
+        def declare(task,group):
+            (root/'data'/task).mkdir(parents=True,exist_ok=True)
+            (root/'data'/task/'presentation.json').write_text(json.dumps({'schema':'fm-task-presentation.v1','home':self.home.path,'id':task,
+                'source':'task.owner.declaration','presentation':{'group':group}}))
+        def row(task,repo=None):
+            return {'id':task,'title':'Entrega '+task,'state':'done','completion':{'date':'2026-10-20'},**({'repo':repo} if repo else {})}
+        declare('deck-a','Deck');declare('deck-b','Deck');declare('deck-other','Planeación');declare('even-a','Beta');declare('even-b','Alfa')
+        records=[row('deck-a','deck-repo'),row('deck-b','deck-repo'),row('deck-other','deck-repo'),
+                 row('even-a','even-repo'),row('even-b','even-repo'),row('even-c','even-repo'),
+                 row('deck-later','deck-repo'),row('deck-fork','deck-public'),row('tool-work','small-tool'),row('deck-no-repo')]
+        (root/'bin/history.py').write_text('import json,os\nprint(json.dumps({"schema":"fm-delivery-history.v1","home":os.environ["FM_HOME"],'
+            '"complete":True,"records":'+json.dumps(records)+'}))\n')
+        (root/'data/projects.md').write_text('# Projects\n\n- deck-repo [local-only +yolo] - Privado.\n'
+            '- deck-public [no-mistakes-prod-only +yolo install=deck-repo] - Fork. install=mentioned-only\n- plain install=other [local-only] - Nada.\n')
+        self.init();_,data=self.req('/api/history')
+        tags={r['task']:r['project'] for r in data['records']}
+        deck={'id':'deck','label':'Deck'}
+        # What a task declared wins over what its repository usually means.
+        self.assertEqual(tags['deck-other'],{'id':'planeación','label':'Planeación'})
+        # The tag is the one declared tasks wear, so it keeps their color.
+        self.assertEqual(tags['deck-later'],deck)
+        self.assertEqual(tags['deck-fork'],deck)
+        self.assertEqual(tags['even-c'],{'id':'alfa','label':'Alfa'})
+        self.assertEqual(tags['tool-work'],{'id':'small-tool','label':'small-tool'})
+        # Neither the task id nor anything else names a project without a field.
+        self.assertIsNone(tags['deck-no-repo'])
+        home=data['records'][0]['home']
+        self.assertEqual(self.req('/api/delivery/'+home+'/deck-fork')[1]['project'],deck)
+        self.assertEqual([r['task'] for r in self.req('/api/history?q=small-tool')[1]['records']],['tool-work'])
+        # A registry that isn't a plain file inside the home links nothing.
+        outside=self.root/'outside.md';(root/'data/projects.md').rename(outside);(root/'data/projects.md').symlink_to(outside)
+        self.assertEqual(bridge.linked_repos(self.home),{})
+        (root/'data/projects.md').unlink()
+        self.assertEqual(bridge.linked_repos(self.home),{})
 
     def test_titles_drop_web_addresses_and_keep_the_rest(self):
         for raw,title in [('Mejor aviso https://github.com/a/b/pull/8','Mejor aviso'),
@@ -540,6 +647,15 @@ class WebTests(unittest.TestCase):
         with patch.dict(os.environ,{name:'supervisor' for name in names}):
             env=bridge.Board.child_env(self.home)
         self.assertEqual(set(names)&set(env),set());self.assertEqual(env['FM_HOME'],self.home.path)
+
+    def test_child_env_never_passes_a_supervisor_identity(self):
+        inherited={'CODEX_THREAD_ID':'codex','CODEX_SESSION_ID':'codex','CLAUDE_SESSION_ID':'claude',
+                   'CLAUDE_CODE_SESSION_ID':'claude-code','CLAUDE_PID':'4242','HERDR_PANE_ID':'pane',
+                   'FM_HOME':'/unrelated/home','FM_STATE_DIR':'/unrelated/state'}
+        with patch.dict(os.environ,inherited):env=bridge.Board.child_env(self.home)
+        for key in inherited:
+            if key!='FM_HOME':self.assertNotIn(key,env)
+        self.assertEqual(env['FM_HOME'],self.home.path)
 
     def herdr(self,refuse=False):
         """A stand-in for `herdr agent prompt` that records every send."""
@@ -664,20 +780,80 @@ class WebTests(unittest.TestCase):
         head=next(l for l in text.splitlines() if l.startswith('- [ ] '+task+' '))
         path.write_text(text.replace(head+'\n',head+'\n  '+line+'\n'))
 
-    def test_opening_a_call_reuses_its_identity_until_its_backlog_row_changes(self):
+    def rehold(self,root,task,stamp,answers):
+        """Rewrite a call's row as re-holding does: a new stamp, then its recorded answers."""
+        path=root/'data/backlog.md';lines=path.read_text().splitlines(keepends=True)
+        start=next(i for i,l in enumerate(lines) if l.startswith('- [ ] '+task+' '));end=start+1
+        while end<len(lines) and lines[end].startswith('  '):end+=1
+        body=['  Captain hold set: '+stamp+'\n']+['\n','  Resolution recorded by fm-captain-hold.\n','  Captain decision: scope\n']*answers
+        path.write_text(''.join(lines[:start+1]+body+lines[end:]))
+
+    def test_opening_a_call_reads_its_identity_from_its_row_until_the_row_changes(self):
         root=self.markdown();key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
-        first=[self.req('/api/ticket/'+key)[1]['call']['occurrence'] for _ in range(3)]
-        self.assertEqual(len(set(first)),1);self.assertEqual(self.calls('open ask --identity'),1)
+        first=[self.req('/api/ticket/'+key)[1]['call'] for _ in range(3)]
+        self.assertEqual({c['occurrence'] for c in first},{first[0]['occurrence']})
+        self.assertEqual((first[0]['identity'],first[0]['error']),('2026-10-25T15:00:00Z#0',''))
+        # A first open never waits for Firstmate; the row is what it reads.
+        self.assertEqual(self.calls('open ask --identity'),0)
         with ThreadPoolExecutor(4) as pool:
-            self.assertEqual(set(pool.map(lambda _:self.board.ticket(key)['call']['occurrence'],range(4))),set(first))
+            self.assertEqual(set(pool.map(lambda _:self.board.ticket(key)['call']['occurrence'],range(4))),{first[0]['occurrence']})
         self.edit_row(root,'other','Otra nota.')
-        self.assertEqual(self.req('/api/ticket/'+key)[1]['call']['occurrence'],first[0])
-        self.assertEqual(self.calls('open ask --identity'),1)
-        # Re-holding the call rewrites its own row, so the next open asks again.
-        (root/'identity').write_text('2026-10-25T16:00:00Z#1');self.edit_row(root,'ask','Resolution recorded by fm-captain-hold.')
+        self.assertEqual(self.req('/api/ticket/'+key)[1]['call']['occurrence'],first[0]['occurrence'])
+        # Re-holding the call rewrites its own row, so the next open reads it again.
+        (root/'identity').write_text('2026-10-25T16:00:00Z#1');self.rehold(root,'ask','2026-10-25T16:00:00Z',1)
         _,ticket=self.req('/api/ticket/'+key)
-        self.assertEqual(ticket['call']['identity'],'2026-10-25T16:00:00Z#1');self.assertNotEqual(ticket['call']['occurrence'],first[0])
-        self.assertEqual(self.calls('open ask --identity'),2)
+        self.assertEqual(ticket['call']['identity'],'2026-10-25T16:00:00Z#1');self.assertNotEqual(ticket['call']['occurrence'],first[0]['occurrence'])
+        self.assertEqual(self.calls('open ask --identity'),0)
+
+    def test_a_cold_open_answer_asks_firstmate_and_a_stale_or_retried_one_never_writes_twice(self):
+        root=self.markdown();key,body=self.call()
+        self.assertEqual(self.calls('open ask --identity'),0)
+        # Re-held after the page opened: the old page's answer is refused unwritten.
+        (root/'identity').write_text('2026-10-25T16:00:00Z#1');self.rehold(root,'ask','2026-10-25T16:00:00Z',1)
+        self.assertEqual(self.req('/api/ticket/'+key+'/answer',body)[0],409)
+        self.assertFalse((root/'mutations.jsonl').exists());self.assertEqual(self.calls('open ask --identity'),1)
+        _,ticket=self.req('/api/ticket/'+key);self.assertEqual(ticket['call']['identity'],'2026-10-25T16:00:00Z#1')
+        current=dict(body,occurrence=ticket['call']['occurrence'],request_id='c'*32)
+        status,receipt=self.req('/api/ticket/'+key+'/answer',current)
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True)
+        self.assertEqual(json.loads((root/'mutations.jsonl').read_text())['args'][-1],'2026-10-25T16:00:00Z#1')
+        # A retry of the same send replays its receipt and asks nothing again.
+        asked=self.calls('open ask --identity')
+        status,replay=self.req('/api/ticket/'+key+'/answer',current)
+        self.assertEqual(status,200);self.assertTrue(replay['replay'])
+        self.assertEqual((self.calls('open ask --identity'),len((root/'mutations.jsonl').read_text().splitlines())),(asked,1))
+        self.assertEqual(self.req('/api/ticket/'+key+'/answer',dict(current,note='otra'))[0],409)
+
+    def test_firstmate_contradicting_a_row_reading_refuses_the_answer_and_stops_row_reads(self):
+        root=self.markdown();(root/'identity').write_text('2026-10-25T15:00:00Z#1')
+        key,body=self.call()
+        self.assertEqual(self.calls('open ask --identity'),0)
+        self.assertEqual(self.req('/api/ticket/'+key+'/answer',body)[0],409)
+        self.assertFalse((root/'mutations.jsonl').exists())
+        self.assertEqual(self.board.rows_contradicted,{bridge.home_id(self.home)})
+        _,ticket=self.req('/api/ticket/'+key);self.assertEqual(ticket['call']['identity'],'2026-10-25T15:00:00Z#1')
+        self.edit_row(root,'ask','Otra nota.');before=self.calls('open ask --identity')
+        _,ticket=self.req('/api/ticket/'+key);self.assertEqual(self.calls('open ask --identity'),before+1)
+        status,receipt=self.req('/api/ticket/'+key+'/answer',dict(body,occurrence=ticket['call']['occurrence'],request_id='k'*32))
+        self.assertEqual(status,200);self.assertIs(receipt['saved'],True)
+
+    def test_a_row_reading_mirrors_firstmate_or_leaves_it_to_firstmate(self):
+        head='- [ ] ask - Elige (kind: captain) (hold-kind: captain)\n'
+        record=['  Resolution recorded by fm-captain-hold.\n','  Captain decision: scope\n']
+        cases=[([head,'  Captain hold set: 2026-10-25T15:00:00Z\n'],'2026-10-25T15:00:00Z#0'),
+               ([head,'  Captain hold set: 2026-10-25\r\n','\n',*record,'  \n','  Resolution recorded by fm-decision-hold.\n'],'2026-10-25#2'),
+               ([head,'  Captain hold set: 2026-10-25T15:00:00Z\n',*record,'Texto libre.\n','  Resolution recorded by fm-captain-hold.\n'],'2026-10-25T15:00:00Z#1'),
+               ([head,'  Captain hold set: 2026-10-25T15:00:00Z\n','  Resolution recorded by fm-captain-hold. \n'],'2026-10-25T15:00:00Z#0'),
+               ([head,*record,'  Captain hold set: 2026-10-25T15:00:00Z\n'],None),
+               ([head,'\n','  Captain hold set: 2026-10-25T15:00:00Z\n'],None),
+               ([head,'  Captain hold set: 2026-10-25T15:00Z\n'],None),
+               ([head,'  Captain hold set: \u0662026-10-25\n'],None),
+               ([head.replace('[ ]','[x]'),'  Captain hold set: 2026-10-25T15:00:00Z\n'],None),
+               ([head.replace(' (hold-kind: captain)',''),'  Captain hold set: 2026-10-25T15:00:00Z\n'],None),
+               ([head],None)]
+        for row,expected in cases:
+            with self.subTest(row=row):self.assertEqual(bridge.row_identity(row,'## In flight\n'),expected)
+        self.assertIsNone(bridge.row_identity(cases[0][0],'## Done\n'))
 
     def test_an_answer_checks_the_live_call_and_a_missed_change_does_not_stick(self):
         self.markdown();key,body=self.call()
@@ -719,6 +895,47 @@ class WebTests(unittest.TestCase):
         for _ in range(2):self.assertEqual(self.req(route)[0],200)
         self.assertEqual(self.calls('history'),6)
 
+    def test_read_ahead_confirms_a_row_reading_with_firstmate_once(self):
+        root=self.markdown();key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
+        opened=self.board.ticket(key)['call'];self.assertEqual(self.calls('open ask --identity'),0)
+        self.board.prefetch();self.board.prefetch();self.assertEqual(self.calls('open ask --identity'),1)
+        self.assertEqual(self.board.ticket(key)['call']['occurrence'],opened['occurrence'])
+        # Firstmate disagreeing changes what the open shows, so its answer is refused.
+        self.board.identities.clear();(root/'identity').write_text('2026-10-25T15:00:00Z#1')
+        self.assertEqual(self.board.ticket(key)['call']['occurrence'],opened['occurrence'])
+        self.board.prefetch();self.assertEqual(self.calls('open ask --identity'),2)
+        self.assertNotEqual(self.board.ticket(key)['call']['occurrence'],opened['occurrence'])
+        with self.assertRaises(bridge.Refusal):
+            self.board.submit(key,dict(value='scope',note='',occurrence=opened['occurrence'],request_id='p'*32),'local')
+        self.assertFalse((root/'mutations.jsonl').exists())
+
+    def test_an_open_never_waits_for_a_firstmate_call_in_flight(self):
+        root=self.markdown();key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
+        asked,release=threading.Event(),threading.Event()
+        def slow(home,task):
+            asked.set();release.wait(10);return '2026-10-25T15:00:00Z#0'
+        with patch.object(self.board,'open_identity',side_effect=slow):
+            warm=threading.Thread(target=self.board.prefetch);warm.start();self.addCleanup(release.set)
+            self.assertTrue(asked.wait(5))
+            started=time.monotonic();call=self.board.ticket(key)['call']
+            self.assertLess(time.monotonic()-started,2);self.assertEqual(call['identity'],'2026-10-25T15:00:00Z#0')
+            release.set();warm.join(5)
+        self.assertEqual(self.board.ticket(key)['call']['occurrence'],call['occurrence'])
+
+    def test_read_ahead_keeps_the_intake_check_until_its_script_changes_and_answers_ask_again(self):
+        key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
+        script=Path(self.home.path)/'bin/fm-captain-hold.sh'
+        self.board.prefetch();self.assertEqual(self.calls('capabilities'),1)
+        for _ in range(2):self.assertEqual(self.board.ticket(key)['call']['error'],'')
+        self.assertEqual(self.calls('capabilities'),1)
+        # An answer always asks the live intake, and a reinstalled script is asked again.
+        with patch.object(self.board,'guarded_intake',return_value=False) as live:
+            with self.assertRaises(bridge.Refusal):
+                self.board.submit(key,dict(value='scope',note='',occurrence=self.board.ticket(key)['call']['occurrence'],request_id='g'*32),'local')
+            self.assertEqual(live.call_count,1);self.assertFalse((Path(self.home.path)/'mutations.jsonl').exists())
+            script.write_text(script.read_text()+'# reinstalled\n')
+            self.assertTrue(self.board.ticket(key)['call']['error']);self.assertEqual(live.call_count,2)
+
     def test_read_ahead_warms_open_calls_and_history_once_per_change(self):
         root=self.markdown();key=next(c for c in self.init()['columns'] if c['id']=='captains_call')['cards'][0]['key']
         self.board.prefetch();self.board.prefetch()
@@ -729,7 +946,9 @@ class WebTests(unittest.TestCase):
         self.board.identities.clear()
         with patch.object(self.board,'open_identity',side_effect=bridge.Refusal('no')) as live:
             self.board.prefetch();self.board.prefetch();self.assertEqual(live.call_count,1)
-            self.edit_row(root,'ask','Otra nota.');self.board.prefetch();self.assertEqual(live.call_count,2)
+            # Opening a call Firstmate couldn't confirm still asks Firstmate.
+            self.assertTrue(self.board.ticket(key)['call']['error']);self.assertEqual(live.call_count,2)
+            self.edit_row(root,'ask','Otra nota.');self.board.prefetch();self.assertEqual(live.call_count,3)
         (root/'open').unlink();self.board.prefetch()
         self.assertEqual((self.board.identities,self.board.warm_failed),({},{}))
 

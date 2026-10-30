@@ -643,5 +643,15 @@
   "Firstmate’s last update was {time}.": "Lo último que dijo Firstmate fue {time}.",
   "Firstmate posted an update {time}.": "Firstmate avisó {time}.",
   "Install “{title}”": "Instalar «{title}»",
-  "Install {task}": "Instalar {task}"
+  "Install {task}": "Instalar {task}",
+  "No summary or report for this one.": "No hay resumen ni informe para esta.",
+  "Branch, commits and paths": "Rama, commits y rutas",
+  "Ask Firstmate to explain it": "Que Firstmate me lo explique",
+  "Firstmate is on it.": "Firstmate ya lo está viendo.",
+  "Firstmate replied below.": "Firstmate respondió abajo.",
+  "Activity unconfirmed": "Actividad sin confirmar",
+  "Activity unconfirmed: {count}": "Actividad sin confirmar: {count}",
+  "{count} unconfirmed": "{count} sin confirmar",
+  "Dependencies need a check": "Dependencias por revisar",
+  "Dependencies": "Dependencias"
 }

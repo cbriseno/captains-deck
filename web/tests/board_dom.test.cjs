@@ -79,6 +79,7 @@ async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = 
     if (url.startsWith('api/locale')) return { ok: true, json: async () => ({ locale: Object.keys(messages).length ? 'es' : 'en', messages }) };
     if (url.startsWith('api/board')) return { ok: true, json: async () => JSON.parse(JSON.stringify(current)) };
     if (url.startsWith('api/history')) return { ok: true, json: async () => JSON.parse(JSON.stringify(setup.history || {records: [], details: [], omitted: 0, scope: ''})) };
+    if (setup.explanation && url.endsWith('/explanation')) return { ok: true, json: async () => JSON.parse(JSON.stringify(setup.explanation)) };
     if (setup.delivery && url.startsWith('api/delivery/') && !url.endsWith('/explanation')) return { ok: true, json: async () => JSON.parse(JSON.stringify(setup.delivery)) };
     if (url.startsWith('api/ticket/')) {
       const entry = tickets[decodeURIComponent(url.slice('api/ticket/'.length))];
@@ -136,8 +137,8 @@ test('board counts agents working now and names what every other card waits for'
   const section = (kind) => view.doc.getElementById('board').children.find(s => s.dataset.kind === kind);
   const chips = (kind) => Object.fromEntries(cardsIn(section(kind).querySelector('.cards')).map(c => [c.dataset.key, c.querySelector('.phase').textContent]));
   // The top line says what needs you and who works; the columns say the rest.
-  assert.equal(view.doc.getElementById('overview').textContent, '0 need you · 2 working · ');
-  assert.equal(section('underway').querySelector('.column-sub').textContent, '2 working now');
+  assert.equal(view.doc.getElementById('overview').textContent, '0 need you · 2 working · 3 unconfirmed · ');
+  assert.equal(section('underway').querySelector('.column-sub').textContent, '2 working · 3 unconfirmed');
   assert.equal(section('charted').querySelector('.column-sub').textContent, '1 ready to start');
   const underway = chips('underway');
   assert.equal(underway.a, 'Working now'); assert.equal(underway.v, 'Checks running');
@@ -146,7 +147,7 @@ test('board counts agents working now and names what every other card waits for'
   // A return date is its own short tag beside the state.
   assert.equal(underway.p, 'Paused');
   // Deferred work leaves Up next for its Later section.
-  assert.deepEqual(chips('charted'), {r: 'Ready to start', h: 'On hold', w: 'Waiting on another task'});
+  assert.deepEqual(chips('charted'), {r: 'Ready to start', h: 'On hold', w: 'Status unclear'});
   const dates = (kind) => Object.fromEntries(cardsIn(section(kind).querySelector('.cards')).filter(c => c.querySelector('.card-date')).map(c => [c.dataset.key, c.querySelector('.card-date').textContent]));
   assert.deepEqual(dates('underway'), {p: 'Jan 20'}); assert.deepEqual(dates('charted'), {});
   // The agent line lives in the detail, not on every card.
@@ -319,7 +320,7 @@ test('drawer shows the full recorded report and the registered executor without 
   assert.ok(all(content).some(e => e.tagName === 'P' && e.textContent === 'Codex'));
   assert.equal(rows.filter(r => r === 'Who’s on it' || r === 'Agent').length, 1);
   const evidence = JSON.parse(all(content).find(e => e.className === 'technical-evidence').textContent);
-  assert.deepEqual(Object.keys(evidence).sort(), ['context', 'native', 'task']);
+  assert.deepEqual(Object.keys(evidence).sort(), ['context', 'dependencies', 'native', 'task']);
 });
 
 test('a ready or queued card detail does not claim a missing resume condition', async () => {
@@ -689,7 +690,7 @@ test('columns run Needs you, Underway, Up next, Delivered on the board and the p
   const order = ['captains_call', 'underway', 'charted', 'landed'];
   assert.deepEqual(view.doc.getElementById('board').children.map(s => s.dataset.kind), order);
   assert.deepEqual(view.doc.getElementById('columns-nav').children.map(b => b.dataset.kind), order);
-  assert.equal(view.doc.getElementById('overview').textContent, '1 needs you · 0 working · ');
+  assert.equal(view.doc.getElementById('overview').textContent, '1 needs you · Activity unconfirmed: 1 · ');
 });
 
 test('every card has the same top row, its whole title and never a placeholder', async () => {
@@ -826,6 +827,7 @@ test('a Spanish call shows no English interface text outside its technical detai
 test('history is one line per delivery: title then a compact age, no crew line', async () => {
   const history = {records: [{task: 'old', title: 'Old sample delivery', home: 'h', owner: 'example', time: {label: 'Delivered', epoch: null, date: '2026-01-01'}, closed: '2026-01-01'}], details: [], omitted: 0, scope: 'Everything kept.'};
   const delivery = {task: 'old', home: 'h', owner: 'example', title: 'Old sample delivery', summary: 'Done.', report: '', details: '', sources: '',
+    original_title: 'Old sample delivery https://github.com/example/deck/pull/8',
     time: history.records[0].time, links: [{url: 'https://github.com/example/deck/pull/8', pr: 8}, {url: 'https://example.com/notes', pr: null}]};
   const view = await mountBoard(fullBoard(), undefined, {}, {}, {history, delivery});
   view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
@@ -846,6 +848,10 @@ test('history is one line per delivery: title then a compact age, no crew line',
   const links = descendants(view.doc.getElementById('detail-content')).filter(n => n.tagName === 'A' && n.className === 'report-link');
   assert.deepEqual(links.map(a => [a.textContent, a.href, a.rel]), [['See PR #8 ↗', 'https://github.com/example/deck/pull/8', 'noopener noreferrer'],
     ['Open link ↗', 'https://example.com/notes', 'noopener noreferrer']]);
+  // The recorded title stays whole, only under Technical details.
+  const technical = view.doc.getElementById('detail-content').children.find(n => n.className === 'source-details');
+  const original = technical.children.find(n => n.className === 'context-row' && n.children[0].textContent === 'Original title');
+  assert.equal(original.children[1].textContent, delivery.original_title);
   assert.equal(view.doc.getElementById('board-search').hidden, true);
   view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
   assert.equal(view.doc.getElementById('board-search').hidden, false);
@@ -988,7 +994,7 @@ test('two or more questions from one project wait in one stack where the first s
   assert.equal(stack.lastChild.inert, true); assert.equal(face.getAttribute('aria-controls'), stack.lastChild.id);
   // Needs you still counts questions, not stacks.
   assert.equal(callsSection(view).querySelector('.column-count').textContent, '5');
-  assert.equal(view.doc.getElementById('overview').textContent, '5 need you · 0 working · ');
+  assert.equal(view.doc.getElementById('overview').textContent, '5 need you · Activity unconfirmed: 1 · ');
   // Only Needs you stacks; one question of a project stays a plain card.
   const lone = await mountBoard(stackBoard([projectCall('g1', 'Animate moving tasks?', garden), projectCall('r1', 'Start relay phase one?', relay)]));
   assert.deepEqual(callsSection(lone).querySelector('.cards').children.map(n => n.dataset.key), ['g1', 'r1']);
@@ -1122,7 +1128,7 @@ test('a task detail shows only recorded facts, with who is on it in one row', as
   assert.equal(/Aún sin|no ha escrito|No registrado|sin hora registrada/.test(shown), false, shown);
   // The wait that only names its dependency isn't said twice, and one crew isn't named.
   const [rowsB] = await open('charted', 'b');
-  assert.deepEqual(rowsB, {'Espera a': 'Export invoices for billing'});
+  assert.deepEqual(rowsB, {'Dependencias': 'Export invoices for billing'});
 });
 
 test('From Firstmate says one coherent thing about how fresh Firstmate is', async () => {
@@ -1141,4 +1147,84 @@ test('From Firstmate says one coherent thing about how fresh Firstmate is', asyn
   assert.equal(status(), 'Revisando la entrega. · hace 2 minutos');
   view.setBoard({...board([]), sources: [source(null)]}); await view.poll(); await view.flush();
   assert.equal(status(), 'Firstmate no ha dicho qué está haciendo.');
+});
+
+
+test('a delivery without a summary opens its formatted report and one explanation control', async () => {
+  const delivery = {task: 'old', home: 'h', title: 'Delivered', summary: '', report: 'fallback',
+    report_text: '## What changed\n\nYou can **read** it. [Unsafe](javascript:alert) <script>boom()</script>\n\n- One\n- Two\n\n| Name | Value |\n| --- | --- |\n| Safe | Yes |\n\n```\nconst sample = true;\n```',
+    report_lead: 'Branch: fm/example', details: '', sources: ''};
+  const history = {records: [{task: 'old', home: 'h', title: 'Delivered'}], details: [], omitted: 0, scope: ''};
+  const view = await mountBoard(board([]), undefined, {}, {}, {history, delivery});
+  await view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
+  await view.doc.getElementById('history-results').querySelector('button').listeners.click[0](); await view.flush();
+  const content = view.doc.getElementById('detail-content');
+  assert.equal(content.querySelector('.detail-tabs'), null);
+  assert.equal(content.querySelector('h3').textContent, 'What changed');
+  assert.equal(content.querySelector('strong').textContent, 'read');
+  assert.equal(content.querySelectorAll('li').length, 2);
+  assert.equal(content.querySelectorAll('th').length, 2);
+  assert.equal(content.querySelector('pre').textContent, 'const sample = true;');
+  assert.equal(content.querySelector('script'), null);
+  assert.equal(content.querySelector('.report').querySelector('a'), null);
+  assert.equal(content.querySelector('.explain-actions').querySelectorAll('button').length, 1);
+  assert.equal(content.querySelector('.explain-status').textContent, '');
+});
+
+
+test('explanation states share one control and one status line, with a safe formatted reply', async () => {
+  for (const [state, line, disabled] of [['absent', '', false], ['queued', 'Asked. Firstmate hasn’t seen it yet.', true],
+    ['acknowledged', 'Firstmate is on it.', true], ['answered', 'Firstmate replied below.', true]]) {
+    const delivery = {task: 'old', home: 'h', title: 'Delivered', summary: 'You can read deliveries.', report: '', details: '', sources: ''};
+    const history = {records: [{task: 'old', home: 'h', title: 'Delivered'}], details: [], omitted: 0, scope: ''};
+    const explanation = {state, receipt: {reply: state === 'answered' ? {body: '**Done** <script>boom()</script>'} : null}};
+    const view = await mountBoard(board([]), undefined, {}, {}, {history, delivery, explanation});
+    view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
+    view.doc.getElementById('history-results').querySelector('button').listeners.click[0](); await view.flush();
+    const content = view.doc.getElementById('detail-content');
+    assert.equal(content.querySelector('.explain-status').textContent, line);
+    assert.equal(content.querySelector('.explain-actions').querySelectorAll('button').length, 1);
+    assert.equal(view.doc.getElementById('explain-request').disabled, disabled);
+    assert.equal(view.requests.some(r => r.method === 'POST'), false);
+    if (state === 'answered') {
+      const reply = content.querySelector('.explain-reply');
+      assert.equal(reply.hidden, false);
+      assert.equal(reply.querySelector('strong').textContent, 'Done');
+      assert.equal(reply.querySelector('script'), null);
+    }
+  }
+});
+
+
+test('unknown Codex is neither zero activity nor idle, and dependency checks do not invent a wait', async () => {
+  const unknown = {...card('codex', 'Reviewing the local results.'),
+    native: {state: 'unknown', source: 'pane', unconfirmed: true, retained_at: 0},
+    activity: {kind: 'blocked', agent: 'present'},
+    context: {phase: 'dependency'}, presentation: {executor: {harness: 'codex'}},
+    dependencies: [{id: 'old', title: 'Earlier delivery', state: 'done', unresolved: true, reconciliation_required: true}]};
+  const data = board([unknown]);
+  const view = await mountBoard(data, undefined, {codex: unknown});
+  assert.equal(view.doc.getElementById('overview').textContent, '0 need you · Activity unconfirmed: 1 · ');
+  assert.equal(underwayList(view.doc).querySelector('.phase').textContent, 'Dependencies need a check');
+  await underwayList(view.doc).querySelector('.card-open').listeners.click[0](); await view.flush();
+  assert.match(view.doc.getElementById('detail-content').textContent, /Codex · Activity unconfirmed/);
+  assert.doesNotMatch(view.doc.getElementById('detail-content').textContent, /open, not working|Agent is open but idle/);
+  // Changing only the link's confirmation does not invent activity confirmation.
+  unknown.dependencies[0] = {...unknown.dependencies[0], unresolved: false, reconciliation_required: false};
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(underwayList(view.doc).querySelector('.phase').textContent, 'Dependencies need a check');
+  // A real unresolved dependency still proves a wait, independently of unknown activity.
+  unknown.dependencies[0] = {id: 'live', title: 'Pending delivery', state: 'in_flight', unresolved: true};
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(underwayList(view.doc).querySelector('.phase').textContent, 'Waiting on another task');
+  // Confirmed pane idle is allowed to say zero; stale or non-live sources are not.
+  unknown.native = {state: 'paused', source: 'pane', unconfirmed: false, retained_at: 0};
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(view.doc.getElementById('overview').textContent, '0 need you · 0 working · ');
+  unknown.native.retained_at = 100;
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.match(view.doc.getElementById('overview').textContent, /Activity unconfirmed: 1/);
+  unknown.native = {state: 'working', source: 'status-log', unconfirmed: false, retained_at: 0};
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.match(view.doc.getElementById('overview').textContent, /Activity unconfirmed: 1/);
 });

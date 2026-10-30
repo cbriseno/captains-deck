@@ -101,6 +101,16 @@ def card_field(value, name):
     return text
 
 
+def listed_dependencies(flow):
+    """Whether the flow's wait is only Firstmate's fallback: the recorded
+    titles of its unresolved dependencies, joined. The board names those
+    dependencies itself, by their card titles; the original stays in Details."""
+    wait = flow.get('waiting_for')
+    deps = [d for d in flow.get('dependencies') or [] if isinstance(d, dict) and d.get('unresolved')]
+    return (isinstance(wait, str) and bool(deps)
+            and ' '.join(wait.split()) == ', '.join(' '.join(str(d.get('title') or '').split()) for d in deps))
+
+
 def project(card, context):
     flow = getattr(card, 'flow', {}) or {}
     # Optional producer-authored presentation is distinct from a raw run report.
@@ -121,7 +131,35 @@ def project(card, context):
         'status': card_fields['card_status'],
         'summary': first_excerpt([human.get('summary'), reason, context.get('reason')], STOCK_REASONS),
         'next_action': first_excerpt([human.get('next_action'), flow.get('next_action')], STOCK_ACTIONS),
-        'waiting_for': first_excerpt([human.get('waiting_for'), flow.get('waiting_for')], STOCK_WAITS),
+        'waiting_for': first_excerpt([human.get('waiting_for'),
+                                      None if listed_dependencies(flow) else flow.get('waiting_for')], STOCK_WAITS),
         'executor': {'harness': getattr(card, 'agent', '') or ''},
         'run_step': {'phase': 'validation', 'state': run[1]} if run else None,
     }
+
+
+# A report that opens on a shipping receipt: the branch, its head, where it
+# came from. Firstmate's own receipt lines read like these.
+RECEIPT_LINE = re.compile(r'^\s*(?:[-*]\s+)?\**(?:ready in branch|(?:para|for) (?:root|firstmate)\b|owner application status|'
+                          r'head|commit|rama|branch|origen|origin|método|method)\b', re.I)
+HASH = re.compile(r'\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b')
+
+
+def report_parts(text):
+    """A report's readable body, and the technical lead it opened with.
+
+    The top heading repeats the delivery title. Paragraphs before the first
+    section that read as a receipt (a branch, a commit, a path) move out of
+    the opening, so the report starts on what changed. Nothing is dropped or
+    rewritten, and a report that is all receipt stays as it is.
+    """
+    text = re.sub(r'\A\s*#\s[^\n]*\n+', '', str(text or '')).strip()
+    blocks = re.split(r'\n[ \t]*\n', text)
+    first = next((i for i, block in enumerate(blocks) if re.match(r'#{1,6}\s', block)), len(blocks))
+    technical = lambda block: bool(TECHNICAL.search(block) or HASH.search(block)
+                                   or any(RECEIPT_LINE.match(line) for line in block.splitlines()))
+    lead = [block for block in blocks[:first] if technical(block)]
+    body = [block for block in blocks[:first] if not technical(block)] + blocks[first:]
+    if not lead or not any(block.strip() for block in body):
+        return text, ''
+    return '\n\n'.join(body), '\n\n'.join(lead)

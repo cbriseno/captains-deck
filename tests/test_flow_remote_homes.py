@@ -120,7 +120,8 @@ def test_remote_snapshot_uses_fm_on_from_the_captain_home():
         snap = flow.remote_bearings_snapshot(remote)
         argv = argv_file.read_text().splitlines()
     assert snap == {"in_flight": []}
-    assert argv == ["vps", "fm-bearings-snapshot.sh", "--json", "--fields", "paths,endpoints"]
+    assert argv == ["vps", "fm-bearings-snapshot.sh", "--json", "--fields", "paths,endpoints",
+                    "--all-in-flight", "--all-queued"]
 
 
 def test_remote_snapshot_without_the_transport_is_empty():
@@ -209,18 +210,23 @@ def test_the_active_remote_tab_names_when_it_was_last_seen():
 
 
 def test_a_remote_captains_call_is_read_only():
-    remote = Home("vps", "/srv/fm/home", "secondmate", route="vps", via="/tmp/x")
-    ui = flow.UI()
-    snap = flow.Snapshot()
-    snap.homes = [remote]
-    snap.home = remote
-    ui.collector._publish(snap)
-    card = flow.Card()
-    card.bucket = "captains_call"
-    card.id = card.task = "t-1"
-    ui.open_decision(card)
-    assert ui.dialog is None
-    assert "read-only" in ui.flash
+    # Pin English and an empty config dir so the operator's own language file
+    # and the process-wide localization cache cannot change the wording.
+    with tempfile.TemporaryDirectory() as cfg, \
+            mock.patch.dict(os.environ, {"HERDR_PLUGIN_CONFIG_DIR": cfg, "CD_WEB_LANGUAGE": "en"}), \
+            mock.patch.object(flow, "_LOCALIZATION", None):
+        remote = Home("vps", "/srv/fm/home", "secondmate", route="vps", via="/tmp/x")
+        ui = flow.UI()
+        snap = flow.Snapshot()
+        snap.homes = [remote]
+        snap.home = remote
+        ui.collector._publish(snap)
+        card = flow.Card()
+        card.bucket = "captains_call"
+        card.id = card.task = "t-1"
+        ui.open_decision(card)
+        assert ui.dialog is None
+        assert "read-only" in ui.flash
 
 
 def test_platform_docs_document_remote_secondmates():

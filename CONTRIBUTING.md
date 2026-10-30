@@ -47,6 +47,7 @@ Please include:
    History fixtures also require Node.js 20 or newer and the locked `tasks-axi` canonical reader installed above.
    This test dependency stays inside the checkout and does not install a global CLI.
    The contract check runs against the recorded fixture home here; point `--home` at a real Firstmate home to check the live surfaces after an `updatefirstmate`.
+   The project configures no Python type checker or linter; these checks and the web checks below are the supported validation.
 
 5. Open a pull request against `main` with a short summary and test notes.
 
