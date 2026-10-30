@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
 from localization import Localization
-from presentation import excerpt, project
+from presentation import URL_RE, card_field, drop_links, excerpt, project
 import flow_tui as fm  # noqa: E402
 from deck_platform import endpoint_path, private_directory, safe_file_reads, shell_command
 
@@ -70,23 +70,43 @@ def event_json(event, translate=None):
             'detail': fm.card_time_detail(event, translate=translate)}
 
 
-# A web address, without the punctuation that usually follows one in prose.
-URL_RE = re.compile(r'https?://[^\s<>()\[\]]*[^\s<>()\[\].,;:!?\'"»]')
-
-
 def human_title(value, translate=lambda text: text):
     # Canonical titles sometimes retain a report link or a PR address as a
     # trailing token. Keep the original in Details; a filesystem location or a
     # URL is not the headline, and title_links offers the address instead.
+    # Nor is a short commit hash.
     text = fm.readable_markdown(str(value or ''))
     text = re.sub(r'(?<!\S)(?:data/|/[^\s]*/data/)[^\s]+\.(?:md|json|txt)(?=\s|$)', '', text)
-    text, cut = re.subn(r'(?:\b(?:PR|pull request)\s*:?\s*)?' + URL_RE.pattern, '', text, flags=re.I)
-    if cut:
-        # Tidy what the address leaves behind: "(… )", "word .", "Done: , ok".
-        text = re.sub(r'\(\s*\)|\[\s*\]', '', text)
-        text = re.sub(r'\s+([.,;:!?])', r'\1', text)
-        text = re.sub(r'[:;,]([.,;:!?])', r'\1', text)
+    text = drop_links(text)
     return re.sub(r'\s+', ' ', text).strip(' ·–—-:,;') or translate('Task without a readable title')
+
+
+# Firstmate files the follow-up that brings landed work into the captain's
+# own installation under this fixed English title (fm-install-followup.sh).
+INSTALL_TITLE = re.compile(r'Install (\S+) into (\S+)')
+
+
+def card_title(card, titles, translate):
+    """The title a card shows: Firstmate's short card title when it wrote one,
+    else the readable full title. The full one stays in Details."""
+    flow = getattr(card, 'flow', None) or {}
+    human = flow.get('presentation') if isinstance(flow.get('presentation'), dict) else {}
+    short = card_field(human.get('card_title'), 'card_title')
+    if short:
+        return short
+    stock = INSTALL_TITLE.fullmatch(str(card.title or '').strip())
+    if stock:
+        source = titles.get(stock[1])
+        return (translate('Install “{title}”').format(title=source) if source
+                else translate('Install {task}').format(task=stock[1]))
+    return human_title(card.title, translate)
+
+
+def record_title(record, translate):
+    """A history row's title, preferring Firstmate's short card title."""
+    human = record.get('presentation') if isinstance(record.get('presentation'), dict) else {}
+    return (card_field(human.get('card_title'), 'card_title')
+            or human_title(record.get('title') or record.get('id'), translate))
 
 
 def title_links(value):
@@ -345,7 +365,24 @@ class Board:
             raise Refusal('This task changed or is no longer in view. Refresh the board.', 404)
         return matches[0]
 
-    def card_json(self, card):
+    def titles(self):
+        """Each task's card title on the board, by task id."""
+        cards = [c for column, _ in COLUMNS for c in self.collector.snapshot().cols.get(column, [])]
+        found = {}
+        for card in cards:
+            found.setdefault(card.task, card_title(card, {}, self.t))
+        for card in cards:
+            for dep in getattr(card, 'dependencies', []) or []:
+                if isinstance(dep, dict) and dep.get('id') and dep.get('title'):
+                    found.setdefault(dep['id'], human_title(dep['title'], self.t))
+        # Delivery history already read ahead; never a new Firstmate call.
+        for rows, *_ in list(self.history_cache.values()):
+            for row in rows:
+                if isinstance(row, dict) and row.get('id'):
+                    found.setdefault(row['id'], record_title(row, self.t))
+        return found
+
+    def card_json(self, card, titles=None):
         owner = None
         try:
             owner = self.owner(card)
@@ -359,7 +396,14 @@ class Board:
         link = ''
         if self.herdr_origin and owner and not fm.is_remote_home(owner) and pane:
             link = self.herdr_origin + '/?' + urlencode({'machine': 'local', 'pane': pane, 'view': 'chat'})
-        return {'key': self.key(card), 'task': card.task, 'title': human_title(card.title, self.t),
+        titles = self.titles() if titles is None else titles
+        title = card_title(card, titles, self.t)
+        # A dependency reads as its card does on the board, without the
+        # address its recorded title may carry.
+        dependencies = [{**d, 'title': titles.get(d.get('id')) or human_title(d['title'], self.t)}
+                        if isinstance(d, dict) and d.get('title') else d
+                        for d in getattr(card, 'dependencies', []) or []]
+        return {'key': self.key(card), 'task': card.task, 'title': title,
                 'original_title': card.title,
                 'bucket': card.bucket, 'owner': owner.label if owner else self.t('Unknown crew'),
                 'home': home_id(owner) if owner else '', 'context': context,
@@ -369,7 +413,7 @@ class Board:
                 'native': {'state': getattr(card, 'snapshot_state', '') or 'unknown',
                            'detail': getattr(card, 'doing', '') or self.t('No observation recorded.'),
                            'herdr': getattr(card, 'live_status', '') or 'unknown'},
-                'dependencies': getattr(card, 'dependencies', []) or [],
+                'dependencies': dependencies,
                 'project': project_tag((getattr(card, 'flow', None) or {}).get('project')),
                 'supervisor': getattr(card, 'supervisor', {}) or {},
                 'time': self.event_json(getattr(card, 'event_time', None)),
@@ -384,12 +428,17 @@ class Board:
         chosen = self.home(selected) if selected else None
         homes = self.homes()
         self.warming.set()
-        columns = []
-        for key, title in COLUMNS:
-            cards = [self.card_json(c) for c in snap.cols.get(key, [])]
-            if chosen:
-                cards = [c for c in cards if c['home'] == selected]
-            columns.append({'id': key, 'title': self.t(title), 'cards': cards})
+        titles = self.titles()
+        built = {}
+        for key, _ in COLUMNS:
+            cards = [self.card_json(c, titles) for c in snap.cols.get(key, [])]
+            built[key] = [c for c in cards if c['home'] == selected] if chosen else cards
+        # Underway work that waits for the captain's answer is asked in Needs
+        # you, so the column and its count never miss it.
+        asks = [c for c in built['underway'] if c['activity'].get('kind') == 'decision']
+        built['underway'] = [c for c in built['underway'] if c not in asks]
+        built['captains_call'] = built['captains_call'] + asks
+        columns = [{'id': key, 'title': self.t(title), 'cards': built[key]} for key, title in COLUMNS]
         sources = []
         for h in homes:
             if chosen and home_id(h) != selected:
@@ -502,7 +551,7 @@ class Board:
                     continue
                 event = fm.producer_card_time(row.get('card_time'), 'landed',
                                               fm.CardTime('Delivered', row.get('closed')))
-                result.append({'task': row['id'], 'title': human_title(row.get('title') or row['id'], self.t),
+                result.append({'task': row['id'], 'title': record_title(row, self.t),
                                'home': home_id(home), 'owner': home.label, 'project': project,
                                'time': self.event_json(event), 'closed': row.get('closed') or ''})
         # The order follows the time each row shows, not the raw closing text.
@@ -522,7 +571,7 @@ class Board:
         content = fm.delivery_content(record, home, split_views=True, translate=self.t, report_heading=False)
         if not isinstance(content, dict):
             content = {'summary': self.t('No summary is available for this delivery.'), 'report': '', 'details': content}
-        title = human_title(record.get('title') or task, self.t)
+        title = record_title(record, self.t)
         # A summary that opens by repeating the title repeats the readable one;
         # a PR address in it opens from links instead.
         echoed = fm.readable_markdown(str(record.get('title') or ''))

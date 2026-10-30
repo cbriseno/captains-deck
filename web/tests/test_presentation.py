@@ -204,5 +204,88 @@ class PresentationTests(unittest.TestCase):
         self.assertFalse((Path(self.home.path) / 'mutations.jsonl').exists())
 
 
+    def test_firstmate_card_title_and_status_lead_the_card(self):
+        card = self.task()
+        full = card.title
+        card.flow['presentation'] = {'card_title': 'Tablero desde fuera', 'card_status': 'Probando el tablero en el teléfono',
+                                     'group': None, 'summary': None, 'waiting_for': None, 'next_action': None}
+        result = self.board.card_json(card)
+        self.assertEqual(result['title'], 'Tablero desde fuera')
+        self.assertEqual(result['original_title'], full)
+        self.assertEqual(result['presentation']['status'], 'Probando el tablero en el teléfono')
+
+    def test_unusable_card_fields_fall_back_to_the_readable_title(self):
+        card = self.task()
+        for title, status in (('x' * 81, 'y' * 121), ('Dos\nlíneas', 'Uno\ndos'),
+                              ('Ver data/web/report.md', 'harness busy (claude-hook)'), ('  ', None), (12, [])):
+            card.flow['presentation'] = {'card_title': title, 'card_status': status}
+            result = self.board.card_json(card)
+            self.assertEqual(result['title'], bridge.human_title(card.title), title)
+            self.assertEqual(result['presentation']['status'], '', status)
+
+    def test_harness_liveness_is_not_what_the_task_is_doing(self):
+        card = self.task()
+        card.flow = {'phase': 'active', 'state': 'executing', 'reason': 'harness busy (claude-hook)'}
+        self.assertEqual(self.read(card)['presentation']['summary'], '')
+        for line in ('harness idle (codex-hook)', 'Working: harness busy (pi-hook)'):
+            card.flow['reason'] = line
+            self.assertEqual(self.read(card)['presentation']['summary'], '', line)
+
+    def test_commands_firstmate_paths_links_and_hashes_leave_the_line(self):
+        card = self.task()
+        cases = [
+            ("Falta la salida del registro del kernel: sudo dmesg -T | grep -Ei 'oom' | tail -60 . Luego.",
+             'Falta la salida del registro del kernel.'),
+            ('Pruebas pendientes en PC y Android; plan en data/notify/next-window.md. El resto.',
+             'Pruebas pendientes en PC y Android.'),
+            ('Revisa ~/.codex/config.toml', ''),
+            ('Deck: tablero compacto https://github.com/example/deck/pull/16, Deck: textos claros',
+             'Deck: tablero compacto, Deck: textos claros'),
+            ('Portar el arreglo (af422196) al fork.', 'Portar el arreglo al fork.'),
+            ('Arreglo del caché (added) listo.', 'Arreglo del caché (added) listo.'),
+        ]
+        for raw, shown in cases:
+            card.flow.update(reason=raw, waiting_for=raw)
+            p = self.read(card)['presentation']
+            self.assertEqual((p['summary'], p['waiting_for']), (shown, shown), raw)
+        self.assertEqual(bridge.human_title('Portar el arreglo de workers (af422196)'), 'Portar el arreglo de workers')
+
+    def test_dependency_titles_drop_their_web_address(self):
+        card = self.task('dependent')
+        card.dependencies = [{'id': 'phone-review', 'title': 'Revisar el teléfono https://github.com/example/deck/pull/16',
+                              'owner': '(main)', 'unresolved': True}]
+        self.assertEqual(self.board.card_json(card)['dependencies'][0]['title'], 'Revisar el teléfono')
+        self.assertIn('pull/16', card.dependencies[0]['title'])
+
+    def test_install_follow_up_reads_by_the_work_it_installs(self):
+        card = self.task('integration')
+        card.title = 'Install web into captains-deck'
+        board_es = bridge.Board(self.board.data_dir, collector=self.board.collector, language='es')
+        self.assertEqual(self.board.card_json(card)['title'], 'Install “Un dashboard cómodo para consultar el progreso desde fuera de casa”')
+        self.assertEqual(board_es.card_json(card)['title'], 'Instalar «Un dashboard cómodo para consultar el progreso desde fuera de casa»')
+        # The work it installs reads by its own short card title.
+        source = self.task()
+        source.flow['presentation'] = {'card_title': 'Tablero desde fuera'}
+        self.assertEqual(board_es.card_json(card)['title'], 'Instalar «Tablero desde fuera»')
+        card.dependencies = [{'id': 'web', 'title': source.title + ' https://github.com/example/deck/pull/16', 'owner': '(main)'}]
+        self.assertEqual(board_es.card_json(card)['dependencies'][0]['title'], 'Tablero desde fuera')
+        card.title = 'Install gone-task into captains-deck'
+        self.assertEqual(board_es.card_json(card)['title'], 'Instalar gone-task')
+        card.flow['presentation'] = {'card_title': 'Traer el tablero a tu equipo'}
+        self.assertEqual(board_es.card_json(card)['title'], 'Traer el tablero a tu equipo')
+
+    def test_underway_work_waiting_for_the_captain_is_in_needs_you(self):
+        card = self.task()
+        card.flow = {'phase': 'human', 'state': 'waiting', 'reason': '¿Publico la guía hoy?'}
+        card.snapshot_state = 'idle'
+        columns = {c['id']: c['cards'] for c in self.board.board()['columns']}
+        self.assertIn('web', [c['task'] for c in columns['captains_call']])
+        self.assertNotIn('web', [c['task'] for c in columns['underway']])
+        moved = next(c for c in columns['captains_call'] if c['task'] == 'web')
+        self.assertEqual((moved['bucket'], moved['activity']['kind']), ('underway', 'decision'))
+        # It still opens as the task it is.
+        self.assertEqual(self.board.ticket(moved['key'])['task'], 'web')
+
+
 if __name__ == '__main__':
     unittest.main()

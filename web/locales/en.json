@@ -633,5 +633,15 @@
   "{project}: all answered": "{project}: all answered",
   "1 question from {project}": "1 question from {project}",
   "{count} questions from {project}": "{count} questions from {project}",
-  "and {count} more": "and {count} more"
+  "and {count} more": "and {count} more",
+  "working now": "working now",
+  "running checks": "running checks",
+  "open": "open",
+  "open, not working": "open, not working",
+  "not running": "not running",
+  "After: {dependency}": "After: {dependency}",
+  "Firstmate’s last update was {time}.": "Firstmate’s last update was {time}.",
+  "Firstmate posted an update {time}.": "Firstmate posted an update {time}.",
+  "Install “{title}”": "Install “{title}”",
+  "Install {task}": "Install {task}"
 }

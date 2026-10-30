@@ -633,5 +633,15 @@
   "{project}: all answered": "{project}: todas respondidas",
   "1 question from {project}": "1 pregunta de {project}",
   "{count} questions from {project}": "{count} preguntas de {project}",
-  "and {count} more": "y {count} más"
+  "and {count} more": "y {count} más",
+  "working now": "trabajando ahora",
+  "running checks": "corriendo pruebas",
+  "open": "abierto",
+  "open, not working": "abierto, sin trabajar",
+  "not running": "no está corriendo",
+  "After: {dependency}": "Después de: {dependency}",
+  "Firstmate’s last update was {time}.": "Lo último que dijo Firstmate fue {time}.",
+  "Firstmate posted an update {time}.": "Firstmate avisó {time}.",
+  "Install “{title}”": "Instalar «{title}»",
+  "Install {task}": "Instalar {task}"
 }

@@ -57,7 +57,8 @@ const DeckI18n = {
       if (!event) return t('Time not recorded');
       const label = t(event.label || 'Event');
       const day = calendarDay(event.date);
-      if (day !== null) return `${label} · ${dateRelative(day, now)} · ${t('no time recorded')}`;
+      // A day without a time reads as the day; the exact view says the time is missing.
+      if (day !== null) return `${label} · ${dateRelative(day, now)}`;
       if (typeof event.epoch === 'number' && Number.isFinite(event.epoch)) return `${label} · ${event.epoch > now + 5 ? t('future date; check the clock') : relative(event.epoch, now)}`;
       return `${label} · ${t(event.problem === 'not recorded' ? 'time not recorded' : 'time unavailable')}`;
     };

@@ -92,7 +92,8 @@ function theme(saved, systemDark, storageFails = false) {
     const expected = new Intl.DateTimeFormat(api.locale, {dateStyle: 'medium', timeZone: 'UTC'}).format(new Date('2026-10-24T00:00:00Z'));
     assert.ok(api.exactTime(event).includes(expected));
     assert.ok(!api.eventTime(event, now).includes(expected));
-    assert.ok(api.eventTime(event, now).includes(api.t('no time recorded')));
+    // A date-only day reads as the day; only the exact view says the time is missing.
+    assert.ok(!api.eventTime(event, now).includes(api.t('no time recorded')));
     assert.equal(JSON.stringify(event), before);
     const exact = api.eventTime({label: 'Updated', epoch: now - 3600}, now);
     assert.ok(!exact.includes(api.dateFmt.format(new Date((now - 3600) * 1000))));
@@ -121,7 +122,7 @@ function theme(saved, systemDark, storageFails = false) {
   assert.ok(en.api.eventTime({label: 'Updated', date: iso(dayAgo(1, dst))}, dst.getTime() / 1000).includes('yesterday'));
   const dateOnly = en.api.eventTime({label: 'Updated', date: iso(dayAgo(3))}, clock);
   assert.ok(!/minute|hour/.test(dateOnly));
-  assert.ok(dateOnly.includes(en.api.t('no time recorded')));
+  assert.equal(dateOnly, en.api.t('Updated') + ' · 3 days ago');
   assert.ok(en.api.eventTime({label: 'Updated', date: 'not-a-date'}, clock).includes(en.api.t('time unavailable')));
   assert.ok(en.api.exactTime({date: '2026-01-10'}).includes('2026'));
   assert.ok(en.api.eventTime({label: 'Updated', date: '2026-02-31'}, clock).includes(en.api.t('time unavailable')));
