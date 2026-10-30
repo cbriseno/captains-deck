@@ -3,7 +3,7 @@
 DeckI18n.ready.then(({t, locale, dateFmt, relative, eventTime, exactTime, untilText, ago, shortDate}) => {
 /* User content is text only. Polling reads; only explicit buttons can POST. */
 const $ = (id) => document.getElementById(id);
-const S = { board: null, home: '', column: 'underway', online: false, view: 'board', query: '',
+const S = { board: null, home: '', column: 'underway', columnPicked: false, online: false, view: 'board', query: '',
   busy: false, csrf: '', modal: null, opener: null, generation: 0, historyGeneration: 0,
   lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false, density: 'normal' };
 try { if (localStorage.getItem('deck-density') === 'compact') S.density = 'compact'; } catch { /* Normal is the default. */ }
@@ -181,11 +181,14 @@ function renderBoard() {
   // Underway holds every open task; only these agents are working right now.
   const working = activityCount(columns, 'underway', 'working'), ready = activityCount(columns, 'charted', 'ready');
   const calls = counts.captains_call || 0;
+  // A phone opens on Needs you when something waits for an answer, else on
+  // Underway. Chosen once, on the first full read; then only a tap changes it.
+  if (!S.columnPicked && !S.board.loading) { S.columnPicked = true; S.column = calls ? 'captains_call' : 'underway'; }
   const overview = (calls === 1 ? t('{count} needs you', {count: calls}) : t('{count} need you', {count: calls})) + ' · ' + t('{count} working', {count: working}) + ' · ';
   if ($('overview').textContent !== overview) $('overview').textContent = overview;
   const nav = [];
   for (const c of columns) {
-    const b = button('', () => selectColumn(c.id)); b.dataset.kind = c.id; b.setAttribute('aria-pressed', String(S.column === c.id));
+    const b = button('', () => { S.columnPicked = true; selectColumn(c.id); }); b.dataset.kind = c.id; b.setAttribute('aria-pressed', String(S.column === c.id));
     append(b, node('span', '', String(counts[c.id] || 0)), document.createTextNode(labels[c.id] || c.title)); nav.push(b);
   }
   const navIdentity = JSON.stringify({counts, working, ready, order: columns.map(c => c.id)});
