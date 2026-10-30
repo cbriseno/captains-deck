@@ -1076,3 +1076,19 @@ footer { padding:16px 0 24px; }
   .question { font-size:15px; }
   .theme-label { margin-left:0; }
 }
+
+/* Delivered work: a formatted report and one explain control with its line. */
+.prose.report { white-space:normal; }
+.prose.report p { white-space:pre-wrap; }
+.prose.report h4 { font-size:13px; margin:14px 0 6px; }
+.prose.report code { font-size:12px; background:var(--line); border-radius:4px; padding:1px 4px; overflow-wrap:anywhere; }
+.prose.report pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--line); border-radius:8px; padding:8px 10px; margin:0 0 12px; }
+.prose.report pre code { background:none; padding:0; }
+.prose.report a { color:var(--blue); overflow-wrap:anywhere; }
+.table-scroll { overflow-x:auto; margin:0 0 12px; }
+.table-scroll table { border-collapse:collapse; font-size:12px; line-height:1.5; }
+.table-scroll th,.table-scroll td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+.explain-actions { padding-top:10px; margin-top:12px; gap:6px 12px; }
+.explain-actions button { min-height:40px; font-size:13px; }
+.explain-status { flex:1 1 180px; flex-basis:auto; white-space:normal; }
+.explain-reply { border-left:3px solid var(--line); padding-left:10px; margin:6px 0 4px; }

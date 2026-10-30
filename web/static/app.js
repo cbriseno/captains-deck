@@ -80,7 +80,8 @@ function whoText(card) {
   const harness = card.presentation?.executor?.harness, agent = card.activity?.agent || 'unknown';
   const name = harness ? {codex: 'Codex', claude: 'Claude Code', pi: 'Pi'}[harness] || harness : '';
   if (card.bucket !== 'underway') return name;
-  // Not knowing whether an agent runs is no fact to show.
+  // A pane's presence does not establish current agent activity.
+  if (activityUnconfirmed(card)) return [name, t('Activity unconfirmed')].filter(Boolean).join(' · ');
   return name ? [name, agentStates[agent]].filter(Boolean).join(' · ') : agent === 'unknown' ? '' : agentLines[agent] || '';
 }
 // On a card the return date is its own tag, so the chip drops it (short).
@@ -90,6 +91,13 @@ function activityText(card, short = false) {
   if (a.kind === 'deferred') return until ? t('Deferred until {date}', {date: until}) : t('Deferred');
   if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting for your answer') : '';
   if (a.kind === 'last_seen_working') return t('Working when last seen') + (a.seen_at ? ' · ' + relative(a.seen_at) : '');
+  if (a.kind === 'blocked' || card.context?.phase === 'dependency') {
+    const deps = card.dependencies || [];
+    if (deps.some(d => d.unresolved !== false && !d.reconciliation_required && d.state !== 'done')) return t('Waiting on another task');
+    if (deps.length) return t('Dependencies need a check');
+    return t('Status unclear');
+  }
+  if (a.kind === 'unknown' && ['unknown', 'active'].includes(card.context?.phase)) return t('Activity unconfirmed');
   return { working: t('Working now'), validating: t('Checks running'), validation_gate: t('Checks need approval'), blocked: t('Waiting on another task'),
     held: t('On hold'), finished: t('Done, not closed yet'), stopped: t('Stopped'), ready: t('Ready to start'), queued: t('Queued') }[a.kind] || '';
 }
@@ -99,6 +107,21 @@ function phaseText(card, short = false) {
   const run = card.presentation?.run_step;
   if (run) return runLabels[run.state];
   return activityText(card, short) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : card.context.label || phaseLabels[card.context.phase]);
+}
+// A task's workflow and the observation of its agent are separate facts.
+// Unknown Codex stays unknown even when a pane exists or the last report says working.
+function activityUnconfirmed(card) {
+  if (card.native && 'unconfirmed' in card.native) return card.native.unconfirmed !== false || !!card.native.retained_at ||
+    !['pane', 'current_state.pane'].includes(card.native.source);
+  return !card.activity || ['unknown', 'last_seen_working'].includes(card.activity.kind);
+}
+function workingText(cards, short = false) {
+  const live = cards.filter(c => !c.answered);
+  const working = live.filter(c => c.activity?.kind === 'working').length;
+  const unknown = live.filter(c => c.activity?.kind !== 'working' && activityUnconfirmed(c)).length;
+  if (unknown && !working) return t('Activity unconfirmed: {count}', {count: unknown});
+  const text = short || unknown ? t('{count} working', {count: working}) : t('{count} working now', {count: working});
+  return unknown ? text + ' · ' + t('{count} unconfirmed', {count: unknown}) : text;
 }
 function activityCount(columns, id, kind) { return (columns.find(c => c.id === id)?.cards || []).filter(x => !x.answered && x.activity?.kind === kind).length; }
 function dependencyText(card) {
@@ -260,7 +283,7 @@ function renderBoard() {
   // A phone opens on Needs you when something waits for an answer, else on
   // Underway. Chosen once, on the first full read; then only a tap changes it.
   if (!S.columnPicked && !S.board.loading) { S.columnPicked = true; S.column = calls ? 'captains_call' : 'underway'; }
-  const overview = (calls === 1 ? t('{count} needs you', {count: calls}) : t('{count} need you', {count: calls})) + ' · ' + t('{count} working', {count: working}) + ' · ';
+  const overview = (calls === 1 ? t('{count} needs you', {count: calls}) : t('{count} need you', {count: calls})) + ' · ' + workingText(columns.find(c => c.id === 'underway')?.cards || [], true) + ' · ';
   if ($('overview').textContent !== overview) $('overview').textContent = overview;
   const nav = [];
   for (const c of columns) {
@@ -281,7 +304,7 @@ function renderBoard() {
     const shown = c.cards.filter(card => (S.query === '' || [card.project?.label, card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.status, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
       ...card.dependencies.map(d => d.title || d.id)].join(' ').toLocaleLowerCase(locale).includes(S.query)));
     const cards = shown.filter(card => !isLater(card)), later = shown.filter(isLater);
-    const sub = c.id === 'underway' ? t('{count} working now', {count: activityCount([{id: c.id, cards}], c.id, 'working')})
+    const sub = c.id === 'underway' ? workingText(cards)
       : c.id === 'charted' ? t('{count} ready to start', {count: activityCount([{id: c.id, cards}], c.id, 'ready')}) : '';
     const heading = append(node('div', 'column-heading'), node('span', 'column-dot'), node('h2', '', labels[c.id] || c.title), sub && node('span', 'column-sub', sub), node('span', 'column-count', String(cards.length)));
     let list = section.querySelector('.cards');
@@ -553,7 +576,7 @@ async function openTicket(key, opener) {
       const who = whoText(ticket);
       if (who) $('detail-content').append(contextRow(t('Who’s on it'), who));
       const a = ticket.activity || {}, until = a.until ? untilText(a.until) : '';
-      if (ticket.dependencies.length) $('detail-content').append(contextRow(t('Waiting on'), dependencyText(ticket)));
+      if (ticket.dependencies.length) $('detail-content').append(contextRow(t('Dependencies'), dependencyText(ticket)));
       const waitingFor = (repeatsDependencies(ticket, p.waiting_for) ? '' : p.waiting_for) || (until ? t('Until {date}', {date: until}) : a.kind === 'validation_gate' ? t('Someone to approve its checks.') : '');
       if (!['ready', 'queued'].includes(a.kind) && waitingFor) $('detail-content').append(contextRow(t('Waiting for'), waitingFor));
       if (gapLines[a.gap]) $('detail-content').append(node('p', 'activity-note', gapLines[a.gap]));
@@ -565,7 +588,7 @@ async function openTicket(key, opener) {
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
 function addTechnical(ticket, ...extra) {
-  const evidence = node('pre', 'technical-evidence', JSON.stringify({task: ticket.task, native: ticket.native, context: ticket.context}, null, 2));
+  const evidence = node('pre', 'technical-evidence', JSON.stringify({task: ticket.task, native: ticket.native, activity: ticket.activity, dependencies: ticket.dependencies, context: ticket.context}, null, 2));
   const report = ticket.report?.text ? contextRow(t('Full recorded report'), ticket.report.text) : null;
   const details = disclosure(t('Technical details'), report,
     contextRow(t('Recorded agent'), ticket.agent || t('Not recorded.')),
@@ -783,36 +806,101 @@ async function openDelivery(home, task, opener) {
 function renderDelivery() {
   const modal = S.modal, data = modal.data, content = $('detail-content'); content.replaceChildren();
   if (modal.linkNotice) content.append(node('p', 'notice', modal.linkNotice));
-  const tabs = node('nav', 'detail-tabs'); tabs.setAttribute('aria-label', t("Delivery content"));
-  for (const [id, label] of [['summary', t("Summary")], ['report', t("Report")]]) { const b = button(label, () => { modal.tab = id; renderDelivery(); [...content.querySelectorAll('.detail-tabs button')].find(n => n.getAttribute('aria-pressed') === 'true')?.focus({preventScroll: true}); }); b.setAttribute('aria-pressed', String(modal.tab === id)); tabs.append(b); }
-  append(content, tabs, prose(data[modal.tab]));
+  if (data.notice) content.append(node('p', 'notice', data.notice));
+  // What changed comes first; without a summary the report opens right away.
+  const views = [['summary', t("Summary")], ['report', t("Report")]].filter(([id]) => data[id]);
+  if (!views.some(([id]) => id === modal.tab)) modal.tab = views[0]?.[0] || 'summary';
+  if (views.length > 1) {
+    const tabs = node('nav', 'detail-tabs'); tabs.setAttribute('aria-label', t("Delivery content"));
+    for (const [id, label] of views) { const b = button(label, () => { modal.tab = id; renderDelivery(); [...content.querySelectorAll('.detail-tabs button')].find(n => n.getAttribute('aria-pressed') === 'true')?.focus({preventScroll: true}); }); b.setAttribute('aria-pressed', String(modal.tab === id)); tabs.append(b); }
+    content.append(tabs);
+  }
+  if (!views.length) content.append(node('p', 'detail-empty', t("No summary or report for this one.")));
+  else if (modal.tab === 'summary') content.append(prose(data.summary));
+  else content.append(markdown(data.report_text || data.report), data.report_lead ? disclosure(t("Branch, commits and paths"), markdown(data.report_lead)) : '');
   // A PR address left the title; it opens from here instead.
   for (const link of data.links || []) {
     const a = node('a', 'report-link', link.pr ? t('See PR #{number} ↗', {number: link.pr}) : t('Open link ↗'));
     a.href = link.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; content.append(a);
   }
-  content.append(disclosure(t('Technical details'), prose(data.details), contextRow(t('History sources'), data.sources), contextRow(t('Date provenance'), data.time?.detail)));
+  // One control, one line of where the request stands.
   const actions = node('div', 'explain-actions');
-  const ask = button(t("Ask Firstmate to explain"), requestExplanation); ask.id = 'explain-request';
-  const status = button(t("Check status"), refreshExplanation);
-  const text = node('p', 'explain-status', t("Checking doesn’t send anything.")); text.id = 'explain-status'; text.setAttribute('role', 'status');
-  append(actions, ask, status, text); content.append(actions);
+  const ask = button(t("Ask Firstmate to explain it"), requestExplanation); ask.id = 'explain-request';
+  const text = node('span', 'explain-status'); text.id = 'explain-status'; text.setAttribute('role', 'status');
+  const reply = node('div', 'explain-reply'); reply.id = 'explain-reply'; reply.hidden = true;
+  append(actions, ask, text); content.append(actions, reply);
+  content.append(disclosure(t('Technical details'), prose(data.details), contextRow(t('History sources'), data.sources), contextRow(t('Date provenance'), data.time?.detail),
+    data.original_title && data.original_title !== data.title ? contextRow(t('Original title'), data.original_title) : null));
   if (modal.explanation) explanationView(modal.explanation);
   addStableLink(modal.home, modal.task, 'delivery');
 }
+// A report's Markdown as plain page elements: nothing in it runs or loads,
+// and only a web address becomes a link.
+function inline(target, text) {
+  let at = 0;
+  for (const m of String(text).matchAll(/\*\*([^*\n]+)\*\*|__([^_\n]+)__|`([^`\n]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>()\[\]]*[^\s<>()\[\].,;:!?'"»])/g)) {
+    target.append(text.slice(at, m.index)); at = m.index + m[0].length;
+    if (m[1] || m[2]) target.append(node('strong', '', m[1] || m[2]));
+    else if (m[3]) target.append(node('code', '', m[3]));
+    else {
+      const url = m[5] || m[6], label = m[4] || m[6];
+      if (!/^https?:\/\//i.test(url)) { target.append(label); continue; }
+      const a = node('a', '', label); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; target.append(a);
+    }
+  }
+  target.append(String(text).slice(at)); return target;
+}
+function markdown(text) {
+  const root = node('div', 'prose report');
+  let lines = [], list = null, fence = null, table = null;
+  const flush = () => { if (lines.join('\n').trim()) root.append(inline(node('p'), lines.join('\n').trim())); lines = []; };
+  for (const line of String(text || '').split('\n')) {
+    if (fence) { if (/^\s*(```|~~~)/.test(line)) { root.append(append(node('pre'), node('code', '', fence.join('\n')))); fence = null; } else fence.push(line); continue; }
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)[\s#]*$/), item = line.match(/^\s*([-*+]|\d+[.)])\s+(.+)/);
+    if (!/^\s*\|/.test(line)) table = null;
+    if (/^\s*(```|~~~)/.test(line)) { flush(); list = null; fence = []; }
+    else if (/^\s*\|/.test(line)) {
+      flush(); list = null;
+      const cells = line.trim().replace(/^\||\|$/g, '').split('|').map(cell => cell.trim());
+      if (cells.every(cell => /^:?-{2,}:?$/.test(cell))) continue;
+      if (!table) { table = node('table'); root.append(append(node('div', 'table-scroll'), table)); }
+      table.append(append(node('tr'), ...cells.map(cell => inline(node(table.children.length ? 'td' : 'th'), cell))));
+    }
+    else if (heading) { flush(); list = null; root.append(inline(node(heading[1].length <= 2 ? 'h3' : 'h4'), heading[2])); }
+    else if (item) {
+      flush(); const tag = /\d/.test(item[1]) ? 'ol' : 'ul';
+      if (!list || list.tagName.toLowerCase() !== tag) { list = node(tag); root.append(list); }
+      list.append(inline(node('li'), item[2]));
+    }
+    else if (!line.trim()) { flush(); list = null; }
+    // An indented line goes on with the item above it.
+    else if (list && /^\s{2,}\S/.test(line)) inline(list.lastChild, ' ' + line.trim());
+    else { list = null; lines.push(line.replace(/^\s*>\s?/, '')); }
+  }
+  if (fence) root.append(append(node('pre'), node('code', '', fence.join('\n'))));
+  flush(); return root;
+}
 function explanationView(data) {
   if (!$('explain-status')) return;
-  const meanings = { absent: t("You haven’t asked yet."), queued: t("Asked. Firstmate hasn’t seen it yet."), saved_unannounced: t("Asked, but not sure Firstmate was told."), acknowledged: t("Firstmate got your request."), answered: t("Firstmate left a reply."), unsupported: t("This space can’t take explanation requests yet."), error: t("Couldn’t check the request.") };
-  const reply = data.receipt?.reply;
-  const text = (meanings[data.state] || t("Not sure yet.")) + (data.message ? '\n' + data.message : '') + (reply?.body ? t('\n\nReply from Firstmate:\n') + reply.body + (reply.at ? '\n' + dateFmt.format(new Date(reply.at)) : '') : '');
+  const lines = { queued: t("Asked. Firstmate hasn’t seen it yet."), saved_unannounced: t("Asked, but not sure Firstmate was told."), acknowledged: t("Firstmate is on it."), answered: t("Firstmate replied below."), unsupported: data.message || t("This space can’t take explanation requests yet."), error: t("Couldn’t check the request.") };
+  const text = lines[data.state] || '';
   if ($('explain-status').textContent !== text) $('explain-status').textContent = text;
-  $('explain-request').disabled = S.busy || !S.online || ['queued', 'acknowledged', 'answered', 'unsupported'].includes(data.state);
+  $('explain-status').title = data.state === 'error' ? data.message || '' : '';
+  const reply = data.receipt?.reply, box = $('explain-reply');
+  box.hidden = !reply?.body;
+  if (reply?.body && box.dataset.body !== reply.body + (reply.at || '')) {
+    box.dataset.body = reply.body + (reply.at || '');
+    box.replaceChildren(markdown(reply.body), reply.at ? node('p', 'muted', dateFmt.format(new Date(reply.at))) : '');
+  }
+  const ask = $('explain-request');
+  ask.hidden = data.state === 'unsupported';
+  ask.disabled = S.busy || !S.online || ['queued', 'acknowledged', 'answered'].includes(data.state);
 }
 async function refreshExplanation() {
   const modal = S.modal; if (modal?.type !== 'delivery' || modal.readingExplanation) return;
   modal.readingExplanation = true;
   try { const data = await api(`api/delivery/${encodeURIComponent(modal.home)}/${encodeURIComponent(modal.task)}/explanation`); if (S.modal === modal) { modal.explanation = data; explanationView(data); } }
-  catch (err) { if (S.modal === modal && $('explain-status')) $('explain-status').textContent = err.message; }
+  catch (err) { if (S.modal === modal && $('explain-status')) { $('explain-status').textContent = t("Couldn’t check the request."); $('explain-status').title = err.message; } }
   finally { modal.readingExplanation = false; }
 }
 async function requestExplanation() {

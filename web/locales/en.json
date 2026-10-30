@@ -643,5 +643,15 @@
   "Firstmate’s last update was {time}.": "Firstmate’s last update was {time}.",
   "Firstmate posted an update {time}.": "Firstmate posted an update {time}.",
   "Install “{title}”": "Install “{title}”",
-  "Install {task}": "Install {task}"
+  "Install {task}": "Install {task}",
+  "No summary or report for this one.": "No summary or report for this one.",
+  "Branch, commits and paths": "Branch, commits and paths",
+  "Ask Firstmate to explain it": "Ask Firstmate to explain it",
+  "Firstmate is on it.": "Firstmate is on it.",
+  "Firstmate replied below.": "Firstmate replied below.",
+  "Activity unconfirmed": "Activity unconfirmed",
+  "Activity unconfirmed: {count}": "Activity unconfirmed: {count}",
+  "{count} unconfirmed": "{count} unconfirmed",
+  "Dependencies need a check": "Dependencies need a check",
+  "Dependencies": "Dependencies"
 }

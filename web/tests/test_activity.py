@@ -1,5 +1,8 @@
 """The board says what is happening now, from the reproduced busy-looking fleet."""
 from datetime import date, timedelta
+import http.client
+import json
+import threading
 import os
 from pathlib import Path
 import sys
@@ -19,9 +22,12 @@ class ActivityTruthTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        env = patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(Path(self.tmp.name) / 'state'))
+        env = patch.dict(os.environ, HERDR_PLUGIN_STATE_DIR=str(Path(self.tmp.name) / 'state'), CD_WEB_LANGUAGE='en')
         env.start()
         self.addCleanup(env.stop)
+        locale = patch.object(f, '_LOCALIZATION', bridge.Localization('en'))
+        locale.start()
+        self.addCleanup(locale.stop)
 
     def board(self, firstmate_fields=False):
         root = Path(self.tmp.name) / ('with-fields' if firstmate_fields else 'today')
@@ -146,6 +152,44 @@ class ActivityTruthTests(unittest.TestCase):
         self.assertEqual(agents['cache-migration'], 'unknown')
         self.assertEqual(agents['notes-sync'], 'unknown')
         self.assertEqual(agents['api-pagination'], 'working')
+
+    def test_unknown_codex_survives_the_actual_board_http_path(self):
+        board, home = activity_fleet.unconfirmed_fleet(Path(self.tmp.name) / 'http')
+        server = bridge.Server(('127.0.0.1', 0), board, bridge.Security(8787))
+        server.security = bridge.Security(server.server_port)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            client = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
+            client.request('GET', '/api/board')
+            response = client.getresponse()
+            self.assertEqual(response.status, 200)
+            data = json.loads(response.read())
+            client.close()
+            cards = {c['task']: c for col in data['columns'] for c in col['cards']}
+            self.assertEqual(set(cards), {'unknown', 'resolved', 'reconcile'})
+            for card in cards.values():
+                self.assertEqual(card['native']['state'], 'unknown')
+                self.assertEqual(card['native']['source'], 'pane')
+                self.assertTrue(card['native']['unconfirmed'])
+                self.assertEqual(card['native']['retained_at'], 0)
+                self.assertEqual(card['activity']['agent'], 'present')
+                self.assertNotEqual(card['activity']['kind'], 'working')
+            # Presentation cannot repair a producer's unresolved archived dependency.
+            self.assertFalse(cards['resolved']['dependencies'][0]['unresolved'])
+            dep = cards['reconcile']['dependencies'][0]
+            self.assertEqual(dep['state'], 'done')
+            self.assertTrue(dep['unresolved'])
+            self.assertTrue(dep['reconciliation_required'])
+            # A stale retained read keeps its own time, never freshens into work.
+            stale = next(c for c in board.collector.snap.cols['underway'] if c.task == 'unknown')
+            stale.retained_at = 100
+            self.assertEqual(board.card_json(stale)['native']['retained_at'], 100)
+            self.assertFalse((Path(home.path) / 'mutations.jsonl').exists())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
     def test_language_changes_labels_only(self):
         root = Path(self.tmp.name) / 'es'

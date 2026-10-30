@@ -3,6 +3,11 @@
     "PUBLIC-MANIFEST.json": "Regenerated export manifest; never reuse the prior generated manifest as source",
     "assets/captains-call-decision-dialog.png": "Screenshot omitted from redistributable source",
     "assets/captains-deck.png": "Screenshot omitted from redistributable source",
+    "tests/fixtures/private-decision-cards/context-relay-1.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/context-relay-2-decisions.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/context-relay-fork-decisions.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/fm-structured-calls.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/lab-trust-cleanup.json": "Copy of a private installation decision card; never exported",
     "web/assets/board-desktop.png": "Legacy screenshot omitted from redistributable source",
     "web/assets/board-phone.png": "Legacy screenshot omitted from redistributable source",
     "web/push.py": "Retired push sender; not part of the current server",
@@ -10,6 +15,8 @@
     "web/static/icons/icon-512.png": "Unused PWA asset",
     "web/static/icons/icon-maskable-512.png": "Unused PWA asset",
     "web/static/manifest.webmanifest": "Retired installable PWA manifest",
+    "web/tests/private_decision_cards_dom.cjs": "Private installation decision-card DOM check",
+    "web/tests/test_private_decision_cards.py": "Private installation decision-card compatibility test",
     "web/tools/make_icons.py": "Unused icon-generation dependency",
     "web/tools/push_selftest.py": "Retired push sender test utility"
   },
@@ -52,7 +59,7 @@
     {
       "mode": "100644",
       "path": "CONTRIBUTING.md",
-      "sha256": "733ea384f622222a36d5f9942684f5f941e59bacecb2eaaeefd117ffb367d129"
+      "sha256": "1f113ac18cd520b02b7075920a92961370075cd348d1f9519b05cfa4306bb7bd"
     },
     {
       "mode": "100644",
@@ -82,12 +89,12 @@
     {
       "mode": "100644",
       "path": "herdr-plugin.toml",
-      "sha256": "4b5fa13b8dc86988ef98763cf24fd0b4b741712d635ff356461735f94207e930"
+      "sha256": "30065489d5bc16ca760588f1f2546da68f474806c867512134a4b62ba43be1a8"
     },
     {
       "mode": "100644",
       "path": "public-export.json",
-      "sha256": "b2767cc99a604aba78ad8471d147e9fb177b6779830ab9adc0f462592d2f4f70"
+      "sha256": "e6c11d385eb708ecf1490e0b3db0a4a22f03428de3118cc85b23e6890f50cebe"
     },
     {
       "mode": "100644",
@@ -102,7 +109,7 @@
     {
       "mode": "100644",
       "path": "scripts/flow_tui.py",
-      "sha256": "f6b77fbc8a5aa663d95e3e414abd70a1fcc77013774598b31aebc06555ef2804"
+      "sha256": "e350f6bf99a51c3ae3d8999161385e8c69feeaa8b763c8187fb2d2cb826dd583"
     },
     {
       "mode": "100755",
@@ -221,6 +228,11 @@
     },
     {
       "mode": "100644",
+      "path": "tests/test_flow_bearings_bounds.py",
+      "sha256": "7c55ff2784407c39314a6d341a6997c51a89011b36c1bc19244a29534a7f474c"
+    },
+    {
+      "mode": "100644",
       "path": "tests/test_flow_blocked_details.py",
       "sha256": "6ce948b44c8ed3e9eafc957a868e5981bfb3e38cee25d8ff189acc01150d65f2"
     },
@@ -292,7 +304,7 @@
     {
       "mode": "100644",
       "path": "tests/test_flow_remote_homes.py",
-      "sha256": "7e6fd198ec0ed0cd05c2fba14b23d545343979266bad49a36fb968221abe361a"
+      "sha256": "90a5bf0bff3e4b5f625055a93a973193c387ed8579a709ae34694c79992f7124"
     },
     {
       "mode": "100644",
@@ -342,22 +354,22 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "27d2b3945670d00fbbbbe2f6f00cf6a99de04943acc44e5bf25fecc4686dc575"
+      "sha256": "2a21360ae3e9a7c1739b5177524c02bfcffd2d02f4b5a9f6d1d3a5cdae01efc6"
     },
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "4440d055865931ce7113e4ff311164126acabab104471e17acd975f431b59a13"
+      "sha256": "8a432e54f1230b4437a3f2be5bffad282bea5e62931e53eec177e6d40a165c10"
     },
     {
       "mode": "100644",
       "path": "web/locales/en.json",
-      "sha256": "c3e50a4b7a5a61e387270293ad94a3847cc33597b2f52bfecb97b3c600d3899e"
+      "sha256": "6a90cf75b2437342320c435f42e3cbeb951913fbdeeb6d93c381a085c06f6c17"
     },
     {
       "mode": "100644",
       "path": "web/locales/es.json",
-      "sha256": "906710d37607d9d47ee568d9652aac76e7d0486d1c6140323dd38a7f55e201ed"
+      "sha256": "28347120283683977335626b03b69a23b4cb3b36fd29c6a49aa38ec8a9f6ba81"
     },
     {
       "mode": "100644",
@@ -367,12 +379,7 @@
     {
       "mode": "100644",
       "path": "web/presentation.py",
-      "sha256": "4b26e4d1a51bf25f8110666666b240b671b27c4507556c67412c754a9587536c"
-    },
-    {
-      "mode": "100644",
-      "path": "web/pyrightconfig.json",
-      "sha256": "437487d63003f2db82afd3b149b6d78249e3a56cc4a9349a4c0b47b80c92d9ed"
+      "sha256": "637409adabdda07d6248fba02cb0505694b6f0f0a0df06f82c9624cd94537a02"
     },
     {
       "mode": "100755",
@@ -392,7 +399,7 @@
     {
       "mode": "100644",
       "path": "web/static/app.js",
-      "sha256": "a1f4714f425897e9bb9cc1d2fbc8b90744d40f4fc55068d581708a8ca45d9c38"
+      "sha256": "93c0568325838750452d185268a1da6beb8680b20d3580f3574153d9ce70c023"
     },
     {
       "mode": "100644",
@@ -412,7 +419,7 @@
     {
       "mode": "100644",
       "path": "web/static/styles.css",
-      "sha256": "b346791da160586a420732dd12690f0ad80158c3be8f2a122960ef2ac1174daa"
+      "sha256": "4f51c1662a67a1fd6a5014493da3f605658d3c491f2543fb7c78b26eb79454ba"
     },
     {
       "mode": "100644",
@@ -427,12 +434,12 @@
     {
       "mode": "100644",
       "path": "web/tests/activity_fleet.py",
-      "sha256": "f3808ea6df354904870ea15f93d270c1cd5a09d49451eb593e81a8a05e015329"
+      "sha256": "f3666491255303e4c41d48d5109e4b8691df739cee8ecab1689e79c99c344b31"
     },
     {
       "mode": "100644",
       "path": "web/tests/board_dom.test.cjs",
-      "sha256": "9d908b0d7328b44dac1a407d0da9dce47967506fc9f0a4ac7be3a06fa87ae1a3"
+      "sha256": "76872f775e34f09acf2186717d9408d609ae615f2a910a8f51462f9ffa2e8424"
     },
     {
       "mode": "100644",
@@ -462,17 +469,17 @@
     {
       "mode": "100644",
       "path": "web/tests/test_activity.py",
-      "sha256": "05263111e05263394d8baa72e20098983d7186e28df6758107aafb7a67c9fbff"
+      "sha256": "edc998546670ad0c55335fc2459cc2de9495a5da0ba2288d061d383f6598dc70"
     },
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "652b0e608116ed48fedc309fc1814420baa64281017bbd28fb5e7df18e728500"
+      "sha256": "11b92ec27bd56caa675b23756638348672511f57a46d715249ac25d726e69e7e"
     },
     {
       "mode": "100644",
       "path": "web/tests/test_localization.py",
-      "sha256": "2fcdc33458ef55ff3aec0e790d8ffa7becf7917ca50ce598afa7bf5707f231ed"
+      "sha256": "ef5fb7c5189a8a24f16cc9b3616f5aa57069cb42031d07eb33fd188fd2563e29"
     },
     {
       "mode": "100644",
@@ -482,7 +489,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_presentation.py",
-      "sha256": "1be55f7aed5e348cc931fd4c10c592b57e0601a86329df911a3f36ed3af281b1"
+      "sha256": "65712eb811e1e244524942253fa195ac4eff4c059a32791caa6534e6db5f9cb8"
     },
     {
       "mode": "100644",

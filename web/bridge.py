@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
 from localization import Localization
-from presentation import URL_RE, card_field, drop_links, excerpt, project
+from presentation import URL_RE, card_field, drop_links, excerpt, project, report_parts
 import flow_tui as fm  # noqa: E402
 from deck_platform import endpoint_path, private_directory, safe_file_reads, shell_command
 
@@ -74,10 +74,12 @@ def human_title(value, translate=lambda text: text):
     # Canonical titles sometimes retain a report link or a PR address as a
     # trailing token. Keep the original in Details; a filesystem location or a
     # URL is not the headline, and title_links offers the address instead.
-    # Nor is a short commit hash.
+    # Nor is a short commit hash. A file the title is about keeps its name
+    # without the folders it lives in.
     text = fm.readable_markdown(str(value or ''))
     text = re.sub(r'(?<!\S)(?:data/|/[^\s]*/data/)[^\s]+\.(?:md|json|txt)(?=\s|$)', '', text)
     text = drop_links(text)
+    text = re.sub(r'(?<![\w/~.-])(?:~|/home|/tmp|/Users)/(?:[^\s/]+/)*([^\s/]+)', r'\1', text)
     return re.sub(r'\s+', ' ', text).strip(' ·–—-:,;') or translate('Task without a readable title')
 
 
@@ -91,22 +93,78 @@ def card_title(card, titles, translate):
     else the readable full title. The full one stays in Details."""
     flow = getattr(card, 'flow', None) or {}
     human = flow.get('presentation') if isinstance(flow.get('presentation'), dict) else {}
-    short = card_field(human.get('card_title'), 'card_title')
-    if short:
-        return short
-    stock = INSTALL_TITLE.fullmatch(str(card.title or '').strip())
+    return (card_field(human.get('card_title'), 'card_title')
+            or readable_title(card.title, titles, translate))
+
+
+def readable_title(value, titles, translate):
+    """A recorded title as the board reads it: the fixed install title names
+    the work it installs, by that task's title when it is known."""
+    stock = INSTALL_TITLE.fullmatch(str(value or '').strip())
     if stock:
         source = titles.get(stock[1])
         return (translate('Install “{title}”').format(title=source) if source
                 else translate('Install {task}').format(task=stock[1]))
-    return human_title(card.title, translate)
+    return human_title(value, translate)
 
 
-def record_title(record, translate):
+def record_title(record, translate, titles=None):
     """A history row's title, preferring Firstmate's short card title."""
     human = record.get('presentation') if isinstance(record.get('presentation'), dict) else {}
     return (card_field(human.get('card_title'), 'card_title')
-            or human_title(record.get('title') or record.get('id'), translate))
+            or readable_title(record.get('title') or record.get('id'), titles or {}, translate))
+
+
+def task_presentation(home, task):
+    """The card text Firstmate saved for one task (fm-tasks-axi.sh presentation:
+    card_title, card_status, group, summary…), or {} when there is none."""
+    try:
+        value = json.loads(fm.delivery_read(home.path, fm.delivery_task_prefix(task) + 'presentation.json', 32768))
+    except (OSError, ValueError):
+        return {}
+    if (not isinstance(value, dict) or value.get('schema') != 'fm-task-presentation.v1'
+            or value.get('id') != task or value.get('source') != 'task.owner.declaration'
+            or not isinstance(value.get('presentation'), dict)
+            or os.path.realpath(str(value.get('home') or '')) != os.path.realpath(home.path)):
+        return {}
+    return value['presentation']
+
+
+def record_presentation(home, record):
+    """A history row's card text: what Firstmate saved for that task wins over
+    what the history record carried. The history script doesn't copy it, so a
+    delivered task keeps the project it declared, archived or not."""
+    own = record.get('presentation') if isinstance(record.get('presentation'), dict) else {}
+    return {**own, **task_presentation(home, record['id'])}
+
+
+def linked_repos(home):
+    """Each project's installation link (install=<project>) in Firstmate's
+    registry, so a public fork counts as the project it installs into."""
+    try:
+        registry = fm.delivery_read(home.path, 'data/projects.md', 65536)
+    except (OSError, ValueError):
+        return {}
+    links = {}
+    for line in re.finditer(r'^- (\S+) \[([^\]]*)\]', registry, re.M):
+        link = re.search(r'(?:^|\s)install=(\S+)', line[2])
+        if link:
+            links[line[1]] = link[1]
+    return links
+
+
+def repo_names(home, rows):
+    """The project name each repository's tasks declared most, so a delivery
+    that declared none shares their tag and color. Ties read alphabetically."""
+    links, counts = linked_repos(home), {}
+    for row in rows:
+        repo = str(row.get('repo') or '')
+        tag = project_tag(row.get('project') or record_presentation(home, row).get('group'))
+        if repo and tag:
+            names = counts.setdefault(links.get(repo, repo), {})
+            names[tag['label']] = names.get(tag['label'], 0) + 1
+    return links, {repo: min(names, key=lambda name: (-names[name], name.casefold()))
+                   for repo, names in counts.items()}
 
 
 def title_links(value):
@@ -185,12 +243,13 @@ def backlog_sources(home):
     return config, backlog, archive
 
 
-def call_mark(home, task):
-    """A fingerprint of the one backlog row a call's identity comes from.
+def call_row(home, task):
+    """The one backlog row a call's identity comes from, with its fingerprint.
 
     Firstmate's lifecycle identity is the row's hold-set stamp and its count of
     recorded answers, both inside that row. The row runs from its checkbox line
-    to the next row or heading. None when the row isn't found exactly once.
+    to the next row or heading. Returns (mark, row lines, section heading), or
+    None when the row isn't found exactly once.
     """
     sources = backlog_sources(home)
     if not sources:
@@ -208,7 +267,35 @@ def call_mark(home, task):
     end = found[0] + 1
     while end < len(lines) and not re.match(r'- \[|#', lines[end]):
         end += 1
-    return digest(config, backlog, ''.join(lines[found[0]:end]))
+    section = next((line for line in reversed(lines[:found[0]]) if line.startswith('## ')), '')
+    return digest(config, backlog, ''.join(lines[found[0]:end])), lines[found[0]:end], section
+
+
+def call_mark(home, task):
+    row = call_row(home, task)
+    return row[0] if row else None
+
+
+def row_identity(row, section):
+    """The identity `fm-captain-hold.sh open --identity` prints, read from its row.
+
+    Mirrors Firstmate: the body is the indented or blank lines under an open
+    captain row, the stamp is its first line, and the count is its resolution
+    record lines. None when any of that isn't plain, so Firstmate is asked.
+    """
+    if (not row[0].startswith('- [ ] ') or not re.search(r'\(hold-kind:\s*captain\)', row[0])
+            or re.match(r'##\s+done', section, re.I)):
+        return None
+    body = []
+    for line in (line.rstrip('\n').removesuffix('\r') for line in row[1:]):
+        if line.strip() and not line.startswith('  '):
+            break
+        body.append(line[2:] if line.strip() else '')
+    stamp = re.fullmatch(r'Captain hold set: ([0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?)', body[0]) if body else None
+    if not stamp:
+        return None
+    count = sum(bool(re.fullmatch(r'Resolution recorded by fm-(?:captain|decision)-hold\.', line)) for line in body)
+    return f'{stamp[1]}#{count}'
 
 
 def history_mark(home):
@@ -256,12 +343,18 @@ class Board:
         self.mutation_lock = threading.Lock()
         self.history_lock = threading.Lock()
         self.history_cache = {}
-        # Opening a call reuses its lifecycle identity until its backlog row
-        # changes; answering always asks Firstmate again.
+        self.repo_cache = {}
+        # Firstmate's identity for a call is kept until its backlog row
+        # changes; until then an open reads the row, and answering always asks
+        # Firstmate again.
         self.identity_lock = threading.Lock()
         self.identities = {}
         self.identity_gates = {}
         self.warm_failed = {}
+        self.rows_contradicted = set()
+        # The read-ahead keeps whether each home's intake takes web answers,
+        # per install of its script; an answer always asks again.
+        self.capabilities = {}
         self.warming = threading.Event()
         self.stopping = threading.Event()
 
@@ -295,7 +388,7 @@ class Board:
                 time.sleep(5)
 
     def prefetch(self):
-        current = set()
+        current, checked = set(), set()
         for card in self.collector.snapshot().cols.get('captains_call', []):
             try:
                 home = self.owner(card)
@@ -303,16 +396,19 @@ class Board:
                 continue
             key = home_id(home), card.task
             current.add(key)
+            if key[0] not in checked and not fm.is_remote_home(home):
+                checked.add(key[0])
+                mark = file_mark(endpoint_path(home.path, 'fm-captain-hold.sh'))
+                self.capabilities[key[0]] = mark, self.guarded_intake(home)
             # A call Firstmate couldn't confirm is retried only once its row
             # changes; opening it still asks Firstmate.
             mark = None if fm.is_remote_home(home) else call_mark(home, card.task)
             if not mark or self.warm_failed.get(key) == mark:
                 continue
             try:
-                self.call_identity(home, card.task)
-                self.warm_failed.pop(key, None)
+                self.call_identity(home, card.task, confirm=True)
             except Refusal:
-                self.warm_failed[key] = mark
+                pass
         with self.identity_lock:
             for key in (set(self.identities) | set(self.warm_failed)) - current:
                 self.identities.pop(key, None)
@@ -371,15 +467,16 @@ class Board:
         found = {}
         for card in cards:
             found.setdefault(card.task, card_title(card, {}, self.t))
+        # Delivery history already read ahead; never a new Firstmate call.
+        # An install row names its source task, so that one comes first.
+        rows = [row for rows, *_ in list(self.history_cache.values()) for row in rows
+                if isinstance(row, dict) and row.get('id')]
+        for row in sorted(rows, key=lambda row: bool(INSTALL_TITLE.fullmatch(str(row.get('title') or '').strip()))):
+            found.setdefault(row['id'], record_title(row, self.t, found))
         for card in cards:
             for dep in getattr(card, 'dependencies', []) or []:
                 if isinstance(dep, dict) and dep.get('id') and dep.get('title'):
-                    found.setdefault(dep['id'], human_title(dep['title'], self.t))
-        # Delivery history already read ahead; never a new Firstmate call.
-        for rows, *_ in list(self.history_cache.values()):
-            for row in rows:
-                if isinstance(row, dict) and row.get('id'):
-                    found.setdefault(row['id'], record_title(row, self.t))
+                    found.setdefault(dep['id'], readable_title(dep['title'], found, self.t))
         return found
 
     def card_json(self, card, titles=None):
@@ -389,6 +486,8 @@ class Board:
         except Refusal:
             pass
         context = fm.flow_context(card, translate=self.t)
+        flow = getattr(card, 'flow', None) or {}
+        human = flow.get('presentation') if isinstance(flow.get('presentation'), dict) else {}
         report_state, report_text, report_time = fm.durable_report(card)
         pane = str(getattr(card, 'pane_id', '') or '')
         # The installed Herdr Web supports ?machine=local&pane=…&view=chat.
@@ -400,7 +499,8 @@ class Board:
         title = card_title(card, titles, self.t)
         # A dependency reads as its card does on the board, without the
         # address its recorded title may carry.
-        dependencies = [{**d, 'title': titles.get(d.get('id')) or human_title(d['title'], self.t)}
+        dependencies = [{**d, 'title': titles.get(d.get('id')) or readable_title(d['title'], titles, self.t),
+                         'original_title': d['title']}
                         if isinstance(d, dict) and d.get('title') else d
                         for d in getattr(card, 'dependencies', []) or []]
         return {'key': self.key(card), 'task': card.task, 'title': title,
@@ -412,12 +512,17 @@ class Board:
                 'report': {'state': report_state, 'text': report_text, 'time': self.event_json(report_time)},
                 'native': {'state': getattr(card, 'snapshot_state', '') or 'unknown',
                            'detail': getattr(card, 'doing', '') or self.t('No observation recorded.'),
-                           'herdr': getattr(card, 'live_status', '') or 'unknown'},
+                           'herdr': getattr(card, 'live_status', '') or 'unknown',
+                           'source': getattr(card, 'state_source', '') or flow.get('source', ''),
+                           'unconfirmed': getattr(card, 'activity_unconfirmed', True),
+                           'retained_at': getattr(card, 'retained_at', 0.0)},
                 'dependencies': dependencies,
-                'project': project_tag((getattr(card, 'flow', None) or {}).get('project')),
+                'project': project_tag(flow.get('project') or human.get('group')),
                 'supervisor': getattr(card, 'supervisor', {}) or {},
                 'time': self.event_json(getattr(card, 'event_time', None)),
-                'summary': excerpt(getattr(card, 'delivery_summary', '') or ''),
+                # Delivered work leads with what the worker said changed.
+                'summary': (excerpt(human['summary']) if isinstance(human.get('summary'), str) else '')
+                           or excerpt(getattr(card, 'delivery_summary', '') or ''),
                 'answered': bool(getattr(card, 'answered_hidden', False)),
                 # A structured Captain's Call leads its card with the short question.
                 'question': (getattr(card, 'call', None) or {}).get('question', ''),
@@ -538,20 +643,40 @@ class Board:
                 self.history_cache[identity] = rows, note, started, current
             return rows, note
 
+    def delivered_project(self, home, rows, record, human):
+        """A delivery's tag: the project it declared, else its repository's.
+        Both are recorded fields; a task id never names a project."""
+        declared = project_tag(record.get('project') or human.get('group'))
+        if declared:
+            return declared
+        identity = home_id(home)
+        with self.history_lock:
+            seen, links, names = self.repo_cache.get(identity, (None, {}, {}))
+        if seen is not rows:
+            links, names = repo_names(home, rows)
+            with self.history_lock:
+                self.repo_cache[identity] = rows, links, names
+        repo = str(record.get('repo') or '')
+        repo = links.get(repo, repo)
+        return project_tag(names.get(repo, repo))
+
     def history(self, selected='', query=''):
         homes = [self.home(selected)] if selected else self.homes()
         result, details = [], []
-        for home in homes:
-            rows, note = self.records(home)
+        listed = [(home, *self.records(home)) for home in homes]
+        titles = self.titles()
+        for home, rows, note in listed:
             details.append({'home': home.label, 'source': note})
             for row in rows:
-                project = project_tag(row.get('project'))
+                human = record_presentation(home, row)
+                project = self.delivered_project(home, rows, row, human)
+                title = card_field(human.get('card_title'), 'card_title') or record_title(row, self.t, titles)
                 if query.casefold() not in ' '.join([str(row.get(k) or '') for k in ('id', 'title', 'body', 'artifact')]
-                                                    + [project['label'] if project else '']).casefold():
+                                                    + [title, project['label'] if project else '']).casefold():
                     continue
                 event = fm.producer_card_time(row.get('card_time'), 'landed',
                                               fm.CardTime('Delivered', row.get('closed')))
-                result.append({'task': row['id'], 'title': record_title(row, self.t),
+                result.append({'task': row['id'], 'title': title,
                                'home': home_id(home), 'owner': home.label, 'project': project,
                                'time': self.event_json(event), 'closed': row.get('closed') or ''})
         # The order follows the time each row shows, not the raw closing text.
@@ -570,16 +695,36 @@ class Board:
         record = matches[0]
         content = fm.delivery_content(record, home, split_views=True, translate=self.t, report_heading=False)
         if not isinstance(content, dict):
-            content = {'summary': self.t('No summary is available for this delivery.'), 'report': '', 'details': content}
-        title = record_title(record, self.t)
+            content = {'summary': '', 'report': '', 'details': content}
+        human = record_presentation(home, record)
+        title = card_field(human.get('card_title'), 'card_title') or record_title(record, self.t, self.titles())
+        # What changed, in the one or two sentences the worker wrote at done;
+        # else the delivery's own recap. A generated "no summary yet" says
+        # nothing, so the reader opens on the report instead.
+        reopened = self.t('The task was reopened; this delivery is historical.')
+        notice = reopened if record.get('state') and record['state'] != 'done' else ''
+        summary = content['summary'].removeprefix(reopened).strip()
+        if any(summary.endswith(self.t(stock)) for stock in (
+                'No summary yet. Read the report or ask Firstmate to explain.',
+                'There’s only a technical report here, no short summary. See Details or ask Firstmate to explain.')):
+            summary = ''
         # A summary that opens by repeating the title repeats the readable one;
         # a PR address in it opens from links instead.
         echoed = fm.readable_markdown(str(record.get('title') or ''))
-        if echoed and title_links(echoed) and content['summary'].startswith(echoed):
-            content['summary'] = title + content['summary'][len(echoed):]
+        if echoed and title_links(echoed) and summary.startswith(echoed):
+            summary = title + summary[len(echoed):]
+        if isinstance(human.get('summary'), str):
+            summary = excerpt(human['summary'], 2000) or summary
+        # The report opens on what changed; a receipt it led with folds away.
+        source = content.pop('report_source', '')
+        report, report_lead = report_parts(source)
         return {'task': task, 'home': identity, 'owner': home.label, 'title': title,
-                'links': title_links(record.get('title')), 'project': project_tag(record.get('project')),
-                **content, 'sources': note,
+                'original_title': str(record.get('title') or ''),
+                'links': title_links(record.get('title')),
+                'project': self.delivered_project(home, rows, record, human),
+                **content, 'summary': summary, 'notice': notice,
+                'report': content['report'] if source else '',
+                'report_text': report, 'report_lead': report_lead, 'sources': note,
                 'time': self.event_json(fm.producer_card_time(record.get('card_time'), 'landed',
                                                        fm.CardTime('Delivered', record.get('closed'))))}
 
@@ -592,20 +737,35 @@ class Board:
             raise Refusal('This delivery isn’t in history anymore, or the task was reopened.', 404)
         return fm.explanation_request(home, task, status=status, translate=self.t)
 
-    def call_identity(self, home, task, fresh=False):
+    def call_identity(self, home, task, fresh=False, confirm=False):
         """The call's lifecycle identity, reused while its backlog row is unchanged.
 
-        fresh always asks Firstmate and replaces what was kept, so an answer is
-        checked against the live call and a missed change can't stick.
+        Without Firstmate's value for the current row, an open reads it from
+        that row the way Firstmate does, never waiting for a Firstmate call.
+        confirm skips that reading and asks Firstmate unless it gave the kept
+        value. fresh always asks Firstmate and replaces what was kept, so an
+        answer is checked against the live call and a missed change can't
+        stick. Once Firstmate contradicts a row reading, or can't confirm the
+        call, opening it asks Firstmate again.
         """
         if fm.is_remote_home(home) or not fm.KEY_RE.fullmatch(task):
             raise Refusal('You can’t answer this one from the web. Answer it in Firstmate.')
         key = (home_id(home), task)
+        if not fresh and not confirm:
+            row = call_row(home, task)
+            kept = self.identities.get(key)
+            if row and kept and kept[0] == row[0]:
+                return kept[1]
+            if row and key[0] not in self.rows_contradicted and self.warm_failed.get(key) != row[0]:
+                read = row_identity(*row[1:])
+                if read:
+                    return read
         with self.identity_lock:
             gate = self.identity_gates.setdefault(key, threading.Lock())
         # One Firstmate call per task at a time; a second reader waits for it.
         with gate:
-            mark = call_mark(home, task)
+            row = call_row(home, task)
+            mark = row[0] if row else None
             kept = self.identities.get(key)
             if not fresh and mark and kept and kept[0] == mark:
                 return kept[1]
@@ -613,7 +773,13 @@ class Board:
                 identity = self.open_identity(home, task)
             except Refusal:
                 self.identities.pop(key, None)
+                if mark:
+                    self.warm_failed[key] = mark
                 raise
+            self.warm_failed.pop(key, None)
+            read = row_identity(*row[1:]) if row else None
+            if read and read != identity and call_mark(home, task) == mark:
+                self.rows_contradicted.add(key[0])
             if mark:
                 self.identities[key] = mark, identity
             else:
@@ -694,7 +860,7 @@ class Board:
     def call_json(self, card, home, content, fresh=False):
         try:
             identity = self.call_identity(home, card.task, fresh=fresh)
-            guarded = self.guarded_intake(home)
+            guarded = self.intake_ready(home, fresh=fresh)
             error = '' if guarded else 'This Firstmate can’t take answers from the web yet. Update Firstmate or answer there.'
         except Refusal as exc:
             identity, error = '', str(exc)
@@ -707,6 +873,13 @@ class Board:
         call['error'] = self.t(error)
         call['answer_limit'] = min(fm.ANSWER_LIMIT, 512)
         return call
+
+    def intake_ready(self, home, fresh=False):
+        mark = file_mark(endpoint_path(home.path, 'fm-captain-hold.sh'))
+        kept = self.capabilities.get(home_id(home))
+        if not fresh and mark and kept and kept[0] == mark:
+            return kept[1]
+        return self.guarded_intake(home)
 
     @staticmethod
     def guarded_intake(home):

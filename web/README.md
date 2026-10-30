@@ -25,15 +25,19 @@ Until that crew-state source export lands, a working crew whose backlog row carr
 A card built from a snapshot kept after a failed or offline refresh never claims work now; it reads "Working when last seen" with the snapshot's age.
 Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
 Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
-Producers can also supply `flow.project` (history rows: `project`) as a name or `{id, label}`; each card then leads with a colored project tag, the same color in every view.
+Producers can also supply `flow.project` (history rows: `project`, else the `group` the task's own saved presentation declares) as a name or `{id, label}`; each card then leads with a colored project tag, the same color in every view.
+A delivery that declared none takes its recorded `repo`: the name other tasks of that repository declared most, following the registry's `install=` link from a public fork, else the repository's own name.
 Two or more questions from one project wait under Needs you as one stack that unfolds in place.
-Without the field a card has no tag; Deck never guesses a project from task ids.
-Deliveries open a readable summary with a separate Report view and optional technical details.
+Without those fields a card has no tag; Deck never guesses a project from task ids.
+Deliveries open the authored summary, or the formatted report directly when there is no summary.
+Branch and commit receipts fold away, while one explanation control shows the request state and any reply.
+Original artifacts remain in optional technical details.
 Cards and the detail use short, plain wording; long authored text leads with its first sentence and keeps the rest one click away.
 History searches the retained current/archive export, including deliveries beyond the recent cap.
 It lists one line per delivery, newest first by the time each row shows; rows without a recorded time come last.
 A web address in a title moves out of it and opens from the delivery detail instead.
-Opening a Captain's Call or a delivery reuses what Deck last read from Firstmate until the call's own backlog row, or the backlog, archive or completion receipt behind the delivery, changes; a background pass rereads changes as they happen.
+Opening a delivery reuses what Deck last read from Firstmate until the backlog, archive or completion receipt behind it changes.
+Opening a Captain's Call reads its lifecycle from the call's own backlog row, as Firstmate does, so a first open never waits for Firstmate; a background pass confirms it with Firstmate and rereads changes as they happen.
 Sending an answer always rechecks the live call with Firstmate, so a stale open is refused and nothing is sent.
 Cards show a compact age (`now`, `5 min`, `3 h`, `2 d`, `3 wk`, `+1 mo`; `—` when no time is recorded) that updates on every board read without replacing focused controls or announcing a timer.
 The exact browser-local time is in the card's tooltip and in the detail's date disclosure.
@@ -206,6 +210,7 @@ Existing private origin/users/Herdr-origin environment configuration remains sup
 
 The current Firstmate owner must expose `fm-captain-hold.sh capabilities --json` with schema `fm-captain-hold.capabilities.v1`, `guarded_input:single-row` and `expected_identity` including `answers` and `reconcile-requests`.
 `open TASK --identity` supplies the lifecycle (`hold-set#resolution-count`).
+On a Markdown backlog an open reads the same value from the call's row; once Firstmate disagrees for a home, its opens ask Firstmate again.
 The bridge sends that exact identity via `--expected-identity` on the public keyed-answer or reconcile-request intake.
 Firstmate compares it under the existing owner task-control lock.
 Without this capability, the question remains readable and submission fails closed.

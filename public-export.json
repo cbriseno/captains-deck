@@ -47,6 +47,7 @@
     "tests/test_flow_activity_provenance.py",
     "tests/test_flow_all_crew.py",
     "tests/test_flow_answered_calls.py",
+    "tests/test_flow_bearings_bounds.py",
     "tests/test_flow_blocked_details.py",
     "tests/test_flow_card_account.py",
     "tests/test_flow_card_time.py",
@@ -77,7 +78,6 @@
     "web/locales/es.json",
     "web/localization.py",
     "web/presentation.py",
-    "web/pyrightconfig.json",
     "web/run-managed.sh",
     "web/run.sh",
     "web/serve.py",
@@ -114,6 +114,13 @@
     "web/static/icons/icon-512.png": "Unused PWA asset",
     "web/static/icons/icon-maskable-512.png": "Unused PWA asset",
     "web/static/icons/apple-touch-icon.png": "Unused PWA asset",
+    "tests/fixtures/private-decision-cards/context-relay-1.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/context-relay-2-decisions.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/context-relay-fork-decisions.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/fm-structured-calls.json": "Copy of a private installation decision card; never exported",
+    "tests/fixtures/private-decision-cards/lab-trust-cleanup.json": "Copy of a private installation decision card; never exported",
+    "web/tests/test_private_decision_cards.py": "Private installation decision-card compatibility test",
+    "web/tests/private_decision_cards_dom.cjs": "Private installation decision-card DOM check",
     "PUBLIC-MANIFEST.json": "Regenerated export manifest; never reuse the prior generated manifest as source"
   }
 }
