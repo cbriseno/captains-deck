@@ -15,40 +15,41 @@
 <a class="skip" href="#workspace" data-i18n="Skip to board">Skip to board</a>
 <div class="shell">
 <header class="topbar">
-  <a class="brand" href="./" aria-label="Captain’s Deck, main page" data-i18n-aria-label="Captain’s Deck, main page"><span class="brand-mark" aria-hidden="true">⚓</span><span>Captain’s Deck<small>FIRSTMATE / WORKSPACE</small></span></a>
-  <label class="theme-label"><span data-i18n="Theme">Theme</span><select id="theme"><option value="system" data-i18n="System">System</option><option value="light" data-i18n="Light">Light</option><option value="dark" data-i18n="Dark">Dark</option></select></label>
+  <a class="brand" href="./" aria-label="Captain’s Deck, main page" data-i18n-aria-label="Captain’s Deck, main page"><span class="brand-mark" aria-hidden="true">⚓</span><span>Deck</span></a>
+  <p class="overview"><span id="overview" class="overview-counts"></span><span id="connection" role="status" data-i18n="Connecting…">Connecting…</span></p>
+  <label class="crew-label" hidden><span class="sr-only" data-i18n="Coordinating space">Coordinating space</span><select id="crew" aria-label="Coordinating space" data-i18n-aria-label="Coordinating space"><option value="" data-i18n="All">All</option></select></label>
+  <input id="board-search" class="board-search" aria-label="Search board" data-i18n-aria-label="Search board" type="search" placeholder="Search…" data-i18n-placeholder="Search…" autocomplete="off">
+  <button id="density" class="tool" type="button" aria-pressed="false" title="Compact" data-i18n-title="Compact"><svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><path d="M2 3h12M2 6.3h12M2 9.7h12M2 13h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="tool-label" data-i18n="Compact">Compact</span></button>
+  <button id="history-view" class="tool" type="button" aria-pressed="false" title="History" data-i18n-title="History"><svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.6V8l2.4 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="tool-label" data-i18n="History">History</span></button>
+  <button id="refresh" class="tool" type="button" aria-label="Refresh" data-i18n-aria-label="Refresh" title="Refresh" data-i18n-title="Refresh"><span aria-hidden="true">↻</span></button>
 </header>
 <main id="workspace">
-  <section class="intro" aria-labelledby="heading">
-    <div><p class="eyebrow" data-i18n="COMMAND BRIDGE">COMMAND BRIDGE</p><h1 id="heading"><span data-i18n="Your crew,">Your crew,</span><br class="phone-break"><span data-i18n=" in view."> in view.</span></h1><p class="intro-copy" id="overview" data-i18n="Loading…">Loading…</p></div>
-    <div class="connection"><span id="connection" role="status" data-i18n="Connecting…">Connecting…</span><span id="updated" data-i18n="No read yet.">No read yet.</span><button id="refresh" type="button" data-i18n="↻ Refresh">↻ Refresh</button></div>
-  </section>
   <div id="notice" class="notice" role="status" hidden></div>
-  <section id="metrics" class="metrics" aria-label="Crew overview" data-i18n-aria-label="Crew overview"></section>
-  <div class="toolbar">
-    <label class="crew-label"><span data-i18n="Coordinating space">Coordinating space</span><select id="crew" aria-label="Coordinating space" data-i18n-aria-label="Coordinating space"><option value="" data-i18n="All">All</option></select></label>
-    <div class="view-switch" aria-label="View" data-i18n-aria-label="View"><button id="board-view" type="button" aria-pressed="true" data-i18n="Board">Board</button><button id="history-view" type="button" aria-pressed="false"><span data-i18n="History">History</span> <span aria-hidden="true">↗</span></button></div>
+  <div class="workspace">
+    <div class="views">
+      <section id="board-view-panel" aria-label="Board" data-i18n-aria-label="Board">
+        <nav id="columns-nav" class="columns-nav" aria-label="Work states" data-i18n-aria-label="Work states"></nav>
+        <div id="board" class="board"><p class="placeholder" data-i18n="Loading board…">Loading board…</p></div>
+      </section>
+      <section id="history-panel" aria-labelledby="history-heading" hidden>
+        <div class="history-intro"><div><p class="eyebrow" data-i18n="CREW MEMORY">CREW MEMORY</p><h2 id="history-heading" data-i18n="What has been delivered">What has been delivered</h2><p data-i18n="Search older work by name or task.">Search older work by name or task.</p></div><label><span data-i18n="Search deliveries">Search deliveries</span><input id="history-search" type="search" placeholder="Name, initiative or task…" data-i18n-placeholder="Name, initiative or task…" autocomplete="off"></label></div>
+        <p id="history-status" class="muted" role="status"></p><div id="history-results" class="history-results"></div>
+        <details class="source-details"><summary data-i18n="Where history comes from">Where history comes from</summary><div id="history-sources"></div></details>
+      </section>
+    </div>
+    <aside id="detail-panel" class="detail-panel" aria-label="Details" data-i18n-aria-label="Details">
+      <p id="detail-empty" class="detail-empty" data-i18n="Pick a card to see it here. The board stays put.">Pick a card to see it here. The board stays put.</p>
+      <section id="detail" class="detail" aria-labelledby="detail-title" hidden>
+        <div class="detail-head"><div class="dialog-top"><span id="detail-kicker" class="eyebrow" data-i18n="DETAILS">DETAILS</span><button id="detail-close" class="close" type="button" aria-label="Close details" data-i18n-aria-label="Close details">✕</button></div>
+        <h2 id="detail-title" tabindex="-1"></h2></div><div id="detail-meta" class="muted"></div>
+        <div id="detail-content"></div>
+      </section>
+    </aside>
   </div>
-  <section id="board-view-panel" aria-label="Board" data-i18n-aria-label="Board">
-    <nav id="columns-nav" class="columns-nav" aria-label="Work states" data-i18n-aria-label="Work states"></nav>
-    <div class="board-filter"><label for="board-search" data-i18n="Search board">Search board</label><input id="board-search" aria-label="Search board" data-i18n-aria-label="Search board" type="search" placeholder="Title, reason or crew…" data-i18n-placeholder="Title, reason or crew…" autocomplete="off"></div>
-    <div id="board" class="board"><p class="placeholder" data-i18n="Loading board…">Loading board…</p></div>
-    <p class="footnote" data-i18n="Underway includes tasks that are waiting or finishing up.">Underway includes tasks that are waiting or finishing up.</p>
-  </section>
-  <section id="history-panel" aria-labelledby="history-heading" hidden>
-    <div class="history-intro"><div><p class="eyebrow" data-i18n="CREW MEMORY">CREW MEMORY</p><h2 id="history-heading" data-i18n="What has been delivered">What has been delivered</h2><p data-i18n="Search older work by name or task.">Search older work by name or task.</p></div><label><span data-i18n="Search deliveries">Search deliveries</span><input id="history-search" type="search" placeholder="Name, initiative or task…" data-i18n-placeholder="Name, initiative or task…" autocomplete="off"></label></div>
-    <p id="history-status" class="muted" role="status"></p><div id="history-results" class="history-results"></div>
-    <details class="source-details"><summary data-i18n="Where history comes from">Where history comes from</summary><div id="history-sources"></div></details>
-  </section>
   <section class="supervision" aria-labelledby="supervision-heading"><div class="supervision-heading"><span class="compass" aria-hidden="true">◎</span><div><h2 id="supervision-heading" data-i18n="From Firstmate">From Firstmate</h2><p data-i18n="What Firstmate says it’s doing, and how fresh that is.">What Firstmate says it’s doing, and how fresh that is.</p></div></div><div id="supervisors"><p class="muted" data-i18n="Waiting for the first read.">Waiting for the first read.</p></div></section>
   <details id="receipts-panel" class="source-details" hidden><summary data-i18n="Your answers">Your answers</summary><p data-i18n="What happened to each answer you sent.">What happened to each answer you sent.</p><div id="receipts"></div></details>
 </main>
-<footer><span class="private-mark">●</span><span data-i18n="Private view. Firstmate keeps your tasks and answers.">Private view. Firstmate keeps your tasks and answers.</span><span id="timezone"></span></footer>
+<footer><span class="private-mark">●</span><span data-i18n="Private view. Firstmate keeps your tasks and answers.">Private view. Firstmate keeps your tasks and answers.</span><span id="timezone"></span><label class="theme-label"><span data-i18n="Theme">Theme</span><select id="theme"><option value="system" data-i18n="System">System</option><option value="light" data-i18n="Light">Light</option><option value="dark" data-i18n="Dark">Dark</option></select></label></footer>
 </div>
-<dialog id="detail" aria-labelledby="detail-title">
-  <div class="dialog-top"><span id="detail-kicker" class="eyebrow" data-i18n="DETAILS">DETAILS</span><button id="detail-close" class="close" type="button" aria-label="Close details" data-i18n-aria-label="Close details">✕</button></div>
-  <h2 id="detail-title" tabindex="-1"></h2><div id="detail-meta" class="muted"></div>
-  <div id="detail-content"></div>
-</dialog>
 </body>
 </html>

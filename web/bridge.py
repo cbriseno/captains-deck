@@ -34,8 +34,9 @@ import flow_tui as fm  # noqa: E402
 from deck_platform import endpoint_path, private_directory, safe_file_reads, shell_command
 
 STATIC = HERE / 'static'
-COLUMNS = [('charted', 'Up next'), ('underway', 'Underway'),
-           ('captains_call', 'Needs you'), ('landed', 'Delivered')]
+# What needs the captain leads; the board reads left to right toward done.
+COLUMNS = [('captains_call', 'Needs you'), ('underway', 'Underway'),
+           ('charted', 'Up next'), ('landed', 'Delivered')]
 MAX_BODY = 16384
 # The fixed line the Deck's message-Firstmate path sends after a main-owned
 # answer is recorded. It points at the record and never carries the answer.
@@ -381,6 +382,30 @@ class Board:
         result['call'] = self.call_json(card, home, content)
         return result
 
+    def call_report(self, key):
+        """The call's linked report, read under the same rules as a delivery.
+
+        Only a local text file under the owning home's data/<task>/ is read; a
+        web link is opened by the browser itself.
+        """
+        card = self.card(key)
+        if card.bucket != 'captains_call':
+            raise Refusal('This task has no question waiting.', 404)
+        home = self.owner(card)
+        link = str(self.content(card, home).get('link') or '').strip()
+        if fm.is_remote_home(home):
+            raise Refusal('This crew is remote, so its report isn’t here.', 404)
+        relative = os.path.relpath(link, os.path.realpath(home.path)) if os.path.isabs(link) else link
+        if not link or not re.fullmatch(r'data/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[^\0\\]+\.(?:md|txt)', relative):
+            raise Refusal('This question has no report to open here.', 404)
+        try:
+            text = fm.delivery_read(home.path, relative, fm.DELIVERY_FILE_LIMIT)
+        except FileNotFoundError:
+            raise Refusal('The report file isn’t there anymore.', 404)
+        except (OSError, ValueError):
+            raise Refusal('Couldn’t open this report.', 404)
+        return {'path': relative, 'text': fm.delivery_text(text)}
+
     def call_json(self, card, home, content):
         try:
             identity = self.call_identity(home, card.task)
@@ -699,6 +724,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = board.resolve(value('home'), value('task'), value('view'), actor, value('item')[:160])
             elif len(parts) == 3 and parts[:2] == ['api', 'ticket'] and not unsafe:
                 data = board.ticket(parts[2])
+            elif len(parts) == 4 and parts[:2] == ['api', 'ticket'] and parts[3] == 'report' and not unsafe:
+                data = board.call_report(parts[2])
             elif len(parts) == 4 and parts[:2] == ['api', 'ticket'] and parts[3] == 'answer' and unsafe:
                 data = board.submit(parts[2], body, actor)
             elif len(parts) in (4, 5) and parts[:2] == ['api', 'delivery']:

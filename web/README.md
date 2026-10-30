@@ -6,14 +6,17 @@ The bridge imports `scripts/flow_tui.py`, so the terminal and web use the same t
 There is no second backlog or supervisor.
 The established terminal interactions are preserved.
 
+Columns run Needs you, Underway, Up next and Delivered.
 On a phone, four named state buttons select one full-width column.
-Desktop has four columns; tablets have two.
+A wide screen keeps a detail panel beside the board: four columns when each keeps about 250 px, otherwise two; below 900 px the detail opens inside its card.
+Nothing opens as a dialog; Esc, a tap outside or the same card again closes the detail.
 Integration remains a phase of Underway.
-Cards lead with a human summary, the registered executor, dependencies and any concrete recorded next action.
+Each card has one fixed top row (state, return date, age), its full title and, in Normal, one line of what is happening; Compact drops that line and the choice is remembered in the browser.
+Card text is never cut or clamped; a long line keeps its first full sentence.
 The source home coordinates work; it is not the executor.
-Absent summaries, resume conditions and next actions remain explicit information gaps for Firstmate to fill.
+A card without a summary shows no placeholder; the detail keeps absent summaries, resume conditions and next actions as explicit gaps for Firstmate to fill.
 Each card states what is happening now: an agent working, a validation run, or what it waits for (another task, a decision, an approval, a date).
-The header and the Underway heading count only agents whose own pane Firstmate reports busy; a working verdict from a status log or any other source is not counted, and Underway still lists every open task.
+The top line and the Underway heading count only agents whose own pane Firstmate reports busy; a working verdict from a status log or any other source is not counted, and Underway still lists every open task.
 Up next separates work ready to start from work blocked by another task, held, or deferred to a date.
 Validation job progress does not establish live native worker activity.
 Firstmate's endpoint probe shows only that an agent's pane exists, not that an agent runs in it; hold and pause end dates appear only when Firstmate exports them as fields, never from reason text.
@@ -23,10 +26,10 @@ A card built from a snapshot kept after a failed or offline refresh never claims
 Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
 Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
 Deliveries open a readable summary with a separate Report view and optional technical details.
-Cards and dialogs use short, plain wording; long authored text leads with its first sentence and keeps the rest one click away.
+Cards and the detail use short, plain wording; long authored text leads with its first sentence and keeps the rest one click away.
 History searches the retained current/archive export, including deliveries beyond the recent cap.
-Relative event time is primary and updates while the view stays open without replacing focused controls or announcing a timer.
-The date disclosure opens with touch or keyboard and shows exact browser-local time.
+Cards show a compact age (`now`, `5 min`, `3 h`, `2 d`, `3 wk`, `+1 mo`; `—` when no time is recorded) that updates on every board read without replacing focused controls or announcing a timer.
+The exact browser-local time is in the card's tooltip and in the detail's date disclosure.
 Date-only events keep their calendar date and never acquire an hour; unknown times and future clock uncertainty stay explicit.
 UTC and original provenance remain in technical details.
 
@@ -159,7 +162,7 @@ Only presentation changes: task titles, authored questions/options, reports, ans
 Exact times use the selected locale and the browser’s timezone; date-only events keep their calendar date without inventing a time or shifting across timezones.
 Provenance retains the original source and timestamp values.
 
-The header’s **Theme** selector offers **System**, **Light** and **Dark**.
+The footer’s **Theme** selector offers **System**, **Light** and **Dark**.
 System is the initial choice and follows the operating system’s appearance, including changes while the page is open.
 An explicit choice persists in that browser’s local storage for the Deck origin; another browser or origin has its own choice.
 When storage is disabled the choice works for the current page.
@@ -173,7 +176,7 @@ To add a language, copy the English catalog, translate its values, and extend th
 No translation framework or service is needed.
 The terminal board reads these same catalogs; its shared helpers accept an optional presentation callback, which the web uses to supply its own language.
 Never run a translator over authored task content or decision payloads.
-Use `t(...)` for new UI chrome and `data-i18n`, `data-i18n-aria-label` or `data-i18n-placeholder` for static document text.
+Use `t(...)` for new UI chrome and `data-i18n`, `data-i18n-aria-label`, `data-i18n-placeholder` or `data-i18n-title` for static document text.
 Catalog values enter the page through `textContent` and safe attribute setters.
 
 ## Optional private HTTPS proxy
@@ -240,6 +243,7 @@ Identifiers are server-issued opaque owner/card IDs; clients cannot supply files
 | GET | `/health` | Readiness: 503 while the first snapshot is loading or unavailable, 200 after a valid snapshot |
 | GET | `/api/board?home=ID` | Four states, sources, owner declarations and session CSRF |
 | GET | `/api/ticket/KEY` | Full task context or current question/options |
+| GET | `/api/ticket/KEY/report` | The call's linked report file, only a `.md`/`.txt` under the owner's `data/TASK/` |
 | POST | `/api/ticket/KEY/answer` | Explicit answer: value, note, occurrence, request_id |
 | GET | `/api/receipts` | This actor’s latest ten durable answer receipts |
 | GET | `/api/history?home=ID&q=TEXT` | Retained history search, up to 1000 results with omission count |
@@ -259,7 +263,11 @@ Health confirms collector readiness; source timestamps and errors on the board d
 python3 -m unittest discover -s /absolute/captains-deck/web/tests -p 'test_*.py' -v
 node /absolute/captains-deck/web/tests/localization.test.cjs
 node /absolute/captains-deck/web/tests/board_dom.test.cjs
+node /absolute/captains-deck/web/tests/board_layout.browser.cjs
 ```
+
+The layout check drives headless Chrome over a synthetic board at 1440, 1024 and 390 px and fails on any card text that is cut, clamped or outside its card, a card that moves when the detail opens, or a hidden recommended choice on a phone.
+It skips without Chrome; set `CD_TEST_CHROME` to a Chrome or Chromium binary.
 
 The browser-helper tests run under Node.js 22, the version CI pins; production still requires only Python.
 The public CI runs the launcher and language configuration checks on Linux, macOS and Windows.

@@ -22,7 +22,7 @@ class Element {
   remove() { this.detach(); }
   contains(node) { for (let n = node; n; n = n.parentElement) if (n === this) return true; return false; }
   closest(selector) { for (let n = this; n; n = n.parentElement) if (n.matches(selector)) return n; return null; }
-  matches(selector) { const m = selector.match(/^([a-z]*)((?:\.[\w-]+)*)$/); if (!m) throw new Error('Unsupported selector ' + selector);
+  matches(selector) { const m = selector.match(/^([a-z0-9]*)((?:\.[\w-]+)*)$/); if (!m) throw new Error('Unsupported selector ' + selector);
     const classes = (m[2] || '').split('.').filter(Boolean); const own = this.className.split(/\s+/);
     return (!m[1] || this.tagName === m[1].toUpperCase()) && classes.every(c => own.includes(c)); }
   querySelectorAll(selector) {
@@ -54,7 +54,8 @@ function makeDom() {
     if (selector === 'input[name="answer"]:checked') return nodes.find(n => n.tagName === 'INPUT' && n.name === 'answer' && n.checked) || null;
     return nodes.find(n => n.matches(selector)) || null;
   };
-  doc.addEventListener = () => {};
+  doc.listeners = {};
+  doc.addEventListener = (type, fn) => { (doc.listeners[type] ||= []).push(fn); };
   return doc;
 }
 
@@ -68,16 +69,15 @@ function board(underway) {
   return { homes: [{ id: '/home/example/space', label: 'example' }], columns, sources: [], source_ttl: 60, error: null, loading: false, csrf: 'synthetic' };
 }
 
-async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = {}, messages = {}) {
-  const doc = makeDom(), timers = [], requests = [], storage = new Map();
-  doc.getElementById('detail').showModal = function () { this.open = true; };
-  doc.getElementById('detail').close = function () { this.open = false; for (const fn of this.listeners.close || []) fn(); };
+async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = {}, messages = {}, setup = {}) {
+  const doc = makeDom(), timers = [], requests = [], storage = new Map(), local = setup.local || new Map();
   class FixedDate extends Date { constructor(...args) { args.length ? super(...args) : super(clock); } static now() { return clock; } }
   let current = initial;
   const fetch = async (url, options = {}) => {
     requests.push({url, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null});
     if (url.startsWith('api/locale')) return { ok: true, json: async () => ({ locale: Object.keys(messages).length ? 'es' : 'en', messages }) };
     if (url.startsWith('api/board')) return { ok: true, json: async () => JSON.parse(JSON.stringify(current)) };
+    if (url.startsWith('api/history')) return { ok: true, json: async () => JSON.parse(JSON.stringify(setup.history || {records: [], details: [], omitted: 0, scope: ''})) };
     if (url.startsWith('api/ticket/')) {
       const entry = tickets[decodeURIComponent(url.slice('api/ticket/'.length))];
       return typeof entry === 'function' ? entry() : { ok: true, json: async () => JSON.parse(JSON.stringify(entry)) };
@@ -85,7 +85,8 @@ async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = 
     return { ok: true, json: async () => ({ receipts: [] }) };
   };
   const context = vm.createContext({ document: doc, fetch, navigator: {}, location: { href: 'http://localhost/', search: '' },
-    matchMedia: () => ({ matches: false, addEventListener() {} }), setInterval: (fn) => timers.push(fn), setTimeout, clearTimeout,
+    matchMedia: (query) => ({ matches: !!setup.phone && /max-width/.test(query), addEventListener() {} }), setInterval: (fn) => timers.push(fn), setTimeout, clearTimeout,
+    localStorage: { getItem(key) { return local.get(key) ?? null; }, setItem(key, value) { local.set(key, value); } },
     AbortController, URL, URLSearchParams, Intl, Date: FixedDate, JSON, Map, Set, Promise, crypto: require('node:crypto').webcrypto, Option: function Option(text, value) { return Object.assign(new Element('option', doc), { text, value }); },
     sessionStorage: { getItem(key) { return storage.get(key) || null; }, setItem(key, value) { storage.set(key, value); } } });
   context.window = context;
@@ -94,7 +95,7 @@ async function mountBoard(initial, clock = Date.UTC(2026, 0, 15, 12), tickets = 
   vm.runInContext(fs.readFileSync(path.join(root, 'static/app.js'), 'utf8'), context);
   const flush = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve)); };
   await flush();
-  return { doc, flush, requests, poll: timers[0], setBoard(next) { current = next; } };
+  return { doc, flush, requests, local, poll: timers[0], setBoard(next) { current = next; } };
 }
 
 const underwayList = (doc) => doc.getElementById('board').children.find(s => s.dataset.kind === 'underway').querySelector('.cards');
@@ -132,28 +133,27 @@ test('board counts agents working now and names what every other card waits for'
   const view = await mountBoard(data);
   const section = (kind) => view.doc.getElementById('board').children.find(s => s.dataset.kind === kind);
   const chips = (kind) => Object.fromEntries(cardsIn(section(kind).querySelector('.cards')).map(c => [c.dataset.key, c.querySelector('.phase').textContent]));
-  assert.ok(view.doc.getElementById('overview').textContent.includes('2 working now · 8 underway'));
+  // The top line says what needs you and who works; the columns say the rest.
+  assert.equal(view.doc.getElementById('overview').textContent, '0 need you · 2 working · ');
   assert.equal(section('underway').querySelector('.column-sub').textContent, '2 working now');
   assert.equal(section('charted').querySelector('.column-sub').textContent, '1 ready to start');
-  assert.equal(view.doc.getElementById('metrics').children.find(m => m.dataset.kind === 'underway').querySelector('.metric-note').textContent, '2 working now');
   const underway = chips('underway');
   assert.equal(underway.a, 'Working now'); assert.equal(underway.v, 'Checks running');
-  assert.match(underway.p, /^Paused until .*2026/); assert.equal(underway.f, 'Done, not closed yet');
+  assert.equal(underway.f, 'Done, not closed yet');
   assert.equal(underway.l, 'Working when last seen · 2 hours ago');
-  assert.deepEqual(chips('charted'), {r: 'Ready to start', d: 'Deferred until Jan 22, 2026', h: 'On hold', w: 'Waiting on another task'});
-  const agents = Object.fromEntries(cardsIn(section('underway').querySelector('.cards')).map(c => [c.dataset.key, c.querySelector('.activity-note')]));
-  assert.deepEqual(Object.fromEntries(Object.entries(agents).map(([k, n]) => [k, [n.dataset.agent, n.textContent]])), {
-    a: ['working', 'Agent is working'], b: ['working', 'Agent is working'], v: ['validation', 'Checks are running'],
-    p: ['none', 'No agent running'], f: ['present', 'Agent is open but idle'], u: ['unknown', 'Agent status unknown'],
-    o: ['open', 'Agent is open'], l: ['open', 'Agent is open']});
+  // A return date is its own short tag beside the state.
+  assert.equal(underway.p, 'Paused');
+  assert.deepEqual(chips('charted'), {r: 'Ready to start', d: 'Deferred', h: 'On hold', w: 'Waiting on another task'});
+  const dates = (kind) => Object.fromEntries(cardsIn(section(kind).querySelector('.cards')).filter(c => c.querySelector('.card-date')).map(c => [c.dataset.key, c.querySelector('.card-date').textContent]));
+  assert.deepEqual(dates('underway'), {p: 'Jan 20'}); assert.deepEqual(dates('charted'), {d: 'Jan 22'});
+  // The agent line lives in the detail, not on every card.
+  assert.equal(descendants(view.doc.getElementById('board')).some(n => n.className === 'activity-note'), false);
   assert.equal(descendants(view.doc.getElementById('board')).some(n => n.textContent === 'Live activity unverified.'), false);
 });
 
 test('updated card keeps focus on its open control across polls', async () => {
   const view = await mountBoard(board([card('k1', 'First summary')]));
   const opener = underwayList(view.doc).querySelector('.card-open');
-  const disclosure = underwayList(view.doc).querySelector('.event-time');
-  disclosure.open = true;
   opener.focus();
   view.setBoard(board([card('k1', 'Changed summary')]));
   await view.poll(); await view.flush();
@@ -162,20 +162,17 @@ test('updated card keeps focus on its open control across polls', async () => {
   assert.notEqual(focused, opener);
   assert.ok(underwayList(view.doc).contains(focused));
   assert.equal(cardsIn(underwayList(view.doc)).length, 1);
-  assert.equal(underwayList(view.doc).querySelector('.event-time').open, true);
 });
 
-test('removing an earlier card keeps the focused card and its disclosure in place', async () => {
+test('removing an earlier card keeps the focused card in place', async () => {
   const view = await mountBoard(board([card('a', 'A'), card('b', 'B'), card('c', 'C')]));
   const opener = underwayList(view.doc).children[1].querySelector('.card-open');
-  underwayList(view.doc).children[1].querySelector('.event-time').open = true;
   opener.focus();
   view.setBoard(board([card('b', 'B'), card('c', 'C')]));
   await view.poll(); await view.flush();
   const list = underwayList(view.doc);
   assert.deepEqual(cardsIn(list).map(c => c.dataset.key), ['b', 'c']);
   assert.equal(view.doc.activeElement, opener);
-  assert.equal(list.children[0].querySelector('.event-time').open, true);
 });
 
 test('reordering a focused card keeps the same focused control', async () => {
@@ -194,8 +191,10 @@ test('source read, server receipt and snapshot time keep distinct events with ex
   const sources = [{home: '/home/example/space', label: 'example', received_at: received, generated: new Date(generated).toISOString(), supervisor: null, error: null}];
   const view = await mountBoard({...board([]), sources}, clock);
   const exact = (ms) => new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(ms));
-  const header = view.doc.getElementById('updated');
-  assert.equal(header.querySelector('.exact-time').textContent, exact(clock));
+  // The top line keeps freshness short; the exact read time is on hover.
+  const header = view.doc.getElementById('connection');
+  // This source was last received an hour ago, so the phrase says so.
+  assert.equal(header.textContent, 'Out of date'); assert.equal(header.title, 'Source read · ' + exact(clock));
   const row = view.doc.getElementById('supervisors').children[0];
   const times = row.querySelectorAll('.relative-time');
   assert.ok(times[0].textContent.includes('1 hour ago'));
@@ -364,7 +363,7 @@ async function questionView(tickets, messages) {
   return view;
 }
 
-test('question context retains each work title and complete safe instructions before its options', async () => {
+test('question context retains each work title and complete safe instructions after its options', async () => {
   const tickets = {
     alpha: questionTicket('alpha', 'Prepare sample release', 'Confirm sample workspace', 'Run sample-cli status --scope example.\n' + 'Keep the sample output. '.repeat(40) + '<script>sample()</script>'),
     beta: questionTicket('beta', 'Review sample guide', 'Choose sample format', 'Read docs/example.md, then choose a format.')
@@ -376,11 +375,14 @@ test('question context retains each work title and complete safe instructions be
     assert.equal(view.doc.getElementById('detail-title').textContent, ticket.title);
     const content = view.doc.getElementById('detail-content'), nodes = descendants(content);
     assert.equal(JSON.parse(nodes.find(n => n.className === 'technical-evidence').textContent).task, ticket.task);
-    assert.ok(nodes.some(n => n.tagName === 'H3' && n.textContent === ticket.call.title), content.textContent);
+    // The question shows once; the call's own short title is not a second heading.
+    assert.equal(nodes.filter(n => n.textContent === ticket.call.decide && n.tagName === 'P').length, 1);
+    assert.equal(nodes.some(n => n.textContent === ticket.call.title), false);
     const instructions = nodes.find(n => n.tagName === 'P' && n.textContent === ticket.call.detail);
     assert.ok(instructions);
     assert.equal(instructions.closest('details'), null);
-    assert.ok(nodes.indexOf(instructions) < nodes.findIndex(n => n.className === 'option-list'));
+    // How-to text follows the choices, so the recommended one stays in view.
+    assert.ok(nodes.indexOf(instructions) > nodes.findIndex(n => n.className === 'option-list'));
     assert.equal(nodes.filter(n => n.tagName === 'P' && n.textContent === ticket.call.detail).length, 1);
     assert.equal(nodes.some(n => n.tagName === 'SCRIPT'), false);
     view.doc.getElementById('detail-close').listeners.click[0]();
@@ -396,7 +398,7 @@ test('question context avoids a duplicate equal title and permits absent instruc
   assert.ok(descendants(view.doc.getElementById('detail-content')).some(n => n.className === 'option-list'), view.doc.getElementById('detail-content').textContent);
 });
 
-test('question context does not repeat a work title that differs only by title presentation', async () => {
+test('question context never adds the call title as a second question', async () => {
   const tickets = {
     markdown: {...questionTicket('markdown', 'Decide on deploy target', 'Decide on `deploy` target', ''), original_title: 'Decide on `deploy` target'},
     report: {...questionTicket('report', 'Choose release scope', 'Choose release scope data/reports/sample.md', ''), original_title: 'Choose release scope data/reports/sample.md'},
@@ -407,8 +409,9 @@ test('question context does not repeat a work title that differs only by title p
   for (const ticket of Object.values(tickets)) {
     await view.open(ticket.key);
     assert.equal(view.doc.getElementById('detail-title').textContent, ticket.title);
-    const headings = descendants(view.doc.getElementById('detail-content')).filter(n => n.className === 'call-question-title').map(n => n.textContent);
-    assert.deepEqual(headings, ['authored', 'distinct'].includes(ticket.key) ? [ticket.call.title] : [], ticket.key);
+    const nodes = descendants(view.doc.getElementById('detail-content'));
+    assert.equal(nodes.some(n => n.className === 'call-question-title'), false, ticket.key);
+    assert.equal(nodes.filter(n => n.className === 'question').map(n => n.textContent).join('|'), ticket.call.decide, ticket.key);
     view.doc.getElementById('detail-close').listeners.click[0]();
   }
 });
@@ -473,11 +476,14 @@ test('structured options are one-click choices with the recommended one marked',
   assert.ok(choices[0].className.includes('recommended-choice'));
   // Re-check stays available, below the real choices and out of the primary list.
   const recheck = nodes.find(n => n.tagName === 'BUTTON' && n.dataset.value === 'reconcile');
-  assert.equal(recheck.textContent, 'Check again first'); assert.equal(list.contains(recheck), false);
+  // Its one-line meaning sits on the button itself, not in a loose note.
+  assert.equal(recheck.querySelector('strong').textContent, 'Check again first');
+  assert.equal(recheck.querySelector('small').textContent, 'Nothing gets decided yet.'); assert.equal(list.contains(recheck), false);
+  assert.equal(nodes.some(n => n.className === 'answer-help'), false);
   // Free text is the secondary path: folded away until the captain opens it.
   const fold = nodes.find(n => n.tagName === 'DETAILS' && n.className.includes('own-words-fold'));
   assert.equal(fold.open, false); assert.ok(fold.contains(view.doc.getElementById('answer-note')));
-  const link = nodes.find(n => n.tagName === 'A' && n.textContent === 'Read the full report ↗');
+  const link = nodes.find(n => n.tagName === 'A' && n.textContent === 'See the full report ↗');
   assert.equal(link.href, 'https://example.com/report'); assert.equal(link.rel, 'noopener noreferrer');
   assert.ok(view.requests.every(r => r.method === 'GET'));
   tickets['pick/answer'] = {saved: true, state: 'saved', message: 'Answer saved by Firstmate.', notice: 'unknown', ack: 'unknown', consumed: 'unknown'};
@@ -534,7 +540,7 @@ test('a call without options keeps the plain own-words flow and the re-check cho
   assert.ok(technical.textContent.includes('512 bytes'));
 });
 
-test('long context and card text lead with one short line and keep the rest on demand', async () => {
+test('long context leads with one short line; a card shows its whole title and never cuts its line', async () => {
   const long = 'The sample migration touches three services. ' + 'It also needs a long explanation of the trade-offs. '.repeat(8);
   const ticket = structuredTicket('long', [{value: 'staged', label: 'Staged', hint: ''}, reconcile], {about: long});
   const view = await questionView({long: ticket}); await view.open('long');
@@ -544,16 +550,16 @@ test('long context and card text lead with one short line and keep the rest on d
   const data = board([{...card('wordy', long), title: 'A sample title that keeps going '.repeat(6), presentation: {summary: long.replace(/\./g, ',')}}]);
   const boardView = await mountBoard(data);
   const shown = cardsIn(underwayList(boardView.doc))[0];
-  assert.ok(descendants(shown).find(n => n.tagName === 'H3').textContent.length <= 100);
-  assert.ok(shown.querySelector('.card-reason').textContent.length <= 140);
-  assert.ok(shown.querySelector('.card-reason').textContent.endsWith('…'));
+  assert.equal(descendants(shown).find(n => n.tagName === 'H3').textContent, data.columns[1].cards[0].title);
+  assert.equal(shown.querySelector('.card-line').textContent, long.replace(/\./g, ',').trim());
+  assert.equal(/…/.test(shown.textContent), false);
 });
 
 test('a lead line does not stop at an abbreviation', async () => {
   const lead = 'Upgrade the CI image to Node 20 vs. Node 18, e.g. for the newer test runner.';
   const text = lead + ' Then rerun every sample check and compare the timings with the previous image.'.repeat(3);
   const view = await mountBoard(board([{...card('abbr', ''), presentation: {summary: text}}]));
-  assert.equal(cardsIn(underwayList(view.doc))[0].querySelector('.card-reason').textContent, lead);
+  assert.equal(cardsIn(underwayList(view.doc))[0].querySelector('.card-line').textContent, lead);
   const call = structuredTicket('abbr', [{value: 'staged', label: 'Staged', hint: ''}, reconcile], {about: text});
   const callView = await questionView({abbr: call}); await callView.open('abbr');
   const context = descendants(callView.doc.getElementById('detail-content')).find(n => n.className === 'call-context');
@@ -565,9 +571,10 @@ test('a lead line skips abbreviations anywhere and otherwise cuts at a word', as
   const safe = lead + ' Postgres has the better tooling for the sample reports and the team already knows it well.';
   const unsafe = 'Pick the cache for the sample service, Redis vs. Memcached, e.g. for session data, i.e. The login tokens, approx. Ten thousand keys per node, as Dr. Example said.';
   const view = await mountBoard(board([{...card('safe', ''), presentation: {summary: safe}}, {...card('unsafe', ''), presentation: {summary: unsafe}}]));
-  const reasons = Object.fromEntries(cardsIn(underwayList(view.doc)).map(c => [c.dataset.key, c.querySelector('.card-reason').textContent]));
+  const reasons = Object.fromEntries(cardsIn(underwayList(view.doc)).map(c => [c.dataset.key, c.querySelector('.card-line').textContent]));
   assert.equal(reasons.safe, lead);
-  assert.equal(reasons.unsafe, 'Pick the cache for the sample service, Redis vs. Memcached, e.g. for session data, i.e. The login tokens, approx. Ten thousand keys per…');
+  // No safe sentence end: the whole line stays rather than a cut one.
+  assert.equal(reasons.unsafe, unsafe);
 });
 
 test('a plain “no.” ends a lead sentence while the number abbreviation “No.” does not', async () => {
@@ -576,7 +583,7 @@ test('a plain “no.” ends a lead sentence while the number abbreviation “No
   const number = 'Before the release we still have to close the sample ticket No. Twelve for the billing service. ' +
     'The rollback ticket can wait until the next sample review next week.';
   const view = await mountBoard(board([{...card('es', ''), presentation: {summary: spanish}}, {...card('number', ''), presentation: {summary: number}}]));
-  const reasons = Object.fromEntries(cardsIn(underwayList(view.doc)).map(c => [c.dataset.key, c.querySelector('.card-reason').textContent]));
+  const reasons = Object.fromEntries(cardsIn(underwayList(view.doc)).map(c => [c.dataset.key, c.querySelector('.card-line').textContent]));
   assert.equal(reasons.es, lead);
   assert.equal(reasons.number, 'Before the release we still have to close the sample ticket No. Twelve for the billing service.');
 });
@@ -649,9 +656,174 @@ test('the Captain’s Call dialog reads naturally in Spanish', async () => {
   const tickets = {es: structuredTicket('es', [{value: 'staged', label: 'Por etapas', hint: ''}, reconcile])};
   const view = await questionView(tickets, messages); await view.open('es');
   const text = view.doc.getElementById('detail-content').textContent;
-  for (const expected of ['Recomendada', 'Responder con mis palabras', 'Revisar otra vez primero', 'Firstmate guarda tu respuesta y sigue desde ahí.'])
+  for (const expected of ['Recomendada', 'Responder con mis palabras', 'Revisar otra vez primero', 'Aún no decides nada.'])
     assert.ok(text.includes(expected), expected);
+  assert.equal(view.doc.getElementById('detail-kicker').textContent, 'Te necesita');
   // Authored option text is never translated.
   assert.ok(text.includes('Por etapas'));
-  assert.equal(/Recommended|Answer in my own words|Check again first/.test(text), false);
+  assert.equal(/Recommended|Answer in my own words|Check again first|CAPTAIN/.test(text), false);
+});
+
+// ---- U1-U4: one top line, even cards, no dialogs, answer in place ----
+const columnOf = (view, kind) => view.doc.getElementById('board').children.find(s => s.dataset.kind === kind);
+const fullBoard = (extra = {}) => {
+  const data = board([card('w', 'Working summary.')]);
+  data.columns = [['captains_call', [{...questionTicket('q', 'Pick the sample scope', 'Pick the sample scope', ''), question: 'Which scope ships first?',
+      time: {label: 'Asked', epoch: Date.UTC(2026, 0, 15, 9) / 1000, date: null}}]],
+    ['underway', data.columns[1].cards], ['charted', [{...card('later', ''), bucket: 'charted', title: 'Filed without a summary',
+      time: {label: 'Filed', epoch: null, date: '2026-01-14'}}]], ['landed', [{...card('done', ''), bucket: 'landed', summary: 'Shipped it.'}]]]
+    .map(([id, cards]) => ({id, title: id, cards}));
+  return Object.assign(data, extra);
+};
+
+test('columns run Needs you, Underway, Up next, Delivered on the board and the phone tabs', async () => {
+  const view = await mountBoard(fullBoard());
+  const order = ['captains_call', 'underway', 'charted', 'landed'];
+  assert.deepEqual(view.doc.getElementById('board').children.map(s => s.dataset.kind), order);
+  assert.deepEqual(view.doc.getElementById('columns-nav').children.map(b => b.dataset.kind), order);
+  assert.equal(view.doc.getElementById('overview').textContent, '1 needs you · 0 working · ');
+});
+
+test('every card has the same top row, its whole title and never a placeholder', async () => {
+  const long = 'A sample title that keeps going and going '.repeat(5).trim();
+  const data = fullBoard(); data.columns[1].cards.push({...card('long', ''), title: long, time: {label: 'Last report', epoch: Date.UTC(2026, 0, 15, 11, 55) / 1000, date: null}});
+  const view = await mountBoard(data);
+  const all = view.doc.getElementById('board').children.flatMap(s => cardsIn(s.querySelector('.cards')));
+  assert.equal(all.length, 5);
+  for (const item of all) {
+    const face = item.querySelector('.card-open');
+    assert.equal(face.children[0].className, 'card-meta', item.dataset.key);
+    assert.equal(face.children[1].tagName, 'H3'); assert.equal(face.children[1].className, 't');
+    assert.ok(face.children.length <= 3, item.dataset.key);
+    assert.ok(face.children[0].lastChild.className === 'card-ago', item.dataset.key);
+    assert.equal(/…|No summary yet|no time recorded|Coordinated by|＋/.test(face.textContent), false, face.textContent);
+  }
+  const ages = Object.fromEntries(all.map(c => [c.dataset.key, c.querySelector('.card-ago').textContent]));
+  assert.deepEqual(ages, {q: '3 h', w: '—', later: '1 d', done: '—', long: '5 min'});
+  assert.equal(all.find(c => c.dataset.key === 'long').querySelector('h3').textContent, long);
+  // Ages follow the clock on every read of the board.
+  assert.ok(all.find(c => c.dataset.key === 'q').querySelector('.card-ago').title.startsWith('Asked · '));
+  // Delivered cards carry no state chip; a call shows its question, not its title twice.
+  assert.equal(all.find(c => c.dataset.key === 'done').querySelector('.phase'), null);
+  assert.equal(all.find(c => c.dataset.key === 'q').querySelector('.card-line').textContent, 'Which scope ships first?');
+  assert.equal(all.find(c => c.dataset.key === 'later').querySelector('.card-line'), null);
+});
+
+test('the coordinating space is named only when there are several', async () => {
+  const one = await mountBoard(fullBoard());
+  assert.equal(descendants(one.doc.getElementById('board')).some(n => n.className === 'card-tag'), false);
+  assert.equal(one.doc.getElementById('crew').parentElement, null);
+  const two = await mountBoard(fullBoard({homes: [{id: 'a', label: 'example'}, {id: 'b', label: 'other'}]}));
+  assert.ok(descendants(two.doc.getElementById('board')).filter(n => n.className === 'card-tag').every(n => n.textContent === 'Coordinator'));
+});
+
+test('compact mode drops only the line, and the choice is remembered', async () => {
+  const view = await mountBoard(fullBoard());
+  const density = view.doc.getElementById('density');
+  assert.equal(view.doc.getElementById('workspace').dataset.density, 'normal');
+  assert.equal(density.getAttribute('aria-pressed'), 'false');
+  const before = view.doc.getElementById('board').children.map(s => s.dataset.kind + ':' + cardsIn(s.querySelector('.cards')).map(c => c.dataset.key).join(','));
+  density.listeners.click[0]();
+  assert.equal(view.doc.getElementById('workspace').dataset.density, 'compact');
+  assert.equal(density.getAttribute('aria-pressed'), 'true'); assert.equal(view.local.get('deck-density'), 'compact');
+  assert.deepEqual(view.doc.getElementById('board').children.map(s => s.dataset.kind + ':' + cardsIn(s.querySelector('.cards')).map(c => c.dataset.key).join(',')), before);
+  const again = await mountBoard(fullBoard(), undefined, {}, {}, {local: view.local});
+  assert.equal(again.doc.getElementById('workspace').dataset.density, 'compact');
+});
+
+test('no dialog remains: the source has no modal and a wide screen uses the side panel', async () => {
+  assert.equal(/showModal|<dialog/.test(fs.readFileSync(path.join(root, 'static/app.js'), 'utf8') + fs.readFileSync(path.join(root, 'static/index.html'), 'utf8')), false);
+  const ticket = {...card('w', 'Working summary.'), context: {phase: 'active', reason: '', firstmate_action: null}, native: {}, report: null, agent: '', herdr_url: ''};
+  const view = await mountBoard(fullBoard(), undefined, {w: ticket});
+  const detail = view.doc.getElementById('detail'), face = () => cardsIn(columnOf(view, 'underway').querySelector('.cards'))[0].querySelector('.card-open');
+  face().listeners.click[0](); await view.flush();
+  assert.equal(detail.dataset.open, 'true'); assert.equal(detail.hidden, false);
+  assert.equal(detail.parentElement, view.doc.getElementById('detail-panel'));
+  assert.equal(face().getAttribute('aria-expanded'), 'true'); assert.equal(face().parentElement.dataset.current, 'true');
+  assert.equal(view.doc.getElementById('detail-empty').hidden, true);
+  // Pressing the same card again closes it and focus returns to the card.
+  face().listeners.click[0](); await view.flush();
+  assert.equal(detail.dataset.open, 'false'); assert.equal(face().getAttribute('aria-expanded'), 'false');
+  assert.equal(view.doc.activeElement, face()); assert.equal(view.doc.getElementById('detail-empty').hidden, false);
+  // Esc closes.
+  face().listeners.click[0](); await view.flush();
+  let prevented = false;
+  for (const fn of view.doc.listeners.keydown) fn({key: 'Escape', preventDefault() { prevented = true; }});
+  assert.equal(detail.dataset.open, 'false'); assert.ok(prevented); assert.equal(view.doc.activeElement, face());
+  // A click inside the detail keeps it; a click anywhere else closes it.
+  face().listeners.click[0](); await view.flush();
+  const click = (...nodes) => { for (const fn of view.doc.listeners.click) fn({composedPath: () => nodes}); };
+  click(view.doc.getElementById('detail-content'), detail); assert.equal(detail.dataset.open, 'true');
+  click(face()); assert.equal(detail.dataset.open, 'true');
+  click(view.doc.getElementById('board')); assert.equal(detail.dataset.open, 'false');
+});
+
+test('on a phone the detail opens inside its card, keeps a draft across reads and never reorders cards', async () => {
+  const tickets = {q: structuredTicket('q', [{value: 'staged', label: 'Staged rollout', hint: ''}, reconcile])};
+  const data = board([]); data.columns.find(c => c.id === 'captains_call').cards = [tickets.q, {...questionTicket('r', 'Second call', 'Second call', '')}];
+  const view = await mountBoard(data, undefined, tickets, {}, {phone: true});
+  const list = () => columnOf(view, 'captains_call').querySelector('.cards');
+  const keys = () => cardsIn(list()).map(c => c.dataset.key);
+  const before = keys();
+  cardsIn(list())[0].querySelector('.card-open').listeners.click[0](); await view.flush();
+  const host = cardsIn(list())[0], detail = view.doc.getElementById('detail');
+  assert.equal(host.dataset.open, 'true'); assert.equal(detail.parentElement, host.querySelector('.card-more-inner'));
+  assert.equal(view.doc.getElementById('detail-panel').dataset.active, 'false');
+  assert.deepEqual(keys(), before);
+  const note = view.doc.getElementById('answer-note'); note.value = 'Keep my phone draft'; note.listeners.input[0]({type: 'input'});
+  // A changed read redraws the card face only; the open detail and its draft stay.
+  data.columns.find(c => c.id === 'captains_call').cards[0] = {...tickets.q, question: 'A reworded short question?'};
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(cardsIn(list())[0], host); assert.equal(host.dataset.open, 'true');
+  assert.equal(host.querySelector('.card-line').textContent, 'A reworded short question?');
+  assert.equal(view.doc.getElementById('answer-note').value, 'Keep my phone draft');
+  // When the card leaves the board, its detail moves to the panel instead of vanishing.
+  data.columns.find(c => c.id === 'captains_call').cards = [data.columns.find(c => c.id === 'captains_call').cards[1]];
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(detail.parentElement, view.doc.getElementById('detail-panel'));
+  assert.equal(view.doc.getElementById('detail-panel').dataset.active, 'true'); assert.equal(detail.dataset.open, 'true');
+});
+
+test('a report path on a call becomes a link that opens the report here, not a path in the how-to', async () => {
+  const link = 'data/sample-task/report.md';
+  const tickets = {rep: structuredTicket('rep', [{value: 'staged', label: 'Staged rollout', hint: ''}, reconcile], {link, detail: 'Read ' + link + ' first, then pick.'})};
+  tickets['rep/report'] = {path: link, text: '# Sample report\n\nEverything checked.'};
+  const view = await questionView(tickets); await view.open('rep');
+  const nodes = descendants(view.doc.getElementById('detail-content'));
+  assert.equal(nodes.some(n => n.textContent.includes(link)), false);
+  assert.ok(nodes.some(n => n.tagName === 'P' && n.textContent === 'Read first, then pick.'));
+  const open = nodes.find(n => n.tagName === 'BUTTON' && n.textContent === 'See the full report');
+  assert.equal(open.getAttribute('aria-expanded'), 'false');
+  await open.listeners.click[0](); await view.flush();
+  assert.equal(open.getAttribute('aria-expanded'), 'true');
+  assert.ok(view.requests.some(r => r.url === 'api/ticket/rep/report' && r.method === 'GET'));
+  assert.ok(descendants(view.doc.getElementById('detail-content')).some(n => n.textContent === 'Everything checked.'));
+  assert.ok(view.requests.every(r => r.method === 'GET'));
+});
+
+test('a Spanish call shows no English interface text outside its technical details', async () => {
+  const en = JSON.parse(fs.readFileSync(path.join(root, 'locales/en.json'), 'utf8'));
+  const es = JSON.parse(fs.readFileSync(path.join(root, 'locales/es.json'), 'utf8'));
+  const english = new Set(Object.keys(en).filter(k => es[k] !== en[k]).map(k => en[k].trim()).filter(text => text.length > 2));
+  const tickets = {es: structuredTicket('es', [{value: 'staged', label: 'Por etapas', hint: 'Primero el diez por ciento'}, reconcile], {link: 'https://example.com/informe'})};
+  const view = await questionView(tickets, es); await view.open('es');
+  const content = view.doc.getElementById('detail-content');
+  const technical = descendants(content).find(n => n.tagName === 'DETAILS' && n.className === 'source-details');
+  const shown = descendants(content).filter(n => !technical.contains(n) && !n.children.length).map(n => n.textContent.trim()).filter(Boolean);
+  assert.deepEqual(shown.filter(text => english.has(text)), []);
+  assert.equal(view.doc.getElementById('detail-kicker').textContent, 'Te necesita');
+  assert.ok(shown.includes('Ver informe completo ↗'));
+});
+
+test('history rows use the card row with a compact age', async () => {
+  const history = {records: [{task: 'old', title: 'Old sample delivery', home: 'h', owner: 'example', time: {label: 'Delivered', epoch: null, date: '2026-01-01'}, closed: '2026-01-01'}], details: [], omitted: 0, scope: ''};
+  const view = await mountBoard(fullBoard(), undefined, {}, {}, {history});
+  view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
+  const row = view.doc.getElementById('history-results').children[0];
+  assert.equal(row.querySelector('.card-ago').textContent, '2 wk');
+  assert.equal(row.querySelector('h3').textContent, 'Old sample delivery');
+  assert.equal(/Coordinated by/.test(row.textContent), false);
+  assert.equal(view.doc.getElementById('board-search').hidden, true);
+  view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
+  assert.equal(view.doc.getElementById('board-search').hidden, false);
 });

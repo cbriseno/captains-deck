@@ -1,13 +1,13 @@
 /* English source messages are catalog keys. Never translate task data. */
 'use strict';
-DeckI18n.ready.then(({t, locale, dateFmt, relative, eventTime, exactTime, untilText}) => {
+DeckI18n.ready.then(({t, locale, dateFmt, relative, eventTime, exactTime, untilText, ago, shortDate}) => {
 /* User content is text only. Polling reads; only explicit buttons can POST. */
 const $ = (id) => document.getElementById(id);
 const S = { board: null, home: '', column: 'underway', online: false, view: 'board', query: '',
   busy: false, csrf: '', modal: null, opener: null, generation: 0, historyGeneration: 0,
-  lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false };
+  lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false, density: 'normal' };
+try { if (localStorage.getItem('deck-density') === 'compact') S.density = 'compact'; } catch { /* Normal is the default. */ }
 const labels = { charted: t("Up next"), underway: t("Underway"), captains_call: t("Needs you"), landed: t("Delivered") };
-const notes = { captains_call: t("Waiting on your answer"), landed: t("Recently finished") };
 const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waiting on another task"), integration: t("Finishing up"), technical: t("On hold"), active: t("In progress"), unknown: t("Status unclear"), waiting: t("Waiting"), reported: t("Reported done") };
 const runLabels = { running: t('Checks running'), fixing: t('Fixing failed checks'), passed: t('Checks passed'), failed: t('Checks failed') };
 // Firstmate's crew state and endpoint probe, as projected by the bridge.
@@ -43,10 +43,22 @@ function timeView(event) {
   time.dataset.event = JSON.stringify(event || null); time.setAttribute('aria-live', 'off');
   return append(node('details', 'event-time'), append(node('summary'), time, node('span', 'sr-only', t(' · Show exact local date'))), node('p', 'exact-time', exactTime(event)));
 }
-function detailMeta(owner, event) { $('detail-meta').replaceChildren(node('span', '', t('Coordinated by {owner}', {owner})), timeView(event)); }
+// One coordinating space is not news; it is named only when there are several.
+const manyHomes = () => (S.board?.homes || []).length > 1;
+function detailMeta(owner, event) { $('detail-meta').replaceChildren(manyHomes() ? node('span', '', t('Coordinated by {owner}', {owner})) : '', timeView(event)); }
+// A card's age: compact text, the exact date on hover and in the detail.
+function agoView(event) {
+  const n = node('span', 'card-ago', ago(event));
+  n.dataset.event = JSON.stringify(event || null); n.title = t(event?.label || 'Event') + ' · ' + exactTime(event);
+  return n;
+}
 function refreshTimes() {
   for (const n of document.querySelectorAll('.relative-time')) {
     const text = eventTime(JSON.parse(n.dataset.event));
+    if (n.textContent !== text) n.textContent = text;
+  }
+  for (const n of document.querySelectorAll('.card-ago')) {
+    const text = ago(JSON.parse(n.dataset.event));
     if (n.textContent !== text) n.textContent = text;
   }
 }
@@ -56,8 +68,9 @@ function executorText(card) {
   return harness ? t('Agent: {name}', {name: {codex: 'Codex', claude: 'Claude Code', pi: 'Pi'}[harness] || harness}) : t('Agent not set');
 }
 function summaryText(card, compact = false) { return card.presentation?.summary || t(compact ? 'No summary yet.' : 'No summary yet. Firstmate hasn’t written one.'); }
-function activityText(card) {
-  const a = card.activity || {}, until = a.until ? untilText(a.until) : '';
+// On a card the return date is its own tag, so the chip drops it (short).
+function activityText(card, short = false) {
+  const a = card.activity || {}, until = a.until && !short ? untilText(a.until) : '';
   if (a.kind === 'paused') return until ? t('Paused until {date}', {date: until}) : t('Paused');
   if (a.kind === 'deferred') return until ? t('Deferred until {date}', {date: until}) : t('Deferred');
   if (a.kind === 'decision') return card.bucket === 'underway' ? t('Waiting on a decision') : '';
@@ -65,12 +78,12 @@ function activityText(card) {
   return { working: t('Working now'), validating: t('Checks running'), validation_gate: t('Checks need approval'), blocked: t('Waiting on another task'),
     held: t('On hold'), finished: t('Done, not closed yet'), stopped: t('Stopped'), ready: t('Ready to start'), queued: t('Queued') }[a.kind] || '';
 }
-function phaseText(card) {
+function phaseText(card, short = false) {
   if (card.answered) return t('Answer saved');
   if (card.bucket === 'landed') return t('Delivered');
   const run = card.presentation?.run_step;
   if (run) return runLabels[run.state];
-  return activityText(card) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : card.context.label || phaseLabels[card.context.phase]);
+  return activityText(card, short) || (card.bucket === 'charted' && card.context.phase === 'unknown' ? t('Queued') : card.context.label || phaseLabels[card.context.phase]);
 }
 function agentLine(card) {
   const agent = card.activity?.agent || 'unknown', line = node('p', 'activity-note', agentLines[agent] || agentLines.unknown);
@@ -111,16 +124,6 @@ async function api(path, body) {
     throw err;
   } finally { clearTimeout(timer); }
 }
-function renderUpdated(at) {
-  const updated = $('updated');
-  if (!at) { if (updated.dataset.epoch) { updated.replaceChildren(t("First read pending.")); delete updated.dataset.epoch; } return; }
-  if (updated.dataset.epoch === String(at)) return;
-  const focused = updated.contains(document.activeElement), open = updated.querySelector('details')?.open;
-  const view = timeView({label: 'Source read', epoch: at});
-  view.open = !!open;
-  updated.replaceChildren(view); updated.dataset.epoch = String(at);
-  if (focused) view.querySelector('summary').focus({preventScroll: true});
-}
 function sourceStatus() {
   if (!S.board) return;
   const sources = S.board.sources || [];
@@ -129,10 +132,12 @@ function sourceStatus() {
   const stale = at && Date.now() / 1000 - at > Math.max(60, S.board.source_ttl * 2);
   const failed = S.board.error || sources.some(s => s.error);
   const disconnected = !S.online || Date.now() - S.lastRead > 30000;
-  const connectionText = disconnected ? t("Offline") : failed ? t("Update failed") : stale ? t("Out of date") : S.board.loading ? t("Loading…") : t("Connected to Deck");
+  // Freshness is one short phrase; the exact read time is on hover.
+  const read = {label: 'Source read', epoch: S.lastRead / 1000};
+  const connectionText = disconnected ? t("Offline") : failed ? t("Update failed") : stale ? t("Out of date") : S.board.loading ? t("Loading…") : t('updated {ago}', {ago: ago(read)});
   if ($('connection').textContent !== connectionText) $('connection').textContent = connectionText;
   $('connection').dataset.level = disconnected || failed ? 'error' : stale ? 'warning' : 'ok';
-  renderUpdated(S.lastRead / 1000);
+  $('connection').title = S.lastRead ? t('Source read') + ' · ' + exactTime(read) : '';
   if (disconnected) notice(t("You’re offline. Your draft is safe. Check the question again once you’re back."));
   else if (failed) notice(t("Couldn’t refresh one source. Some cards may be out of date."));
   else if (stale) notice(t("This view is a bit old. Waiting for a fresh update."));
@@ -149,29 +154,22 @@ function renderBoard() {
   if (!S.board) return;
   const columns = S.board.columns;
   const counts = Object.fromEntries(columns.map(c => [c.id, c.cards.filter(x => !x.answered).length]));
-  const attention = `${counts.captains_call || 0} ${counts.captains_call === 1 ? t("pending decision") : t("pending decisions")}`;
-  const spaces = `${S.board.homes.length} ${S.board.homes.length === 1 ? t("space") : t("spaces")}`;
   // Underway holds every open task; only these agents are working right now.
   const working = activityCount(columns, 'underway', 'working'), ready = activityCount(columns, 'charted', 'ready');
-  const now = t('{count} working now', {count: working});
-  $('overview').textContent = matchMedia('(max-width: 639px)').matches ? attention + ' · ' + now : `${attention} · ${now} · ${t('{count} underway', {count: counts.underway || 0})} · ${spaces}`;
-  const liveNotes = { ...notes, underway: now, charted: t('{count} ready to start', {count: ready}) };
-  const metrics = [], nav = [];
-  for (const id of ['captains_call', 'underway', 'charted', 'landed']) {
-    const b = button('', () => { setView('board'); selectColumn(id, true); }, 'metric'); b.dataset.kind = id;
-    append(b, node('span', 'metric-number', String(counts[id] || 0)), append(node('span', 'metric-label', labels[id]), node('span', 'metric-note', liveNotes[id]))); metrics.push(b);
-  }
+  const calls = counts.captains_call || 0;
+  const overview = (calls === 1 ? t('{count} needs you', {count: calls}) : t('{count} need you', {count: calls})) + ' · ' + t('{count} working', {count: working}) + ' · ';
+  if ($('overview').textContent !== overview) $('overview').textContent = overview;
+  const nav = [];
   for (const c of columns) {
     const b = button('', () => selectColumn(c.id)); b.dataset.kind = c.id; b.setAttribute('aria-pressed', String(S.column === c.id));
     append(b, node('span', '', String(counts[c.id] || 0)), document.createTextNode(labels[c.id] || c.title)); nav.push(b);
   }
-  const navIdentity = JSON.stringify({counts, working, ready});
+  const navIdentity = JSON.stringify({counts, working, ready, order: columns.map(c => c.id)});
   if ($('columns-nav').dataset.signature !== navIdentity) {
-    const focusedKind = document.activeElement.dataset.kind;
-    const parent = document.activeElement.parentElement?.id;
-    $('metrics').replaceChildren(...metrics); $('columns-nav').replaceChildren(...nav);
+    const focusedKind = $('columns-nav').contains(document.activeElement) ? document.activeElement.dataset.kind : null;
+    $('columns-nav').replaceChildren(...nav);
     $('columns-nav').dataset.signature = navIdentity;
-    if (['metrics', 'columns-nav'].includes(parent)) [...$(parent).children].find(n => n.dataset.kind === focusedKind)?.focus({preventScroll: true});
+    if (focusedKind) [...$('columns-nav').children].find(n => n.dataset.kind === focusedKind)?.focus({preventScroll: true});
   }
   const existing = new Map([...$('board').children].map(n => [n.dataset.kind, n]));
   for (const c of columns) {
@@ -187,19 +185,20 @@ function renderBoard() {
     else section.firstChild.replaceWith(heading);
     const keys = new Set(cards.map(card => card.key));
     const retained = new Map();
-    for (const n of [...list.children]) if (keys.has(n.dataset.key)) retained.set(n.dataset.key, n); else n.remove();
+    for (const n of [...list.children]) if (keys.has(n.dataset.key)) retained.set(n.dataset.key, n); else { rescueDetail(n); n.remove(); }
     for (const [index, card] of cards.entries()) {
       // Source freshness is independent of card progress. Retain unchanged
-      // controls, disclosure state and focus across polls.
-      const signature = JSON.stringify({...card, supervisor: null, context: {...card.context, firstmate_action: null}});
+      // controls, an open detail and focus across polls.
+      const signature = JSON.stringify({...card, supervisor: null, context: {...card.context, firstmate_action: null}, homes: manyHomes()});
       let item = retained.get(card.key); retained.delete(card.key);
       if (!item || item.dataset.signature !== signature) {
-        const old = item, focused = old?.contains(document.activeElement);
-        const dateFocused = focused && !!document.activeElement.closest('.event-time');
-        item = renderCard(card); item.dataset.signature = signature;
-        if (old?.querySelector('.event-time')?.open) item.querySelector('.event-time').open = true;
-        if (old) old.replaceWith(item);
-        if (focused) (dateFocused ? item.querySelector('summary') : item.querySelector('.card-open')).focus({preventScroll: true});
+        const old = item, fresh = renderCard(card), focused = !!old?.firstChild?.contains(document.activeElement);
+        // A card holding the open detail swaps only its face, so a draft and
+        // its focus never leave the page.
+        if (old?.contains($('detail'))) { old.firstChild.replaceWith(fresh.firstChild); item = old; }
+        else { item = fresh; old?.replaceWith(item); }
+        item.dataset.signature = signature;
+        if (focused) item.querySelector('.card-open').focus({preventScroll: true});
       }
       if (list.children[index] !== item) {
         const focused = item.contains(document.activeElement) ? document.activeElement : null;
@@ -210,25 +209,52 @@ function renderBoard() {
     if (!cards.length) list.replaceChildren(node('p', 'empty', S.query ? t("No tasks match your search.") : c.id === 'captains_call' ? t("Nothing needs you right now.") : c.id === 'landed' ? t("Nothing finished recently. Try History for older work.") : t("Nothing here.")));
   }
   for (const n of [...$('board').children]) if (!n.dataset.kind) n.remove();
-  selectColumn(S.column); renderSupervisors(); sourceStatus();
+  selectColumn(S.column); refreshTimes(); renderSupervisors(); sourceStatus();
+}
+const flatten = (text) => String(text || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase(locale);
+// One line of what is happening: authored text only, never a placeholder.
+// A long text leads with its first full sentence; the title is never cut.
+function leadLine(text) {
+  const flat = String(text || '').replace(/\s+/g, ' ').trim();
+  if (flat.length <= 140) return flat;
+  for (const end of flat.matchAll(/[.!?](?=\s+[\p{Lu}¿¡]|$)/gu))
+    if (end.index >= 40 && !abbreviation(flat.slice(0, end.index))) return flat.slice(0, end.index + 1);
+  return flat;
+}
+function cardLine(card) {
+  const p = card.presentation || {};
+  if (card.bucket === 'landed') return leadLine(card.summary);
+  // A call's line is its question, unless the title already asks it.
+  const same = (text) => flatten(text) === flatten(card.title);
+  if (card.bucket === 'captains_call') return leadLine([card.question, p.summary].find(text => text && !same(text)));
+  const waiting = card.dependencies.length ? t('Waiting on: {dependency}', {dependency: card.dependencies.map(d => d.title || d.id).join(', ')}) : '';
+  return leadLine(p.summary || p.waiting_for || waiting || p.next_action);
 }
 function renderCard(card) {
   const cardNode = node('article', 'task-card'); cardNode.dataset.key = card.key;
-  const b = button('', () => card.bucket === 'landed' && card.home ? openDelivery(card.home, card.task, b) : openTicket(card.key, b), 'card-open'); b.dataset.key = card.key;
-  const phase = node('span', 'phase', phaseText(card)); phase.dataset.phase = card.bucket === 'landed' ? 'delivered' : card.presentation?.run_step ? 'waiting' : card.context.phase;
-  phase.dataset.activity = card.answered ? '' : card.activity?.kind || '';
-  const p = card.presentation || {};
-  // A card leads with one short line; the full text is one click away.
-  // An unknown agent is a drawer fact, not a line on every card.
-  const top = card.bucket === 'landed' ? t('Coordinated by {owner}', {owner: card.owner}) : p.executor?.harness ? executorText(card) : '';
-  append(b, top && node('div', 'card-top', top), node('h3', '', shortLine(card.title, 100)), phase,
-    node('p', 'card-reason', shortLine(card.bucket === 'landed' ? card.summary || t('Open it to see what was delivered.') : card.question || summaryText(card, true))));
-  if (card.dependencies.length) b.append(node('p', 'dependency', t('Waiting on: {dependency}', {dependency: dependencyText(card)})));
-  else if (p.waiting_for) b.append(node('p', 'dependency', t('Waiting: ') + shortLine(p.waiting_for, 100)));
-  if (card.bucket !== 'landed' && p.next_action && p.next_action !== p.waiting_for && p.next_action !== p.summary) b.append(node('p', 'card-next', t('Next: {action}', {action: shortLine(p.next_action, 100)})));
-  if (card.bucket === 'underway') b.append(agentLine(card));
-  b.append(node('span', 'card-link', card.bucket === 'captains_call' ? t('Answer →') : card.bucket === 'landed' ? t('See result →') : t('Details →')));
-  return append(cardNode, b, timeView(card.time));
+  const b = button('', () => openCard(card, b), 'card-open'); b.dataset.key = card.key;
+  b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-controls', 'detail');
+  // A fixed top row (state, crew, return date, age), then the full title.
+  const meta = node('div', 'card-meta');
+  const chip = card.bucket === 'landed' || (card.bucket === 'captains_call' && !card.answered) ? '' : phaseText(card, true);
+  if (chip) {
+    const phase = node('span', 'phase', chip); phase.dataset.phase = card.presentation?.run_step ? 'waiting' : card.context.phase;
+    phase.dataset.activity = card.answered ? '' : card.activity?.kind || ''; meta.append(phase);
+  }
+  if (manyHomes()) meta.append(node('span', 'card-tag', card.owner));
+  const until = card.activity?.until ? shortDate(card.activity.until) : '';
+  if (until) meta.append(node('span', 'card-date', until));
+  meta.append(agoView(card.time));
+  const line = cardLine(card);
+  append(b, meta, node('h3', 't', card.title), line && node('p', 'card-line', line));
+  // On a phone the detail opens inside its card; only that card grows.
+  const more = append(node('div', 'card-more'), node('div', 'card-more-inner'));
+  if (detailOpen() && S.openerKey === card.key) { b.setAttribute('aria-expanded', 'true'); cardNode.dataset.current = 'true'; }
+  return append(cardNode, b, more);
+}
+function openCard(card, opener) {
+  if (detailOpen() && S.openerKey === card.key) { closeDetail(); return; }
+  if (card.bucket === 'landed' && card.home) openDelivery(card.home, card.task, opener); else openTicket(card.key, opener);
 }
 function supervisorText(s) {
   if (!s || !s.observed_at) return t("Firstmate hasn’t said what it’s doing.");
@@ -286,6 +312,8 @@ async function poll() {
       $('crew').replaceChildren(new Option(t("All"), ''), ...data.homes.map(h => new Option(h.label, h.id)));
       $('crew').value = S.home;
     }
+    // A single coordinating space needs no picker.
+    $('crew').parentElement && ($('crew').parentElement.hidden = data.homes.length < 2 && !S.home);
     renderBoard();
     loadReceipts();
     if (!S.linkHandled && data.homes.length && !data.loading) {
@@ -299,7 +327,9 @@ async function poll() {
 }
 function setView(view) {
   S.view = view; $('board-view-panel').hidden = view !== 'board'; $('history-panel').hidden = view !== 'history';
-  $('board-view').setAttribute('aria-pressed', String(view === 'board')); $('history-view').setAttribute('aria-pressed', String(view === 'history'));
+  // History has its own search; the top one filters the board.
+  $('board-search').hidden = view !== 'board';
+  $('history-view').setAttribute('aria-pressed', String(view === 'history'));
   if (view === 'history') loadHistory();
 }
 async function loadHistory() {
@@ -310,22 +340,76 @@ async function loadHistory() {
     const data = await api('api/history?' + query);
     if (generation !== S.historyGeneration) return;
     $('history-status').textContent = t('{count} deliveries{omitted}. {scope}', {count: data.records.length, omitted: data.omitted ? t(' · {count} more results; refine your search', {count: data.omitted}) : '', scope: data.scope});
+    rescueDetail($('history-results'));
     $('history-results').replaceChildren(...data.records.map(row => {
-      const b = button('', () => openDelivery(row.home, row.task, b), 'card-open');
-      append(b, node('p', 'card-top', t('Coordinated by {owner}', {owner: row.owner})), node('h3', '', row.title), node('span', 'card-link', t("See result →")));
-      return append(node('article', 'task-card'), b, timeView(row.time));
+      const key = 'history:' + row.home + ':' + row.task;
+      const b = button('', () => detailOpen() && S.openerKey === key ? closeDetail() : openDelivery(row.home, row.task, b), 'card-open');
+      b.dataset.key = key; b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-controls', 'detail');
+      const meta = append(node('div', 'card-meta'), manyHomes() ? node('span', 'card-tag', row.owner) : null, agoView(row.time));
+      append(b, meta, node('h3', 't', row.title));
+      const article = append(node('article', 'task-card'), b, append(node('div', 'card-more'), node('div', 'card-more-inner')));
+      article.dataset.key = key; return article;
     }));
     if (!data.records.length) $('history-results').append(node('p', 'empty', t("No matches.")));
     $('history-sources').replaceChildren(...data.details.map(d => contextRow(d.home, d.source)));
   } catch (err) { if (generation === S.historyGeneration) $('history-status').textContent = t("Could not refresh history. ") + err.message; }
 }
+// The detail is never a dialog. On a wide screen it fills the panel kept
+// beside the board, so no card moves; on a phone it opens inside its card.
+const phoneLayout = matchMedia('(max-width: 899px)');
+function detailOpen() { return $('detail').dataset.open === 'true'; }
+function hostCard() { return $('detail').parentElement?.parentElement?.closest?.('.task-card') || null; }
+const cardFaces = () => [...$('board').querySelectorAll('.card-open'), ...$('history-results').querySelectorAll('.card-open')];
+function markCurrent() {
+  for (const b of cardFaces()) {
+    const current = detailOpen() && b.dataset.key === S.openerKey;
+    b.setAttribute('aria-expanded', String(current));
+    const card = b.parentElement; if (card) card.dataset.current = String(current);
+  }
+}
+function parkDetail() {
+  const detail = $('detail'), old = hostCard();
+  if (old) old.dataset.open = 'false';
+  if (detail.parentElement !== $('detail-panel')) $('detail-panel').append(detail);
+  detail.hidden = !detailOpen(); $('detail-empty').hidden = detailOpen();
+  // A phone shows the panel only while it holds a detail with no card.
+  $('detail-panel').dataset.active = String(detailOpen());
+}
+function placeDetail(opener) {
+  const detail = $('detail'), card = phoneLayout.matches ? opener?.closest?.('.task-card') : null;
+  const old = hostCard();
+  if (!card) { parkDetail(); return; }
+  if (old && old !== card) old.dataset.open = 'false';
+  detail.hidden = false; $('detail-empty').hidden = false; $('detail-panel').dataset.active = 'false';
+  const slot = card.querySelector('.card-more-inner');
+  if (detail.parentElement !== slot) { slot.append(detail); void card.offsetHeight; }
+  card.dataset.open = 'true';
+  const top = card.getBoundingClientRect?.().top;
+  if (top > window.innerHeight * 0.6) card.scrollIntoView({block: 'start', behavior: 'smooth'});
+}
+// A card that leaves the board hands its detail back to the panel, so a
+// receipt is never lost.
+function rescueDetail(n) { if (n.contains($('detail'))) parkDetail(); }
 function showDetail(title, meta, kicker, opener) {
   S.opener = opener || document.activeElement; S.receipt = null;
   S.openerKey = S.opener?.dataset?.key;
   $('detail-title').textContent = title; $('detail-meta').textContent = meta; $('detail-kicker').textContent = kicker;
   $('detail-content').replaceChildren(node('p', 'muted', t("Loading…")));
-  if (!$('detail').open) $('detail').showModal();
-  $('detail-title').focus();
+  $('detail').dataset.open = 'true';
+  placeDetail(S.opener); markCurrent();
+  // In a card, focus stays on the card and the detail follows it.
+  if (!hostCard()) $('detail-title').focus({preventScroll: true});
+}
+function closeDetail(restoreFocus = true) {
+  if (!detailOpen()) return;
+  saveDraft(); S.modal = null; S.generation++;
+  const card = hostCard();
+  $('detail').dataset.open = 'false'; markCurrent();
+  if (card) { card.dataset.open = 'false'; setTimeout(() => { if (!detailOpen()) parkDetail(); }, 220); }
+  else parkDetail();
+  if (!restoreFocus) return;
+  const current = S.opener?.isConnected && S.opener.tagName !== 'BODY' ? S.opener : cardFaces().find(n => n.dataset.key === S.openerKey) || $('refresh');
+  current.focus({ preventScroll: true });
 }
 function readDraft(key) { try { return JSON.parse(sessionStorage.getItem('deck-draft-' + key)) || {}; } catch { return S.drafts.get(key) || {}; } }
 function saveDraft(event) {
@@ -342,7 +426,7 @@ async function openTicket(key, opener) {
   S.modal = { type: 'loading', key };
   try {
     const ticket = await api('api/ticket/' + encodeURIComponent(key));
-    if (gen !== S.generation || !$('detail').open) return;
+    if (gen !== S.generation || !detailOpen()) return;
     $('detail-title').textContent = ticket.title; detailMeta(ticket.owner, ticket.time);
     if (ticket.call) renderCall(ticket);
     else {
@@ -386,7 +470,7 @@ async function openStableLink(params) {
   const gen = ++S.generation;
   try {
     const result = await api('api/resolve?' + new URLSearchParams({ home, task, view, item: params.get('item') || '' }));
-    if (gen !== S.generation || !$('detail').open) return;
+    if (gen !== S.generation || !detailOpen()) return;
     if (result.view === 'call') { await openTicket(result.key, S.opener); return; }
     if (result.view === 'delivery') { await openDelivery(home, task, S.opener); if (S.modal?.type === 'delivery' && result.notice) { S.modal.linkNotice = result.notice; renderDelivery(); } return; }
     S.modal = { type: 'task' };
@@ -394,7 +478,7 @@ async function openStableLink(params) {
     $('detail-content').replaceChildren(prose(result.message));
     for (const receipt of result.receipts || []) $('detail-content').append(receiptView(receipt));
     if (result.current_key) $('detail-content').append(button(t("View the current question"), async () => { await openTicket(result.current_key, S.opener); $('detail-kicker').textContent = t("CURRENT QUESTION"); }));
-    $('detail-content').append(button(t("Find this task in history"), () => { $('history-search').value = task; $('detail').close(); setView('history'); }));
+    $('detail-content').append(button(t("Find this task in history"), () => { $('history-search').value = task; closeDetail(false); setView('history'); }));
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
 // Long authored text leads with one short line; the rest opens on demand.
@@ -413,11 +497,24 @@ function leadText(cls, text) {
   if (lead === full.replace(/\s+/g, ' ')) return node('p', cls, full);
   return append(node('div', cls), node('p', '', lead), disclosure(t('Read more'), prose(full)));
 }
-function reportLink(link) {
+// A web report opens in a new tab; a report file in the crew's folder opens
+// right here, read through Deck like a delivery report.
+function reportLink(link, key) {
   if (!link) return null;
-  if (!/^https?:\/\//i.test(link)) return contextRow(t('Full report'), link);
-  const a = node('a', 'herdr-link', t('Read the full report ↗')); a.href = link; a.target = '_blank'; a.rel = 'noopener noreferrer';
-  return a;
+  if (/^https?:\/\//i.test(link)) {
+    const a = node('a', 'report-link', t('See the full report ↗')); a.href = link; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    return a;
+  }
+  const box = node('div', 'call-report'), view = node('div', 'call-report-text'); view.hidden = true;
+  const open = button(t('See the full report'), async () => {
+    const show = view.hidden; view.hidden = !show; open.setAttribute('aria-expanded', String(show));
+    if (!show || view.dataset.loaded) return;
+    view.replaceChildren(node('p', 'muted', t('Loading…')));
+    try { const data = await api('api/ticket/' + encodeURIComponent(key) + '/report'); view.replaceChildren(prose(data.text)); view.dataset.loaded = 'true'; }
+    catch (err) { view.replaceChildren(node('p', 'notice error', err.message)); }
+  }, 'report-link');
+  open.setAttribute('aria-expanded', 'false');
+  return append(box, open, view);
 }
 function choose(value) {
   if (S.busy || S.receipt || S.modal?.type !== 'call') return;
@@ -428,26 +525,27 @@ function renderCall(ticket, draftOverride) {
   const key = ticket.key, c = ticket.call, draft = draftOverride || readDraft(key);
   const staleDraft = !!draft.occurrence && draft.occurrence !== c.occurrence && !!(draft.note || draft.value);
   S.modal = { type: 'call', key, ticket, value: staleDraft ? '' : draft.value || '', request: draft.request || crypto.randomUUID().replaceAll('-', ''), draftNeedsReview: staleDraft, previousOccurrence: draft.occurrence, checkFailed: !!c.error };
-  $('detail-kicker').textContent = t('CAPTAIN’S CALL'); $('detail-title').textContent = ticket.title;
+  $('detail-kicker').textContent = t('Needs you'); $('detail-title').textContent = ticket.title;
   const content = $('detail-content'); content.replaceChildren();
-  if (c.title && ![ticket.title, ticket.original_title].includes(c.title)) content.append(node('h3', 'call-question-title', c.title));
-  const instructions = c.detail ? contextRow(t('How to answer'), c.detail) : null;
+  // The question appears once; the report is its link, not a path in the text.
+  const howTo = c.link ? (c.detail || '').split(c.link).join('').replace(/\s+([.,;:])/g, '$1').replace(/\s{2,}/g, ' ').trim() : c.detail;
+  const instructions = howTo ? contextRow(t('How to answer'), howTo) : null;
   if (instructions) instructions.className += ' call-instructions';
   const technical = [contextRow(t('Answer limits'), t('One line, up to 512 bytes. Typing only saves a draft. Picking an option sends it right away; Send sends a written answer.'))];
   if (c.background) technical.unshift(contextRow(t('Original question text'), c.background));
   if (ticket.answered) {
     $('detail-kicker').textContent = t('Answer saved');
     content.append(prose(c.presentation?.decide || c.decide), contextRow(t('What happens next'), t('Firstmate has your answer and will pick it up next.')),
-      button(t('See answer status'), async () => { await loadReceipts(); $('receipts-panel').open = true; $('detail').close(); }));
+      button(t('See answer status'), async () => { await loadReceipts(); $('receipts-panel').open = true; closeDetail(false); $('receipts-panel').scrollIntoView({ block: 'start' }); }));
     if (instructions) content.append(instructions);
+    const link = reportLink(c.link, key); if (link) content.append(link);
     addTechnical(ticket, ...technical); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); return;
   }
   const error = node('p', 'notice', c.error || (staleDraft ? staleDraftNote : '')); error.id = 'call-change'; error.hidden = !c.error && !staleDraft; content.append(error);
-  const about = c.presentation?.about || c.about;
+  const about = c.presentation?.about || c.about, question = c.presentation?.decide || c.decide;
+  // The title already asks it when the two read the same.
+  if (flatten(question) !== flatten(ticket.title)) content.append(node('p', 'question', question));
   if (about) content.append(leadText('call-context', about));
-  content.append(node('p', 'question', (c.presentation?.decide || c.decide)));
-  const link = reportLink(c.link); if (link) content.append(link);
-  if (instructions) content.append(instructions);
   const label = (option) => c.presentation?.options?.find(o => o.value === option.value) || option;
   const choices = c.options.filter(o => o.value !== 'reconcile'), recheck = c.options.find(o => o.value === 'reconcile');
   if (choices.length) {
@@ -461,6 +559,9 @@ function renderCall(ticket, draftOverride) {
     }
     content.append(list);
   }
+  // How-to text follows the choices, so the recommended one stays in view.
+  if (instructions) content.append(instructions);
+  const link = reportLink(c.link, key);
   const note = node('textarea'); note.id = 'answer-note'; note.rows = 3; note.value = draft.note || ''; note.placeholder = t('Write here…'); note.addEventListener('input', saveDraft);
   const noteLabel = append(node('label', 'answer-label', c.freeform ? t('Your answer') : t('Add a note (optional)')), note);
   const send = c.freeform ? button(t('Send'), () => { S.modal.value = ''; saveDraft(); submitAnswer(); }, 'primary') : null;
@@ -471,11 +572,13 @@ function renderCall(ticket, draftOverride) {
     fold.className += ' own-words-fold'; fold.open = !!draft.note; content.append(fold);
   } else content.append(ownWords);
   if (recheck) {
-    const b = button(t('Check again first'), () => choose('reconcile'), 'option-choice secondary-choice'); b.dataset.value = 'reconcile';
-    content.append(append(node('div', 'recheck'), b, node('small', '', t('Firstmate looks at the latest state again. Nothing is decided yet.'))));
+    // The re-check carries its own one-line meaning.
+    const b = button('', () => choose('reconcile'), 'option-choice secondary-choice'); b.dataset.value = 'reconcile';
+    append(b, node('strong', '', t('Check again first')), node('small', '', t('Nothing gets decided yet.')));
+    content.append(append(node('div', 'recheck'), b));
   }
+  if (link) content.append(link);
   const state = node('div'); state.id = 'answer-status'; state.setAttribute('role', 'status'); content.append(state);
-  content.append(node('p', 'answer-help', c.close === 'release' ? t('Firstmate saves your answer and lifts the hold.') : t('Firstmate saves your answer and takes it from there.')));
   addTechnical(ticket, ...technical); addHerdr(ticket); addStableLink(ticket.home, ticket.task, 'call'); syncSubmit();
 }
 async function checkCall() {
@@ -535,7 +638,7 @@ async function submitAnswer() {
     if (S.modal !== modal) return;
     S.receipt = receipt; $('answer-status').replaceChildren(receiptView(receipt));
     $('answer-status').append(button(t("See answer status"), async () => {
-      await loadReceipts(); $('receipts-panel').open = true; $('detail').close();
+      await loadReceipts(); $('receipts-panel').open = true; closeDetail(false);
       $('receipts-panel').scrollIntoView({ block: 'start' });
     }));
     if (receipt.state === 'conflict') $('answer-status').append(button(t("See the new question"), () => openTicket(modal.key, S.opener)));
@@ -552,7 +655,7 @@ async function openDelivery(home, task, opener) {
   S.modal = { type: 'loading' };
   try {
     const data = await api('api/delivery/' + encodeURIComponent(home) + '/' + encodeURIComponent(task));
-    if (gen !== S.generation || !$('detail').open) return;
+    if (gen !== S.generation || !detailOpen()) return;
     S.modal = { type: 'delivery', home, task, data, tab: 'summary' };
     $('detail-title').textContent = data.title; detailMeta(data.owner, data.time);
     renderDelivery(); refreshExplanation();
@@ -595,18 +698,27 @@ async function requestExplanation() {
   catch (err) { if (S.modal === modal && $('explain-status')) $('explain-status').textContent = err.message; }
   finally { S.busy = false; if (S.modal === modal && modal.explanation) explanationView(modal.explanation); }
 }
-$('detail-close').addEventListener('click', () => { saveDraft(); $('detail').close(); });
-$('detail').addEventListener('cancel', saveDraft);
-$('detail').addEventListener('close', () => {
-  // A queued close event must not cancel a detail opened immediately after it.
-  if ($('detail').open) return;
-  saveDraft(); S.modal = null; S.generation++;
-  const current = S.opener?.isConnected && S.opener.tagName !== 'BODY' ? S.opener : [...document.querySelectorAll('.card-open')].find(n => n.dataset.key === S.openerKey) || $('board-view');
-  current.focus({ preventScroll: true });
+$('detail-close').addEventListener('click', () => closeDetail());
+// Esc or a tap anywhere outside the detail and the cards closes it.
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && detailOpen()) { event.preventDefault(); closeDetail(); } });
+document.addEventListener('click', (event) => {
+  if (!detailOpen()) return;
+  const path = event.composedPath?.() || [];
+  if (path.includes($('detail')) || path.includes($('detail-panel')) || path.some(n => n.className === 'card-open')) return;
+  closeDetail(false);
 });
-$('crew').addEventListener('change', () => { S.home = $('crew').value; S.board = null; $('board').replaceChildren(node('p', 'placeholder', t("Loading this space…"))); poll(); if (S.view === 'history') loadHistory(); });
-$('board-view').addEventListener('click', () => setView('board'));
-$('history-view').addEventListener('click', () => setView('history'));
+phoneLayout.addEventListener('change', () => { if (detailOpen()) { placeDetail(S.opener); markCurrent(); } });
+function setDensity(density) {
+  S.density = density; $('workspace').dataset.density = density;
+  $('density').setAttribute('aria-pressed', String(density === 'compact'));
+}
+setDensity(S.density);
+$('density').addEventListener('click', () => {
+  setDensity(S.density === 'compact' ? 'normal' : 'compact');
+  try { localStorage.setItem('deck-density', S.density); } catch { /* Works for this page only. */ }
+});
+$('crew').addEventListener('change', () => { S.home = $('crew').value; S.board = null; closeDetail(false); $('board').replaceChildren(node('p', 'placeholder', t("Loading this space…"))); poll(); if (S.view === 'history') loadHistory(); });
+$('history-view').addEventListener('click', () => setView(S.view === 'history' ? 'board' : 'history'));
 $('refresh').addEventListener('click', () => { poll(); if (S.view === 'history') loadHistory(); });
 $('board-search').addEventListener('input', () => { S.query = $('board-search').value.trim().toLocaleLowerCase(locale); renderBoard(); });
 $('history-search').addEventListener('input', () => { clearTimeout(S.historyTimer); S.historyTimer = setTimeout(loadHistory, 250); });
