@@ -932,3 +932,141 @@ test('the opening tab waits for the first full read, then only a tap changes it'
   later.setBoard(fullBoard()); await later.poll(); await later.flush();
   assert.deepEqual(pressedTab(later), ['underway']);
 });
+
+// ---- U6: a project tag on every card, and questions from one project in one stack ----
+const callsSection = (view) => view.doc.getElementById('board').children.find(s => s.dataset.kind === 'captains_call');
+const relay = {id: 'relay', label: 'Relay'}, garden = {id: 'garden app', label: 'Garden app'};
+function projectCall(key, title, project, extra = {}) {
+  const ticket = structuredTicket(key, [{value: 'yes', label: 'Yes', hint: ''}, {value: 'no', label: 'No', hint: ''}]);
+  return Object.assign(ticket, {title, original_title: title, project, question: '', time: {label: 'Asked', epoch: Date.UTC(2026, 0, 15, 9) / 1000, date: null}}, extra);
+}
+function stackBoard(calls) {
+  const data = fullBoard(); data.columns[0].cards = calls;
+  data.columns[1].cards = [{...card('w', 'Working summary.'), project: relay}];
+  return data;
+}
+const gardenCalls = () => [projectCall('r1', 'Start relay phase one?', relay), projectCall('g1', 'Animate moving tasks?', garden),
+  projectCall('solo', 'Pick the beta scope', null), projectCall('g2', 'One group or several per task?', garden),
+  projectCall('g3', 'How many lines per task?', garden, {time: {label: 'Asked', epoch: Date.UTC(2026, 0, 15, 11) / 1000, date: null}})];
+
+test('a project tag leads the top row, with one color per project, and no tag without a project', async () => {
+  const view = await mountBoard(stackBoard(gardenCalls()));
+  const list = callsSection(view).querySelector('.cards');
+  const r1 = list.children.find(n => n.dataset.key === 'r1'), solo = list.children.find(n => n.dataset.key === 'solo');
+  const working = view.doc.getElementById('board').children.find(s => s.dataset.kind === 'underway').querySelector('.task-card');
+  assert.equal(r1.querySelector('.card-meta').firstChild.className, 'project-tag');
+  assert.equal(r1.querySelector('.project-tag').textContent, 'Relay');
+  // The same project has the same color in every column.
+  assert.equal(working.querySelector('.project-tag').dataset.hue, r1.querySelector('.project-tag').dataset.hue);
+  assert.match(r1.querySelector('.project-tag').dataset.hue, /^[0-7]$/);
+  assert.equal(solo.querySelector('.project-tag'), null);
+  // The project name is searchable.
+  view.doc.getElementById('board-search').value = 'garden';
+  view.doc.getElementById('board-search').listeners.input[0]();
+  assert.deepEqual(callsSection(view).querySelectorAll('.task-card').map(n => n.dataset.key), ['g1', 'g2', 'g3']);
+});
+
+test('two or more questions from one project wait in one stack where the first stood', async () => {
+  const view = await mountBoard(stackBoard(gardenCalls()));
+  const list = callsSection(view).querySelector('.cards');
+  assert.deepEqual(list.children.map(n => n.dataset.key), ['r1', 'stack:garden app', 'solo']);
+  const stack = list.children[1], face = stack.querySelector('.stack-open');
+  assert.equal(stack.className, 'call-stack');
+  assert.deepEqual(stack.querySelector('.stack-cards').children.map(n => n.dataset.key), ['g1', 'g2', 'g3']);
+  assert.equal(face.querySelector('.project-tag').textContent, 'Garden app');
+  assert.equal(face.querySelector('.t').textContent, '3 questions from Garden app');
+  assert.equal(face.querySelector('.card-line').textContent, 'Animate moving tasks? and 2 more');
+  // Its age is the newest question's.
+  assert.equal(face.querySelector('.card-ago').textContent, '1 h');
+  // Closed until tapped, with its questions out of reach.
+  assert.equal(stack.dataset.open, 'false'); assert.equal(face.getAttribute('aria-expanded'), 'false');
+  assert.equal(stack.lastChild.inert, true); assert.equal(face.getAttribute('aria-controls'), stack.lastChild.id);
+  // Needs you still counts questions, not stacks.
+  assert.equal(callsSection(view).querySelector('.column-count').textContent, '5');
+  assert.equal(view.doc.getElementById('overview').textContent, '5 need you · 0 working · ');
+  // Only Needs you stacks; one question of a project stays a plain card.
+  const lone = await mountBoard(stackBoard([projectCall('g1', 'Animate moving tasks?', garden), projectCall('r1', 'Start relay phase one?', relay)]));
+  assert.deepEqual(callsSection(lone).querySelector('.cards').children.map(n => n.dataset.key), ['g1', 'r1']);
+});
+
+test('answering a question in a stack keeps the stack and its other questions open', async () => {
+  const calls = gardenCalls(), tickets = Object.fromEntries(calls.map(c => [c.key, c]));
+  const data = stackBoard(calls), view = await mountBoard(data, undefined, tickets);
+  const stack = () => callsSection(view).querySelector('.call-stack');
+  stack().querySelector('.stack-open').listeners.click[0]();
+  assert.equal(stack().dataset.open, 'true'); assert.equal(stack().lastChild.inert, false);
+  const member = (key) => stack().querySelector('.stack-cards').children.find(n => n.dataset.key === key);
+  member('g2').querySelector('.card-open').listeners.click[0](); await view.flush();
+  assert.equal(view.doc.getElementById('detail').dataset.open, 'true');
+  tickets['g2/answer'] = {saved: true, state: 'saved', message: 'Answer saved by Firstmate.', notice: 'unknown', ack: 'unknown', consumed: 'unknown'};
+  descendants(view.doc.getElementById('detail-content')).find(n => n.tagName === 'BUTTON' && n.dataset.value === 'yes').listeners.click[0]();
+  await view.flush();
+  assert.equal(view.requests.filter(r => r.method === 'POST').map(r => r.url).join(), 'api/ticket/g2/answer');
+  // The next read shows it answered; nothing else in the stack moves or closes.
+  data.columns[0].cards.find(c => c.key === 'g2').answered = true;
+  view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(stack().dataset.open, 'true');
+  assert.deepEqual(stack().querySelector('.stack-cards').children.map(n => n.dataset.key), ['g1', 'g2', 'g3']);
+  assert.equal(stack().querySelector('.stack-open').querySelector('.t').textContent, '2 questions from Garden app');
+  assert.equal(view.doc.getElementById('detail').dataset.open, 'true');
+  assert.ok(view.doc.getElementById('answer-status').textContent.includes('Answer saved'));
+  // Another question in the same stack still opens with its choices.
+  member('g3').querySelector('.card-open').listeners.click[0](); await view.flush();
+  assert.ok(descendants(view.doc.getElementById('detail-content')).some(n => n.tagName === 'BUTTON' && n.dataset.value === 'no'));
+  assert.equal(stack().dataset.open, 'true');
+});
+
+test('a stack that holds the open detail opens; folding it or Esc closes it', async () => {
+  const calls = gardenCalls(), tickets = Object.fromEntries(calls.map(c => [c.key, c]));
+  // g1 is open on its own, then a second Garden question arrives and they stack.
+  const data = stackBoard([calls[0], calls[1]]), view = await mountBoard(data, undefined, tickets);
+  callsSection(view).querySelector('.cards').children.find(n => n.dataset.key === 'g1').querySelector('.card-open').listeners.click[0]();
+  await view.flush();
+  data.columns[0].cards = calls; view.setBoard(data); await view.poll(); await view.flush();
+  const stack = () => callsSection(view).querySelector('.call-stack');
+  assert.equal(stack().dataset.open, 'true'); assert.equal(view.doc.getElementById('detail').dataset.open, 'true');
+  // Folding the stack also closes the question open inside it.
+  stack().querySelector('.stack-open').listeners.click[0]();
+  assert.equal(stack().dataset.open, 'false'); assert.equal(view.doc.getElementById('detail').dataset.open, 'false');
+  // Esc folds the stack the focus is in when no detail is open.
+  stack().querySelector('.stack-open').listeners.click[0]();
+  const inner = stack().querySelector('.stack-cards').children[0].querySelector('.card-open'); inner.focus();
+  for (const fn of view.doc.listeners.keydown) fn({key: 'Escape', preventDefault() {}});
+  assert.equal(stack().dataset.open, 'false'); assert.equal(view.doc.activeElement, stack().querySelector('.stack-open'));
+  // When the project's questions drop below two, the stack goes away.
+  data.columns[0].cards = [calls[0], calls[1]]; view.setBoard(data); await view.poll(); await view.flush();
+  assert.equal(stack(), null);
+  assert.deepEqual(callsSection(view).querySelector('.cards').children.map(n => n.dataset.key), ['r1', 'g1']);
+});
+
+test('a stack reads naturally in Spanish', async () => {
+  const es = JSON.parse(fs.readFileSync(path.join(root, 'locales/es.json'), 'utf8'));
+  const calls = gardenCalls(); calls.forEach(c => { if (c.project === garden) c.answered = true; });
+  calls[3].answered = false;
+  const view = await mountBoard(stackBoard(calls), undefined, {}, es);
+  const face = callsSection(view).querySelector('.stack-open');
+  assert.equal(face.querySelector('.t').textContent, '1 pregunta de Garden app');
+  assert.equal(face.querySelector('.card-line').textContent, 'One group or several per task?');
+  calls[3].answered = true;
+  const done = await mountBoard(stackBoard(calls), undefined, {}, es);
+  assert.equal(callsSection(done).querySelector('.stack-open').querySelector('.t').textContent, 'Garden app: todas respondidas');
+  calls.forEach(c => { c.answered = false; });
+  const all = await mountBoard(stackBoard(calls), undefined, {}, es);
+  assert.equal(callsSection(all).querySelector('.stack-open').querySelector('.card-line').textContent, 'Animate moving tasks? y 2 más');
+});
+
+test('history and the detail panel carry the project tag in the same color', async () => {
+  const history = {records: [{task: 'old', title: 'Old sample delivery', home: 'h', owner: 'example', project: relay,
+    time: {label: 'Delivered', epoch: null, date: '2026-01-01'}, closed: '2026-01-01'}], details: [], omitted: 0, scope: ''};
+  const delivery = {task: 'old', home: 'h', owner: 'example', title: 'Old sample delivery', summary: 'Done.', report: '', details: '', sources: '',
+    time: history.records[0].time, links: [], project: relay};
+  const view = await mountBoard(stackBoard(gardenCalls()), undefined, {}, {}, {history, delivery});
+  const boardHue = view.doc.getElementById('board').children.find(s => s.dataset.kind === 'underway').querySelector('.project-tag').dataset.hue;
+  view.doc.getElementById('history-view').listeners.click[0](); await view.flush();
+  const face = view.doc.getElementById('history-results').children[0].querySelector('.card-open');
+  assert.deepEqual(face.children.map(n => n.className), ['project-tag', 't', 'card-ago']);
+  assert.equal(face.firstChild.dataset.hue, boardHue);
+  face.listeners.click[0](); await view.flush();
+  const tag = view.doc.getElementById('detail-meta').children.find(n => n.className === 'project-tag');
+  assert.equal(tag.textContent, 'Relay'); assert.equal(tag.dataset.hue, boardHue);
+});

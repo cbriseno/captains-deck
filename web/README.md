@@ -25,6 +25,9 @@ Until that crew-state source export lands, a working crew whose backlog row carr
 A card built from a snapshot kept after a failed or offline refresh never claims work now; it reads "Working when last seen" with the snapshot's age.
 Original reports, supervisor declarations and raw producer fields share one optional technical disclosure.
 Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action` as concise authored text; absent fields remain gaps and known generic phase instructions do not become concrete actions.
+Producers can also supply `flow.project` (history rows: `project`) as a name or `{id, label}`; each card then leads with a colored project tag, the same color in every view.
+Two or more questions from one project wait under Needs you as one stack that unfolds in place.
+Without the field a card has no tag; Deck never guesses a project from task ids.
 Deliveries open a readable summary with a separate Report view and optional technical details.
 Cards and the detail use short, plain wording; long authored text leads with its first sentence and keeps the rest one click away.
 History searches the retained current/archive export, including deliveries beyond the recent cap.

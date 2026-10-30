@@ -5,7 +5,7 @@ DeckI18n.ready.then(({t, locale, dateFmt, relative, eventTime, exactTime, untilT
 const $ = (id) => document.getElementById(id);
 const S = { board: null, home: '', column: 'underway', columnPicked: false, online: false, view: 'board', query: '',
   busy: false, csrf: '', modal: null, opener: null, generation: 0, historyGeneration: 0,
-  lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false, density: 'normal' };
+  lastRead: 0, receipt: null, drafts: new Map(), historyTimer: null, linkHandled: false, density: 'normal', openStacks: new Set() };
 try { if (localStorage.getItem('deck-density') === 'compact') S.density = 'compact'; } catch { /* Normal is the default. */ }
 const labels = { charted: t("Up next"), underway: t("Underway"), captains_call: t("Needs you"), landed: t("Delivered") };
 const phaseLabels = { human: t("Waiting for your answer"), dependency: t("Waiting on another task"), integration: t("Finishing up"), technical: t("On hold"), active: t("In progress"), unknown: t("Status unclear"), waiting: t("Waiting"), reported: t("Reported done") };
@@ -45,7 +45,16 @@ function timeView(event) {
 }
 // One coordinating space is not news; it is named only when there are several.
 const manyHomes = () => (S.board?.homes || []).length > 1;
-function detailMeta(owner, event) { $('detail-meta').replaceChildren(manyHomes() ? node('span', '', t('Coordinated by {owner}', {owner})) : '', timeView(event)); }
+function detailMeta(owner, event, project) { $('detail-meta').replaceChildren(projectTag(project) || '', manyHomes() ? node('span', '', t('Coordinated by {owner}', {owner})) : '', timeView(event)); }
+// A stable small number for a text, so one project keeps one color and one
+// stack keeps one element id across reads and views.
+function hashOf(text) { let h = 2166136261; for (const ch of String(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+// The project Firstmate recorded for a task, in its own color everywhere.
+function projectTag(project) {
+  if (!project?.label) return null;
+  const n = node('span', 'project-tag', project.label); n.dataset.hue = String(hashOf(project.id) % 8);
+  return n;
+}
 // A card's age: compact text, the exact date on hover and in the detail.
 function agoView(event) {
   const n = node('span', 'card-ago', ago(event));
@@ -152,8 +161,9 @@ function selectColumn(column, scroll = false) {
 }
 // Up next work held until a later date; it never counts as ready to start.
 const isLater = (card) => card.bucket === 'charted' && card.activity?.kind === 'deferred';
-function syncCards(list, cards, retained) {
+function syncCards(list, cards, retained, stacks = new Map()) {
   for (const [index, card] of cards.entries()) {
+    if (card.stack) { place(list, index, syncStack(card, retained, stacks)); continue; }
     // Source freshness is independent of card progress. Retain unchanged
     // controls, an open detail and focus across polls.
     const signature = JSON.stringify({...card, supervisor: null, context: {...card.context, firstmate_action: null}, homes: manyHomes()});
@@ -167,12 +177,74 @@ function syncCards(list, cards, retained) {
       item.dataset.signature = signature;
       if (focused) item.querySelector('.card-open').focus({preventScroll: true});
     }
-    if (list.children[index] !== item) {
-      const focused = item.contains(document.activeElement) ? document.activeElement : null;
-      list.insertBefore(item, list.children[index] || null);
-      focused?.focus({preventScroll: true});
-    }
+    place(list, index, item);
   }
+}
+function place(list, index, item) {
+  if (list.children[index] === item) return;
+  const focused = item.contains(document.activeElement) ? document.activeElement : null;
+  list.insertBefore(item, list.children[index] || null);
+  focused?.focus({preventScroll: true});
+}
+// Two or more questions from one project wait together in one stack, where
+// the first of them stands in the column.
+function stacked(cards) {
+  const groups = new Map();
+  for (const card of cards) if (card.project) groups.set(card.project.id, [...groups.get(card.project.id) || [], card]);
+  const out = [], placed = new Set();
+  for (const card of cards) {
+    const members = card.project ? groups.get(card.project.id) : null;
+    if (!members || members.length < 2) out.push(card);
+    else if (!placed.has(card.project.id)) { placed.add(card.project.id); out.push({stack: card.project, cards: members}); }
+  }
+  return out;
+}
+function stackFace(entry) {
+  const waiting = entry.cards.filter(card => !card.answered);
+  const project = entry.stack.label;
+  const title = !waiting.length ? t('{project}: all answered', {project})
+    : waiting.length === 1 ? t('1 question from {project}', {project}) : t('{count} questions from {project}', {count: waiting.length, project});
+  // Its age is the newest question's; the line previews the first one.
+  const newest = entry.cards.map(card => card.time).reduce((a, b) => (b?.epoch ?? -Infinity) > (a?.epoch ?? -Infinity) ? b : a);
+  const first = waiting[0], rest = waiting.length - 1;
+  const line = first ? leadLine(first.title) + (rest ? ' ' + t('and {count} more', {count: rest}) : '') : '';
+  return {title, newest, line};
+}
+function syncStack(entry, retained, stacks) {
+  const key = 'stack:' + entry.stack.id;
+  let item = stacks.get(key); stacks.delete(key);
+  if (!item) {
+    item = node('article', 'call-stack'); item.dataset.key = key;
+    const face = button('', () => toggleStack(key), 'stack-open'); face.dataset.key = key;
+    const more = node('div', 'stack-more'); more.id = 'stack-' + hashOf(entry.stack.id).toString(36);
+    face.setAttribute('aria-controls', more.id);
+    append(item, face, append(more, node('div', 'cards stack-cards')));
+  }
+  const face = item.firstChild, {title, newest, line} = stackFace(entry);
+  const signature = JSON.stringify({project: entry.stack, title, newest, line});
+  if (face.dataset.signature !== signature) {
+    face.replaceChildren(append(node('div', 'card-meta'), projectTag(entry.stack), agoView(newest)), node('h3', 't', title), line && node('p', 'card-line', line));
+    face.dataset.signature = signature;
+  }
+  // A stack that holds the open detail stays open.
+  if (detailOpen() && entry.cards.some(card => card.key === S.openerKey)) S.openStacks.add(key);
+  showStack(item, S.openStacks.has(key));
+  syncCards(item.querySelector('.stack-cards'), entry.cards, retained);
+  return item;
+}
+function showStack(item, open) {
+  item.dataset.open = String(open); item.firstChild.setAttribute('aria-expanded', String(open));
+  // Closed, its questions stay out of reach of Tab and screen readers.
+  item.lastChild.inert = !open;
+}
+function toggleStack(key) {
+  const item = [...$('board').querySelectorAll('.call-stack')].find(n => n.dataset.key === key);
+  if (!item) return;
+  const open = !S.openStacks.has(key);
+  if (open) S.openStacks.add(key); else S.openStacks.delete(key);
+  // Folding a stack also closes the detail of a question inside it.
+  if (!open && detailOpen() && [...item.querySelectorAll('.task-card')].some(n => n.dataset.key === S.openerKey)) closeDetail(false);
+  showStack(item, open);
 }
 function renderBoard() {
   if (!S.board) return;
@@ -202,7 +274,7 @@ function renderBoard() {
   for (const c of columns) {
     let section = existing.get(c.id);
     if (!section) { section = node('section', 'column'); section.dataset.kind = c.id; $('board').append(section); }
-    const shown = c.cards.filter(card => (S.query === '' || [card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
+    const shown = c.cards.filter(card => (S.query === '' || [card.project?.label, card.title, card.question, card.context.reason, card.owner, card.task, card.presentation?.summary, card.presentation?.next_action, card.presentation?.waiting_for, card.presentation?.executor?.harness,
       ...card.dependencies.map(d => d.title || d.id)].join(' ').toLocaleLowerCase(locale).includes(S.query)));
     const cards = shown.filter(card => !isLater(card)), later = shown.filter(isLater);
     const sub = c.id === 'underway' ? t('{count} working now', {count: activityCount([{id: c.id, cards}], c.id, 'working')})
@@ -217,7 +289,9 @@ function renderBoard() {
     const retained = new Map();
     for (const n of section.querySelectorAll('.task-card')) if (keys.has(n.dataset.key)) retained.set(n.dataset.key, n); else { rescueDetail(n); n.remove(); }
     for (const n of [...list.children]) if (!n.dataset.key) n.remove();
-    syncCards(list, cards, retained);
+    const stacks = new Map([...section.querySelectorAll('.call-stack')].map(n => [n.dataset.key, n]));
+    syncCards(list, c.id === 'captains_call' ? stacked(cards) : cards, retained, stacks);
+    for (const n of stacks.values()) { rescueDetail(n); n.remove(); }
     // Postponed work waits below the cards that are ready, with its return date.
     let block = section.querySelector('.later');
     if (later.length) {
@@ -253,8 +327,9 @@ function renderCard(card) {
   const cardNode = node('article', 'task-card'); cardNode.dataset.key = card.key;
   const b = button('', () => openCard(card, b), 'card-open'); b.dataset.key = card.key;
   b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-controls', 'detail');
-  // A fixed top row (state, crew, return date, age), then the full title.
+  // A fixed top row (project, state, crew, return date, age), then the full title.
   const meta = node('div', 'card-meta');
+  const tag = projectTag(card.project); if (tag) meta.append(tag);
   // Under Later the section and the return date already say it.
   const chip = card.bucket === 'landed' || (card.bucket === 'captains_call' && !card.answered) || isLater(card) ? '' : phaseText(card, true);
   if (chip) {
@@ -362,13 +437,13 @@ async function loadHistory() {
     const count = data.records.length === 1 ? t('1 delivery') : t('{count} deliveries', {count: data.records.length});
     $('history-status').textContent = count + (data.omitted ? t(' · {count} more results; refine your search', {count: data.omitted}) : '');
     rescueDetail($('history-results'));
-    // One line per delivery, newest first as the bridge sorts it: crew tag
-    // when there are several, the full title, then how long ago.
+    // One line per delivery, newest first as the bridge sorts it: project,
+    // crew tag when there are several, the full title, then how long ago.
     $('history-results').replaceChildren(...data.records.map(row => {
       const key = 'history:' + row.home + ':' + row.task;
       const b = button('', () => detailOpen() && S.openerKey === key ? closeDetail() : openDelivery(row.home, row.task, b), 'card-open history-row');
       b.dataset.key = key; b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-controls', 'detail');
-      append(b, manyHomes() ? node('span', 'card-tag', row.owner) : null, node('h3', 't', row.title), agoView(row.time));
+      append(b, projectTag(row.project), manyHomes() ? node('span', 'card-tag', row.owner) : null, node('h3', 't', row.title), agoView(row.time));
       const article = append(node('article', 'task-card'), b, append(node('div', 'card-more'), node('div', 'card-more-inner')));
       article.dataset.key = key; return article;
     }));
@@ -449,7 +524,7 @@ async function openTicket(key, opener) {
   try {
     const ticket = await api('api/ticket/' + encodeURIComponent(key));
     if (gen !== S.generation || !detailOpen()) return;
-    $('detail-title').textContent = ticket.title; detailMeta(ticket.owner, ticket.time);
+    $('detail-title').textContent = ticket.title; detailMeta(ticket.owner, ticket.time, ticket.project);
     if (ticket.call) renderCall(ticket);
     else {
       S.modal = { type: 'task', key, ticket };
@@ -679,7 +754,7 @@ async function openDelivery(home, task, opener) {
     const data = await api('api/delivery/' + encodeURIComponent(home) + '/' + encodeURIComponent(task));
     if (gen !== S.generation || !detailOpen()) return;
     S.modal = { type: 'delivery', home, task, data, tab: 'summary' };
-    $('detail-title').textContent = data.title; detailMeta(data.owner, data.time);
+    $('detail-title').textContent = data.title; detailMeta(data.owner, data.time, data.project);
     renderDelivery(); refreshExplanation();
   } catch (err) { if (gen === S.generation) $('detail-content').replaceChildren(node('p', 'notice error', err.message)); }
 }
@@ -727,7 +802,13 @@ async function requestExplanation() {
 }
 $('detail-close').addEventListener('click', () => closeDetail());
 // Esc or a tap anywhere outside the detail and the cards closes it.
-document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && detailOpen()) { event.preventDefault(); closeDetail(); } });
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (detailOpen()) { event.preventDefault(); closeDetail(); return; }
+  // Without an open detail, Esc folds the stack the focus is in.
+  const stack = document.activeElement?.closest?.('.call-stack');
+  if (stack?.dataset.open === 'true') { event.preventDefault(); toggleStack(stack.dataset.key); stack.firstChild.focus({preventScroll: true}); }
+});
 document.addEventListener('click', (event) => {
   if (!detailOpen()) return;
   const path = event.composedPath?.() || [];

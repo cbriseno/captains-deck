@@ -435,6 +435,36 @@ class WebTests(unittest.TestCase):
         _,plain=self.req('/api/delivery/'+rows[0]['home']+'/old-day')
         self.assertEqual(plain['links'],[])
 
+    def test_project_comes_only_from_firstmates_field_on_cards_history_and_delivery(self):
+        # Firstmate writes a name or {id, label}; malformed or absent values give no tag.
+        self.assertEqual(bridge.project_tag(' Day  Attendant '),{'id':'day attendant','label':'Day Attendant'})
+        self.assertEqual(bridge.project_tag({'id':'relay','label':'Relevo'}),{'id':'relay','label':'Relevo'})
+        self.assertEqual(bridge.project_tag({'label':'Deck'}),{'id':'deck','label':'Deck'})
+        for value in (None,'',' ',{},{'id':7},['relay'],'x'*81,{'id':'relay','label':'y'*81}):
+            self.assertIsNone(bridge.project_tag(value),value)
+        board=self.init()
+        # The fixture's tasks record no project, and none is guessed from their ids.
+        self.assertTrue(all(c['project'] is None for col in board['columns'] for c in col['cards']))
+        card=self.board.collector.snapshot().cols['captains_call'][0]
+        card.flow=dict(card.flow,project={'id':'relay','label':'Relevo'})
+        _,board=self.req('/api/board')
+        call=next(c for c in board['columns'] if c['id']=='captains_call')['cards'][0]
+        self.assertEqual(call['project'],{'id':'relay','label':'Relevo'})
+        _,ticket=self.req('/api/ticket/'+call['key'])
+        self.assertEqual(ticket['project'],{'id':'relay','label':'Relevo'})
+        records=[{'id':'tagged','title':'Con proyecto','project':'Day Attendant','completion':{'date':'2026-10-20'}},
+                 {'id':'plain','title':'Sin proyecto','completion':{'date':'2026-10-19'}}]
+        (Path(self.home.path)/'bin/history.py').write_text('import json,os\nprint(json.dumps({"schema":"fm-delivery-history.v1","home":os.environ["FM_HOME"],'
+            '"complete":True,"records":'+json.dumps(records)+'}))\n')
+        _,data=self.req('/api/history')
+        self.assertEqual([(r['task'],r['project']) for r in data['records']],
+                         [('tagged',{'id':'day attendant','label':'Day Attendant'}),('plain',None)])
+        # The project name is searchable in history.
+        _,found=self.req('/api/history?q=attendant')
+        self.assertEqual([r['task'] for r in found['records']],['tagged'])
+        _,delivery=self.req('/api/delivery/'+data['records'][0]['home']+'/tagged')
+        self.assertEqual(delivery['project'],{'id':'day attendant','label':'Day Attendant'})
+
     def test_titles_drop_web_addresses_and_keep_the_rest(self):
         for raw,title in [('Mejor aviso https://github.com/a/b/pull/8','Mejor aviso'),
                           ('Hecho: https://example.com/x, listo','Hecho, listo'),

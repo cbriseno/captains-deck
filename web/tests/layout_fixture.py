@@ -26,9 +26,10 @@ data = activity_fleet.payload(now, True)
 (Path(home.path) / 'data/relay-0b/report.md').write_text('# Informe\n\n## Resultado\nLa medición quedó lista.\n')
 
 
-def call(id, title, question, context, options, recommended='', link=''):
+def call(id, title, question, context, options, recommended='', link='', project=None):
     return dict(id=id, key=id, verb='captain-hold', owner='(main)', title=title, summary=title,
-                flow={'phase': 'human', 'state': 'held', 'source': 'backlog.hold_reason', 'reason': context},
+                flow={'phase': 'human', 'state': 'held', 'source': 'backlog.hold_reason', 'reason': context,
+                      **({'project': project} if project else {})},
                 call={'question': question, 'context': context, 'options': options, 'recommended': recommended, 'link': link})
 
 
@@ -36,14 +37,21 @@ data['decisions_open'] = [
     call('relay-phase-1', '¿Arranco la fase 1 del relevo?', '¿Arranco la fase 1 del relevo?',
          'La fase 0B ya terminó. Se crea el repo nuevo y un worker que mide.',
          [{'id': 'start', 'label': 'Sí, arráncala', 'detail': 'Solo mide y te avisa.'}, {'id': 'wait', 'label': 'Todavía no', 'detail': ''}],
-         'start', 'data/relay-0b/report.md'),
+         'start', 'data/relay-0b/report.md', project={'id': 'relay', 'label': 'Relevo'}),
     call('design-calls', 'Decisiones de diseño para la fase 2 del relevo asistido por contexto, con cuatro preguntas abiertas sobre límites',
          '¿Las vemos ahora o cuando termine la fase 1?', 'No frenan la fase 1.',
          [{'id': 'now', 'label': 'Verlas ahora', 'detail': ''}, {'id': 'later', 'label': 'Después', 'detail': ''}]),
-] + data['decisions_open']
+] + [call(f'da-ux-q-{i}', title, title, 'De tu sesión de diseño.',
+          [{'id': 'yes', 'label': 'Sí', 'detail': ''}, {'id': 'no', 'label': 'No', 'detail': ''}], 'yes',
+          project='Day Attendant')
+     for i, title in enumerate(['¿Animación al mover tareas?', '¿Un grupo o varios por tarea, y qué pasa con las tareas que ya tienen uno?',
+                                '¿Cuántas líneas por tarea?'])] + data['decisions_open']
+# Projects as Firstmate records them; the rest of the work has none.
+for row, project in zip(data['in_flight'], ['Day Attendant', {'id': 'relay', 'label': 'Relevo'}, 'Firstmate']):
+    row['flow']['project'] = project
 for row in data['in_flight'][:2]:
     row['name'] = row['name'] + ' and keep every existing integration, retry budget and audit trail intact while it migrates'
-data['landed'] = [{'id': 'phone', 'what': 'Atención del teléfono preparada; validación física pendiente en el dispositivo real del capitán',
+data['landed'] = [{'id': 'phone', 'what': 'Atención del teléfono preparada; validación física pendiente en el dispositivo real del capitán', 'flow': {'project': 'Day Attendant'},
                    'owner': '(main)', 'closed': time.strftime('%Y-%m-%d', time.gmtime(now))}]
 # A long history like the captain's: timed, date-only and untimed rows out
 # of order, some titles still carrying a PR address.
@@ -57,7 +65,8 @@ for i in range(87):
     completion = ({'value': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))} if i % 4 else
                   {'date': time.strftime('%Y-%m-%d', time.gmtime(stamp))} if i % 8 else None)
     records.append({'id': f'delivery-{i:02d}', 'title': topics[i % len(topics)] + f' ({i})' * (i % len(topics) != 5),
-                    'state': 'done', 'kind': 'ship', 'source': 'archive', **({'completion': completion} if completion else {})})
+                    'state': 'done', 'kind': 'ship', 'source': 'archive', **({'completion': completion} if completion else {}),
+                    **({'project': ['Firstmate', 'Deck', 'Day Attendant'][i % 3]} if i % 2 else {})})
 (Path(home.path) / 'bin/history.py').write_text(
     'import json,os\nprint(json.dumps({"schema":"fm-delivery-history.v1","home":os.environ["FM_HOME"],"complete":True,'
     '"retention":{},"sources":["archive"],"records":' + repr(records).replace("'", '"').replace('None', 'null') + '}))\n')
