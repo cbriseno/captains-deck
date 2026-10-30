@@ -28,6 +28,8 @@ Producers can supply `flow.presentation.summary`, `waiting_for` and `next_action
 Deliveries open a readable summary with a separate Report view and optional technical details.
 Cards and the detail use short, plain wording; long authored text leads with its first sentence and keeps the rest one click away.
 History searches the retained current/archive export, including deliveries beyond the recent cap.
+Opening a Captain's Call or a delivery reuses what Deck last read from Firstmate until the call's own backlog row, or the backlog, archive or completion receipt behind the delivery, changes; a background pass rereads changes as they happen.
+Sending an answer always rechecks the live call with Firstmate, so a stale open is refused and nothing is sent.
 Cards show a compact age (`now`, `5 min`, `3 h`, `2 d`, `3 wk`, `+1 mo`; `—` when no time is recorded) that updates on every board read without replacing focused controls or announcing a timer.
 The exact browser-local time is in the card's tooltip and in the detail's date disclosure.
 Date-only events keep their calendar date and never acquire an hour; unknown times and future clock uncertainty stay explicit.

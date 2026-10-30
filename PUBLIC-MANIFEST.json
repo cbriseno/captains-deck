@@ -342,12 +342,12 @@
     {
       "mode": "100644",
       "path": "web/README.md",
-      "sha256": "8ecad7b5e8aa5dac322bf360ba6e1c6e9ceeacd784fdffd0715dd603cf9ce266"
+      "sha256": "086df7eef96927810f9c9c122125f1bfba23cc06e2001890beab6a3fab7cbbc3"
     },
     {
       "mode": "100644",
       "path": "web/bridge.py",
-      "sha256": "4fdf31ae441708e0de1cf5a48a67413d7dbb0e121f17e84178cdfb1188517690"
+      "sha256": "adcc7242b7b25a76627888a5d86a3b7379cbb13c801235029f44b8059af5989f"
     },
     {
       "mode": "100644",
@@ -442,7 +442,7 @@
     {
       "mode": "100644",
       "path": "web/tests/fixtures.py",
-      "sha256": "5ae11b193d59e4b7c2cdb5be427fec77cc19bf4200912387a206649421a8d998"
+      "sha256": "c787ff5d270cc8e2a933bd83998b1ffdf144a02ca9c4971873e4173b6ed7aa42"
     },
     {
       "mode": "100644",
@@ -467,7 +467,7 @@
     {
       "mode": "100644",
       "path": "web/tests/test_bridge.py",
-      "sha256": "3226e9c809a7d8a54c56abf95d90a1931574674e6811441a98cb64417577e671"
+      "sha256": "f1dd2994c3fff6c8b83ad429d3d720be8b72246c1bb5affd57c3f9175cf16197"
     },
     {
       "mode": "100644",

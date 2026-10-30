@@ -11,6 +11,7 @@ import bridge
 INTAKE = '''import json, os, sys
 from pathlib import Path
 root=Path(os.environ['FM_HOME']); args=sys.argv[1:]
+with (root/'calls.log').open('a') as log:log.write(' '.join(args)+'\\n')
 if args[0] in ('answers','reconcile-requests') and (root/'race-rehold').exists():
  (root/'identity').write_text('2026-10-25T18:00:00Z#1')
 identity=(root/'identity').read_text().strip()
@@ -31,6 +32,7 @@ print('answers: closed=1 skipped=0')
 '''
 HISTORY = '''import json,os
 root=os.environ['FM_HOME']
+open(os.path.join(root,'calls.log'),'a').write('history\\n')
 print(json.dumps({'schema':'fm-delivery-history.v1','home':root,'complete':True,
 'retention':{'done_keep':6},'sources':['current','archive'],'records':[
 {'id':'demo-research','title':'Demo research: opciones ordenadas para el viaje','state':'done','kind':'scout',
